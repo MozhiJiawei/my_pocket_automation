@@ -1,0 +1,22 @@
+# Local account data and runtime output
+account.txt
+config.txt
+*.db
+*.db-*
+res/
+data/
+logs/
+debug-runs/
+dist/
+.tmp/
+*.log
+__pycache__/
+.DS_Store
+Thumbs.db
+
+# Local credentials and environment overrides
+.env
+.env.*
+*.pem
+*.p12
+*.pfx

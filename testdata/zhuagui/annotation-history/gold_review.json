@@ -1,0 +1,324 @@
+{
+  "reviewer": "user",
+  "evidence": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+  "excluded_appearances": [
+    "金色矿石"
+  ],
+  "scope": "外观类别纠正；不代表逐轮答案集合完整性已确认",
+  "rejected_annotations": [
+    {
+      "round_id": "20261010_102750_r005",
+      "row": 8,
+      "column": 4,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        533,
+        909,
+        672,
+        1048
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        470,
+        1094,
+        609,
+        1233
+      ],
+      "source_page": 2,
+      "case_id": "zhuagui_16426c670dd53585",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_103527_r009",
+      "row": 3,
+      "column": 4,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        533,
+        850,
+        672,
+        989
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        470,
+        315,
+        609,
+        454
+      ],
+      "source_page": 1,
+      "case_id": "zhuagui_abb0b4d68d62d5ca",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r003",
+      "row": 8,
+      "column": 4,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        533,
+        960,
+        672,
+        1099
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        470,
+        1094,
+        609,
+        1233
+      ],
+      "source_page": 2,
+      "case_id": "zhuagui_11b174476530cd3c",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r003",
+      "row": 9,
+      "column": 1,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        63,
+        1115,
+        202,
+        1254
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A4",
+      "stitched_region": [
+        0,
+        1249,
+        139,
+        1388
+      ],
+      "source_page": 2,
+      "case_id": "zhuagui_11b174476530cd3c",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r003",
+      "row": 20,
+      "column": 5,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        689,
+        1245,
+        828,
+        1384
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A5",
+      "stitched_region": [
+        626,
+        2963,
+        765,
+        3102
+      ],
+      "source_page": 6,
+      "case_id": "zhuagui_14bbdbae83c75057",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r011",
+      "row": 11,
+      "column": 3,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        376,
+        701,
+        515,
+        840
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        313,
+        1561,
+        452,
+        1700
+      ],
+      "source_page": 3,
+      "case_id": "zhuagui_35ea567df4c1b5bf",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r011",
+      "row": 12,
+      "column": 4,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        533,
+        857,
+        672,
+        996
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A4",
+      "stitched_region": [
+        470,
+        1717,
+        609,
+        1856
+      ],
+      "source_page": 3,
+      "case_id": "zhuagui_35ea567df4c1b5bf",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r011",
+      "row": 15,
+      "column": 5,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        689,
+        624,
+        828,
+        763
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A5",
+      "stitched_region": [
+        626,
+        2184,
+        765,
+        2323
+      ],
+      "source_page": 4,
+      "case_id": "zhuagui_a0d778e7fb4364a5",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r025",
+      "row": 2,
+      "column": 1,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        63,
+        694,
+        202,
+        833
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        0,
+        159,
+        139,
+        298
+      ],
+      "source_page": 1,
+      "case_id": "zhuagui_eb5d008957738284",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r026",
+      "row": 10,
+      "column": 3,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        376,
+        1269,
+        515,
+        1408
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        313,
+        1405,
+        452,
+        1544
+      ],
+      "source_page": 2,
+      "case_id": "zhuagui_5da4c6e31f6be610",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r034",
+      "row": 10,
+      "column": 2,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        219,
+        1270,
+        358,
+        1409
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        156,
+        1405,
+        295,
+        1544
+      ],
+      "source_page": 2,
+      "case_id": "zhuagui_fa1793e9446d402b",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    },
+    {
+      "round_id": "20261010_105320_r036",
+      "row": 17,
+      "column": 3,
+      "label": "金色矿石",
+      "status": "uncertain",
+      "region": [
+        376,
+        928,
+        515,
+        1067
+      ],
+      "reason": "AI independent visual review of full deduplicated round",
+      "id": "A3",
+      "stitched_region": [
+        313,
+        2496,
+        452,
+        2635
+      ],
+      "source_page": 4,
+      "case_id": "zhuagui_9e70182c22c7c82a",
+      "rejection_source": "用户 2026-10-10 最终更正：A1 是黄金；A2 也算黄金；只有 A3 矿石不算。此前“黄金只有一种”的说法已更正。",
+      "review_status": "user_rule_applied_to_ai_visual_classification"
+    }
+  ],
+  "superseded_review": {
+    "reviewer": "user",
+    "evidence": "用户 2026-10-10 审核：A1 是黄金；A3 矿石不是；黄金只有一种。附图 codex-clipboard-521954cf-5916-4cab-bbc3-5b8ebac839d4.png",
+    "accepted_appearance": "槽状金锭及旋转形态",
+    "excluded_appearances": [
+      "亮黄色矩形叠块（此前误标金砖）",
+      "金色矿石"
+    ],
+    "scope": "外观类别纠正；不代表逐轮答案集合完整性已确认"
+  },
+  "accepted_appearances": [
+    "槽状金锭及旋转形态",
+    "亮黄色矩形叠块（金砖）及旋转形态"
+  ]
+}

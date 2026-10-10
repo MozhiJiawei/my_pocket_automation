@@ -1,0 +1,31 @@
+[
+  {
+    "id": "target_disappears_during_capture",
+    "frames": [
+      "zhuagui_e1eb02a9edfddad3",
+      "zhuagui_51c6b65f17bdc895"
+    ],
+    "expected": {
+      "tap_return": false,
+      "actions": []
+    }
+  },
+  {
+    "id": "target_moves_during_capture",
+    "frames": [
+      "zhuagui_e1eb02a9edfddad3",
+      "zhuagui_c798bc5c782ee829"
+    ],
+    "expected": {
+      "tap_return": true,
+      "allowed_regions": [
+        [
+          63,
+          539,
+          203,
+          677
+        ]
+      ]
+    }
+  }
+]

@@ -1,0 +1,449 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "dungeon_98ab3dd3c300d8cf",
+      "task": "dungeon",
+      "image": "images/daily_20261009_211002_dungeon_list_after.png",
+      "sha256": "98ab3dd3c300d8cf58c3aecc3e5e7bb08db265b47a3b85ed4e9276769dfbfd71",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_211002",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "list_wuji",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_211002_dungeon_list_after.png",
+          "source_run": "20261009_211002",
+          "sha256": "98ab3dd3c300d8cf58c3aecc3e5e7bb08db265b47a3b85ed4e9276769dfbfd71"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_efcb8c2e268a4cc0",
+      "task": "dungeon",
+      "image": "images/daily_20261009_211401_003_wuji_enter_after.png",
+      "sha256": "efcb8c2e268a4cc0523c428d11241a101de490d518e812735354c74425006dc2",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_211401",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "wuji_ready",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_211401_003_wuji_enter_after.png",
+          "source_run": "20261009_211401",
+          "sha256": "efcb8c2e268a4cc0523c428d11241a101de490d518e812735354c74425006dc2"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_612cbc26f24f9480",
+      "task": "dungeon",
+      "image": "images/daily_20261009_211543_battle_loaded.png",
+      "sha256": "612cbc26f24f94807f83def1dad0788cdc17cb56b680c22d0151f977ed11efea",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_211543",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "battle",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_211543_battle_loaded.png",
+          "source_run": "20261009_211543",
+          "sha256": "612cbc26f24f94807f83def1dad0788cdc17cb56b680c22d0151f977ed11efea"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_1eda5915e0f98cab",
+      "task": "dungeon",
+      "image": "images/daily_20261009_212554_004_leave_sealed_reward_after.png",
+      "sha256": "1eda5915e0f98cab70131484ff8f302c56a6e74f8af1380986113368935ec1e6",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_212554",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "wuji_done",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_212554_004_leave_sealed_reward_after.png",
+          "source_run": "20261009_212554",
+          "sha256": "1eda5915e0f98cab70131484ff8f302c56a6e74f8af1380986113368935ec1e6"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_543a39302d54d971",
+      "task": "dungeon",
+      "image": "images/daily_20261009_212507_wuji_end_check.png",
+      "sha256": "543a39302d54d971ac4ad57be87aa85da4055b3e2bb60709c43f62b2fbf6d5d3",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_212507",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "wuji_reward_sealed",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_212507_wuji_end_check.png",
+          "source_run": "20261009_212507",
+          "sha256": "543a39302d54d971ac4ad57be87aa85da4055b3e2bb60709c43f62b2fbf6d5d3"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_4ecec1c707953052",
+      "task": "dungeon",
+      "image": "images/daily_20261009_212639_003_wuji_return_list_after.png",
+      "sha256": "4ecec1c707953052d9e697eff9ca064d1d023b315240d7f68a429a0a0ea37d41",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_212639",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "list_wuji",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_212639_003_wuji_return_list_after.png",
+          "source_run": "20261009_212639",
+          "sha256": "4ecec1c707953052d9e697eff9ca064d1d023b315240d7f68a429a0a0ea37d41"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_4f6d131c0bf51ff0",
+      "task": "dungeon",
+      "image": "images/daily_20261009_212904_003_wuji_enter_after.png",
+      "sha256": "4f6d131c0bf51ff0ce5c62f492ae49ccbd92c03fb98b486821fbd1a6eb8dcc6d",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_212904",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "switch_wuji_chechi",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_212904_003_wuji_enter_after.png",
+          "source_run": "20261009_212904",
+          "sha256": "4f6d131c0bf51ff0ce5c62f492ae49ccbd92c03fb98b486821fbd1a6eb8dcc6d"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_b177db2063e7649d",
+      "task": "dungeon",
+      "image": "images/daily_20261009_212809_003_select_chechi_after.png",
+      "sha256": "b177db2063e7649db3dae4a77dbec24421cfa2ebdf43a2993660cb77a8873dcc",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_212809",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "list_chechi",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_212809_003_select_chechi_after.png",
+          "source_run": "20261009_212809",
+          "sha256": "b177db2063e7649db3dae4a77dbec24421cfa2ebdf43a2993660cb77a8873dcc"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_f9e859ddbc05724e",
+      "task": "dungeon",
+      "image": "images/daily_20261009_214600_004_chechi_leave_sealed_reward_after.png",
+      "sha256": "f9e859ddbc05724ef6ad115da12422464f2bea3d24f9b3c5ad44bad199b26f55",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_214600",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "chechi_done",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_214600_004_chechi_leave_sealed_reward_after.png",
+          "source_run": "20261009_214600",
+          "sha256": "f9e859ddbc05724ef6ad115da12422464f2bea3d24f9b3c5ad44bad199b26f55"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_9370702e96f72238",
+      "task": "dungeon",
+      "image": "images/daily_20261009_214442_communication_check.png",
+      "sha256": "9370702e96f72238c965bb8033c47236f5670c229a59cf312954c6ee750c3310",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_214442",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "chechi_reward_sealed",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_214442_communication_check.png",
+          "source_run": "20261009_214442",
+          "sha256": "9370702e96f72238c965bb8033c47236f5670c229a59cf312954c6ee750c3310"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_7717f30c9af9c251",
+      "task": "dungeon",
+      "image": "images/daily_20261009_210755_ready.png",
+      "sha256": "7717f30c9af9c251cfe522208c3e1ee29243ed4a3bc468010dc79d044986d7b6",
+      "capture": {
+        "size": [
+          1600,
+          900
+        ],
+        "game_version": null,
+        "group": "20261009_210755",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "page": {
+          "value": "unknown",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_210755_ready.png",
+          "source_run": "20261009_210755",
+          "sha256": "7717f30c9af9c251cfe522208c3e1ee29243ed4a3bc468010dc79d044986d7b6"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "page"
+        ],
+        "on_unknown": "abstain"
+      }
+    },
+    {
+      "id": "dungeon_5d9aaff9e8b345c8",
+      "task": "dungeon",
+      "image": "images/daily_20261009_211452_003_wuji_start_after.png",
+      "sha256": "5d9aaff9e8b345c8dc13ed2fe2d434e798c4ed2384ee1e09502a80dcfd9d6bc1",
+      "capture": {
+        "size": [
+          900,
+          1600
+        ],
+        "game_version": null,
+        "group": "20261009_211452",
+        "split": "calibration",
+        "origin": "device",
+        "retained_rectangles": null
+      },
+      "truth": {
+        "forbidden_page": {
+          "value": "wuji_ready",
+          "status": "reviewed",
+          "source": "existing manually reviewed regression"
+        }
+      },
+      "provenance": [
+        {
+          "fixture": "daily_20261009_211452_003_wuji_start_after.png",
+          "source_run": "20261009_211452",
+          "sha256": "5d9aaff9e8b345c8dc13ed2fe2d434e798c4ed2384ee1e09502a80dcfd9d6bc1"
+        }
+      ],
+      "expected": {
+        "checks": [
+          "forbidden_page"
+        ],
+        "on_unknown": "abstain"
+      }
+    }
+  ]
+}

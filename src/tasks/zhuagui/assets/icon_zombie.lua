@@ -1,0 +1,1 @@
+return {width=900,height=1600,base=0xd2defc,offsets="-36|-56|0x87baba,-15|-47|0x7f98b0,-10|-59|0x55447f,-55|-11|0x7b597f,-46|-12|0x9c6684,-45|-55|0x87d9c2,-46|-21|0xb56c87",degree=90,region={168,632,198,662},tap_offset={-38,-39}}

@@ -1,0 +1,81 @@
+{
+  "reviewer": "user",
+  "evidence": "用户 2026-10-10 指认遗漏醉生梦死、女儿红；提供左右两个图标；酒类完整清单为虎骨酒、女儿红、珍露酒、梅花酒、百味酒、蛇胆酒、醉生梦死。",
+  "reference_image": "src/tasks/zhuagui/assets/reference/wine_user_review.png",
+  "reference_sha256": "4ceaa79219000ff179a72b3eec08b44c5f3021ba6b237c149cd2d08558b45a8d",
+  "categories": [
+    {
+      "name": "虎骨酒",
+      "appearance_status": "existing_reference"
+    },
+    {
+      "name": "女儿红",
+      "appearance_status": "user_reference"
+    },
+    {
+      "name": "珍露酒",
+      "appearance_status": "existing_reference"
+    },
+    {
+      "name": "梅花酒",
+      "appearance_status": "existing_reference"
+    },
+    {
+      "name": "百味酒",
+      "appearance_status": "pending"
+    },
+    {
+      "name": "蛇胆酒",
+      "appearance_status": "existing_reference"
+    },
+    {
+      "name": "醉生梦死",
+      "appearance_status": "user_reference"
+    }
+  ],
+  "new_positions": [
+    {
+      "round_id": "20261010_102750_r008",
+      "row": 17,
+      "column": 3,
+      "label": "醉生梦死"
+    },
+    {
+      "round_id": "20261010_105320_r010",
+      "row": 10,
+      "column": 5,
+      "label": "醉生梦死"
+    },
+    {
+      "round_id": "20261010_105320_r014",
+      "row": 10,
+      "column": 4,
+      "label": "女儿红"
+    },
+    {
+      "round_id": "20261010_105320_r021",
+      "row": 16,
+      "column": 2,
+      "label": "女儿红"
+    },
+    {
+      "round_id": "20261010_105320_r040",
+      "row": 20,
+      "column": 4,
+      "label": "醉生梦死"
+    },
+    {
+      "round_id": "20261010_105320_r040",
+      "row": 20,
+      "column": 5,
+      "label": "女儿红"
+    },
+    {
+      "round_id": "20261010_113137_r007",
+      "row": 4,
+      "column": 1,
+      "label": "醉生梦死"
+    }
+  ],
+  "scope": "用户确定酒类集合及新增两类图标；跨轮位置为 AI 提案，不表示游戏点击已验证或答案已标全。"
+}

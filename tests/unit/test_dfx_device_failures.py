@@ -1,0 +1,83 @@
+"""Execute the actual Lua entry with failed diagnostics and fake task modules."""
+from pathlib import Path
+import unittest
+from lupa import LuaRuntime
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class DeviceDiagnosticsTest(unittest.TestCase):
+    def setUp(self):
+        self.lua = LuaRuntime(unpack_returned_tuples=True)
+        self.lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
+        self.lua.execute('''
+            events={}; captures={}; fallback={}; fail_log=false; fail_snapshot=false; fail_task=false; fail_init=false
+            config={mode='run',step='daily',allow_reward_claim=false,accounts={{alias='fake'}}}
+            loadfile=function() return function() return config end end
+            init=function() if fail_init then error('initialization_fault') end end
+            nLog=function(line) table.insert(fallback,line) end
+            package.preload['TSLib']=function() return {} end
+            package.preload['dfx.run']=function() return {new=function(c) return {config=c,run_id='fake'} end} end
+            package.preload['dfx.log']=function() return {write=function(ctx,event,detail)
+                if fail_log then error('logging_fault') end
+                table.insert(events,{event=event,detail=detail})
+            end} end
+            package.preload['dfx.snapshot']=function() return {capture=function(ctx,label)
+                table.insert(captures,label)
+                if fail_snapshot then error('screenshot_fault') end
+            end} end
+            package.preload['common.navigation']=function() return {
+                prepare_recorded=function() return true end,
+                finish_account=function() return false end
+            } end
+            for _,name in ipairs({'shimen','zhuagui','dungeon','rewards'}) do
+                local task_name=name
+                package.preload['tasks.'..name..'.task']=function() return {run=function()
+                    if fail_task then error('original_task_fault') end
+                    return {status=task_name=='dungeon' and 'done' or 'not_implemented',reason='fake'}
+                end} end
+            end
+        ''')
+
+    def execute(self):
+        self.lua.execute((ROOT / 'src/main.lua').read_text(encoding='utf-8'))
+        return [(item['event'], item['detail']) for item in self.lua.globals().events.values()]
+
+    def test_screenshot_failure_does_not_prevent_failed_exit_record(self):
+        self.lua.execute('fail_snapshot=true')
+        events = self.execute()
+        self.assertIn(('finished', 'script_failed'), events)
+        self.assertTrue(any(event == 'failed' and 'screenshot_fault' in detail for event, detail in events))
+        self.assertEqual(list(self.lua.globals().captures.values()), ['start', 'failure'])
+
+    def test_all_file_logging_failures_still_try_snapshot_and_fallback(self):
+        self.lua.execute('fail_log=true')
+        self.execute()
+        self.assertEqual(list(self.lua.globals().captures.values()), ['failure'])
+        self.assertTrue(any('diagnostic_log_unavailable' in line for line in self.lua.globals().fallback.values()))
+        self.assertTrue(any('[failed]' in line and 'logging_fault' in line for line in self.lua.globals().fallback.values()))
+
+    def test_original_task_error_survives_failure_screenshot_error(self):
+        self.lua.execute('fail_task=true')
+        # Only the failure capture is broken; the initial capture succeeds.
+        self.lua.execute("package.preload['dfx.snapshot']=function() return {capture=function(ctx,label) if label=='failure' then error('secondary_fault') end end} end")
+        events = self.execute()
+        errors = [detail for event, detail in events if event == 'failed']
+        self.assertEqual(len(errors), 1)
+        self.assertIn('original_task_fault', errors[0])
+        self.assertIn(('finished', 'script_failed'), events)
+
+    def test_init_failure_is_within_error_handler(self):
+        self.lua.execute('fail_init=true')
+        events = self.execute()
+        self.assertIn(('finished', 'script_failed'), events)
+        self.assertTrue(any(event == 'failed' and 'initialization_fault' in detail for event, detail in events))
+
+    def test_navigation_failure_is_explicit_task_result(self):
+        events = self.execute()
+        self.assertIn(('task_result', 'navigation status=blocked reason=return_home_not_verified'), events)
+        self.assertIn(('summary', 'daily_done=false reason=return_home_not_verified'), events)
+
+
+if __name__ == '__main__':
+    unittest.main()

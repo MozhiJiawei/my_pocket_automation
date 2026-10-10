@@ -1,0 +1,133 @@
+{
+  "upstream": "https://github.com/wanghengxn/mhxy",
+  "commit": "8b03dd6fc12531534bdf82fda10761740fd8517d",
+  "extracted_on": "2026-10-09",
+  "files": [
+    {
+      "file": "account.lua",
+      "source_sha256": "d8ea45126e462b7f3283d5c21065cb0f06339b2f93a2911dc5658c8642208a75",
+      "extracted_sha256": "01dd8c5fa33d2baeffb0abeaf2f000c71fd02c1a2b5b8a470cfae5ca699504ad",
+      "modified": true
+    },
+    {
+      "file": "config.lua",
+      "source_sha256": "3e38d592aad47b67b5937313c82a86d055bf881aeeaccdef1edec8c967d45229",
+      "extracted_sha256": "3e38d592aad47b67b5937313c82a86d055bf881aeeaccdef1edec8c967d45229",
+      "modified": false
+    },
+    {
+      "file": "fengyao.lua",
+      "source_sha256": "0c05e1a8f7b876e4be659c5b59e063a3692d76c6d60460fc276124b4d993c5d4",
+      "extracted_sha256": "0c05e1a8f7b876e4be659c5b59e063a3692d76c6d60460fc276124b4d993c5d4",
+      "modified": false
+    },
+    {
+      "file": "fuben.lua",
+      "source_sha256": "e090d678348b95774731b2454c48e883b7b8be5835daba159d0e7716be932506",
+      "extracted_sha256": "e090d678348b95774731b2454c48e883b7b8be5835daba159d0e7716be932506",
+      "modified": false
+    },
+    {
+      "file": "fubenStage.lua",
+      "source_sha256": "259a5f231aaff39fb863d6e03df24640c365aec8d0ec6eb05e6a0e9b880f63ae",
+      "extracted_sha256": "259a5f231aaff39fb863d6e03df24640c365aec8d0ec6eb05e6a0e9b880f63ae",
+      "modified": false
+    },
+    {
+      "file": "lib.lua",
+      "source_sha256": "7c5e68c53ba446f924cb38019df7ee9c0bd03192097bcc4ed62077192abae9c1",
+      "extracted_sha256": "7c5e68c53ba446f924cb38019df7ee9c0bd03192097bcc4ed62077192abae9c1",
+      "modified": false
+    },
+    {
+      "file": "login.lua",
+      "source_sha256": "3f91661b39c3dae28f6d4c3a1c407647a03489818d14487297cb42ca973ad43b",
+      "extracted_sha256": "3f91661b39c3dae28f6d4c3a1c407647a03489818d14487297cb42ca973ad43b",
+      "modified": false
+    },
+    {
+      "file": "logout.lua",
+      "source_sha256": "f02ef7a31ec32fcdf32c7c4951178404decf7da2be65069cc6e3c100c335b576",
+      "extracted_sha256": "f02ef7a31ec32fcdf32c7c4951178404decf7da2be65069cc6e3c100c335b576",
+      "modified": false
+    },
+    {
+      "file": "main.lua",
+      "source_sha256": "3ba6e0f926890f7cb27a7b47a383fe48f0e7994f36bb090ae3a065a74422a16b",
+      "extracted_sha256": "3ba6e0f926890f7cb27a7b47a383fe48f0e7994f36bb090ae3a065a74422a16b",
+      "modified": false
+    },
+    {
+      "file": "mastertask.lua",
+      "source_sha256": "e6b8b737f5dda88b35c2acf5c7821d844ebd880f795c3578e947af5f46693a01",
+      "extracted_sha256": "e6b8b737f5dda88b35c2acf5c7821d844ebd880f795c3578e947af5f46693a01",
+      "modified": false
+    },
+    {
+      "file": "pt.lua",
+      "source_sha256": "3d0abd130d74826ae7cead25f1c03850bb5d68a256abc965552cac799752d030",
+      "extracted_sha256": "3d0abd130d74826ae7cead25f1c03850bb5d68a256abc965552cac799752d030",
+      "modified": false
+    },
+    {
+      "file": "searchstuff.lua",
+      "source_sha256": "f83e38a977c721ef93aa78efafedb2dbce399145c33eed07e24d0aa1096d4438",
+      "extracted_sha256": "f83e38a977c721ef93aa78efafedb2dbce399145c33eed07e24d0aa1096d4438",
+      "modified": false
+    },
+    {
+      "file": "service.lua",
+      "source_sha256": "9083fa0e452fe0bfb3506d5d26ef678734b4721644a9f5604a2e3947248f20b0",
+      "extracted_sha256": "9083fa0e452fe0bfb3506d5d26ef678734b4721644a9f5604a2e3947248f20b0",
+      "modified": false
+    },
+    {
+      "file": "shangjia.lua",
+      "source_sha256": "ebdd98d68bd1e70012f893deabec31afce3723d15d2f4f543f821b93fc414926",
+      "extracted_sha256": "ebdd98d68bd1e70012f893deabec31afce3723d15d2f4f543f821b93fc414926",
+      "modified": false
+    },
+    {
+      "file": "stage.lua",
+      "source_sha256": "25d95cd93d4dec4a71f3df9b81fd2c88936173cc6d30279ff01b7a768acc705f",
+      "extracted_sha256": "25d95cd93d4dec4a71f3df9b81fd2c88936173cc6d30279ff01b7a768acc705f",
+      "modified": false
+    },
+    {
+      "file": "stuffname.lua",
+      "source_sha256": "62ab1d2a64899c376f1254e86681a9d3eae8009f12aa776272f11d534baa33ce",
+      "extracted_sha256": "62ab1d2a64899c376f1254e86681a9d3eae8009f12aa776272f11d534baa33ce",
+      "modified": false
+    },
+    {
+      "file": "zhaowu.lua",
+      "source_sha256": "22a0c8890505d0a3d7533113e640c03c20ab0e41e4d12b0e8ffe42eff3824f88",
+      "extracted_sha256": "22a0c8890505d0a3d7533113e640c03c20ab0e41e4d12b0e8ffe42eff3824f88",
+      "modified": false
+    },
+    {
+      "file": "zhuagui.lua",
+      "source_sha256": "298a89614789b2dd1ca72481018f4d89fa173866bbdb6cc11989e28005ca0af6",
+      "extracted_sha256": "298a89614789b2dd1ca72481018f4d89fa173866bbdb6cc11989e28005ca0af6",
+      "modified": false
+    }
+  ],
+  "generated": [
+    "README.md",
+    ".gitignore",
+    "1.txt",
+    "my.db"
+  ],
+  "excluded": [
+    "test.lua",
+    "2.txt",
+    "img/",
+    "upstream README.md",
+    "upstream .gitignore"
+  ],
+  "changes": [
+    "Redacted account identifiers in account.lua comments",
+    "Recreated my.db with schema only; no source rows copied"
+  ],
+  "runtime_tested": false
+}
