@@ -16,6 +16,8 @@ class Screen:
         self.frame = frame
         self.matches = []
         self.cache = {}
+        self.anchor_key = None
+        self.anchor_candidates = None
 
     @classmethod
     def read(cls, path):
@@ -45,14 +47,22 @@ class Screen:
             return -1, -1
         points = [(0, 0, base)] + [
             (int(x), int(y), int(c, 16)) for x, y, c in (s.split('|') for s in offsets.split(','))]
-        expected = (base & 255, (base >> 8) & 255, (base >> 16) & 255)
-        mask = cv2.inRange(self.frame[y1:y2+1,x1:x2+1],
-                           tuple(max(0,c-25) for c in expected),
-                           tuple(min(255,c+25) for c in expected))
-        yy,xx = np.nonzero(mask)
-        # Preserve row-major first-match semantics, but inspect offsets only at
-        # pixels that already match the base color.
-        xx,yy = xx+x1,yy+y1
+        # Consecutive rotated features share the base color and region. Keep
+        # only the last anchor scan, including misses, for this immutable frame.
+        anchor_key = (base, x1, y1, x2, y2)
+        if anchor_key != self.anchor_key:
+            expected = (base & 255, (base >> 8) & 255, (base >> 16) & 255)
+            mask = cv2.inRange(self.frame[y1:y2+1,x1:x2+1],
+                               tuple(max(0,c-25) for c in expected),
+                               tuple(min(255,c+25) for c in expected))
+            self.anchor_candidates = cv2.findNonZero(mask)
+            self.anchor_key = anchor_key
+        candidates = self.anchor_candidates
+        if candidates is None:
+            return -1, -1
+        candidates = candidates.reshape(-1, 2)
+        xx = candidates[:, 0] + x1
+        yy = candidates[:, 1] + y1
         for dx, dy, color in points[1:]:
             px, py = xx + dx, yy + dy
             valid = (px >= 0) & (px < width) & (py >= 0) & (py < height)
@@ -67,7 +77,10 @@ class Screen:
                 return -1, -1
         if not len(xx):
             return -1, -1
-        return int(xx[0]),int(yy[0])
+        # Preserve the historical host backend's row-major first match without
+        # depending on OpenCV's candidate order.
+        first = np.argmin(yy * width + xx)
+        return int(xx[first]), int(yy[first])
 
 
 def hashlib_id(key):

@@ -78,6 +78,35 @@ class DeviceDiagnosticsTest(unittest.TestCase):
         self.assertIn(('task_result', 'navigation status=blocked reason=return_home_not_verified'), events)
         self.assertIn(('summary', 'daily_done=false reason=return_home_not_verified'), events)
 
+    def configure_owned_ghost_recovery(self,owned):
+        self.lua.execute('''
+            config.step='complete';config.task='zhuagui';config.verify_role=true
+            package.preload['common.navigation']=function() return {prepare_recorded=function() return false end} end
+            package.preload['tasks.zhuagui.pages']=function() return {state=function() return 'dialogue' end} end
+            package.preload['progress']=function() return {read=function() return recovery_record end} end
+        ''')
+        if owned:self.lua.execute("recovery_record={status='running'}")
+
+    def test_owned_ghost_recovery_allows_existing_dialogue_only(self):
+        self.configure_owned_ghost_recovery(True)
+        events=self.execute()
+        self.assertTrue(any(event=='owned_resume' for event,_ in events))
+        self.assertFalse(any('account status=blocked' in detail for _,detail in events))
+
+    def test_owned_sampling_can_resume_free_dialogue_without_identity(self):
+        self.configure_owned_ghost_recovery(True)
+        self.lua.execute("config.step='browse'")
+        self.assertTrue(any(event=='owned_resume' for event,_ in self.execute()))
+
+    def test_unowned_sampling_cannot_adopt_active_dialogue(self):
+        self.configure_owned_ghost_recovery(False)
+        self.lua.execute("config.step='browse'")
+        self.assertIn(('task_result','account status=blocked reason=saved_role_not_ready'),self.execute())
+
+    def test_unowned_ghost_dialogue_cannot_be_adopted(self):
+        self.configure_owned_ghost_recovery(False)
+        self.assertIn(('task_result','account status=blocked reason=saved_role_not_ready'),self.execute())
+
 
 if __name__ == '__main__':
     unittest.main()

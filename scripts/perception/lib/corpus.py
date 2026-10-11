@@ -1,63 +1,192 @@
-"""Load evidence and independent annotations, never infer truth from predictions."""
-import hashlib
+"""Discover named image cases. Directory names and local answers are the only truth."""
 import json
+import struct
 from pathlib import Path
+from copy import deepcopy
 import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3] / 'testdata'
 VERIFIED = {'reviewed', 'device_verified', 'user_verified'}
+TASKS = {'zhuagui':'抓鬼', 'dungeon':'副本'}
+PAGES = {'任务列表':'task_list','开始任务消耗三精力':'ready_cost_three','玩法规则':'rules',
+         '出发':'depart','战斗':'battle','今日次数已满对话':'quota_dialogue',
+         '今日完成任务卡片':'quota_completed_card','进行中未校准页面':'active_uncalibrated',
+         '非寻物页面':'not_find','获得葫芦提示禁止操作':'unknown'}
+DUNGEON = {'乌鸡国/副本列表':'list_wuji','乌鸡国/准备开始':'wuji_ready',
+           '乌鸡国/今日已完成':'wuji_done','乌鸡国/葫芦未领取':'wuji_reward_sealed',
+           '车迟国/副本列表':'list_chechi','车迟国/今日已完成':'chechi_done',
+           '车迟国/葫芦未领取':'chechi_reward_sealed','战斗':'battle',
+           '副本切换/乌鸡国切换车迟国':'switch_wuji_chechi',
+           '副本切换/车迟国切换乌鸡国':'switch_chechi_wuji','异常画面/未知页面':'unknown'}
+
+
+def regions(value):
+    """A historical answer may retain two independently approved boundary boxes."""
+    return [value] if value and type(value[0]) is int else value
+
+
+def read_answers(folder):
+    path=folder/'答案.json'
+    document=json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    if set(document)-{'正确','反例','预期'}:raise ValueError(f'Unknown answer sections: {path}')
+    for section in ('正确','反例'):
+        for locations in document.get(section,{}).values():
+            for name,box in locations.items():
+                if Path(name).name!=name or not (folder/name).is_file():raise ValueError(f'Missing answer image: {path}/{name}')
+                for rectangle in regions(box):
+                    if len(rectangle)!=4 or any(type(v) is not int for v in rectangle):raise ValueError('Region needs four integer coordinates')
+    for name in document.get('预期',{}):
+        if Path(name).name!=name or not (folder/name).is_file():raise ValueError(f'Missing expected image: {name}')
+    return document
+
+
+def annotation(value, status='reviewed', source='独立审核真值'):
+    return {'value':value, 'status':status, 'source':source}
+
+
+def directory_truth(relative):
+    parts=relative.parts
+    if parts[0]=='抓鬼':
+        if parts[1] in ('寻物','找鬼'):
+            target={'上好的兵器':'兵器','未知题目':'unknown'}.get(parts[2],parts[2])
+            return {'page':'find','question':{'target':target,'text':None},'target_regions':None}
+        if parts[1]=='页面':return {'page':PAGES[parts[2]]}
+        if parts[1]=='次数识别':return {'count':int(parts[2][3:-1])}
+    if parts[0]=='副本':
+        page=DUNGEON.get('/'.join(parts[1:-1]))
+        return {'page':page} if page else {}
+    return {}
 
 
 def load_cases(task=None):
-    paths = [ROOT / task / 'cases.json'] if task else sorted(ROOT.glob('*/cases.json'))
-    return [case for path in paths for case in json.loads(path.read_text(encoding='utf-8'))['cases']]
+    cases=[]
+    for key,name in TASKS.items():
+        if task and task not in (key,name):continue
+        for image in sorted((ROOT/name).rglob('*.png')):
+            relative=image.relative_to(ROOT)
+            if '审核依据' in relative.parts or '连续帧' in relative.parts:continue
+            document=read_answers(image.parent)
+            extra=document.get('预期',{}).get(image.name,{})
+            values=directory_truth(relative.parent)
+            values.update({k:v for k,v in extra.items() if k not in ('不检查','用途','合成')})
+            for section,field in [('正确','target_regions'),('反例','negative_regions')]:
+                boxes=[box for loc in document.get(section,{}).values() if image.name in loc for box in regions(loc[image.name])]
+                if boxes:values[field]=sorted(map(list,{tuple(b) for b in boxes}))
+            if 'target_regions' in values and values['target_regions'] is not None:
+                values.setdefault('target_regions_complete',False)
+            with image.open('rb') as stream:header=stream.read(24)
+            if header[:8]!=b'\x89PNG\r\n\x1a\n':raise ValueError(f'Invalid PNG: {relative}')
+            size=list(struct.unpack('>II',header[16:24]))
+            truth={k:annotation(v,'pending' if v is None else 'reviewed',relative.parent.as_posix()) for k,v in values.items()}
+            checks=[k for k in truth if k not in ('target_regions_complete','wuji_card','chechi_card') and k not in extra.get('不检查',[])]
+            cases.append({'id':relative.as_posix(),'task':key,'image':relative.as_posix(),
+                'capture':{'size':size,'group':relative.parent.as_posix(),
+                           'split':extra.get('用途','calibration'),'origin':'synthetic' if extra.get('合成') else 'device'},
+                'truth':truth,'expected':{'checks':checks}})
+    return cases
 
 
 def image_path(case):
-    folder = (ROOT / case['task']).resolve()
-    path = (folder / case['image']).resolve()
-    if not path.is_relative_to(folder):
-        raise ValueError('Image must remain inside its task corpus')
+    base=ROOT.parent/'.tmp/perception/augmentation' if case.get('augmentation') else ROOT
+    path=(base/case['image']).resolve()
+    if not path.is_relative_to(base.resolve()):raise ValueError('Image path escapes the corpus')
     return path
 
 
-def annotation(value, status, source):
-    return {'value': value, 'status': status, 'source': source}
+def validate(case, frame=None):
+    path=image_path(case)
+    if frame is None:frame=cv2.imdecode(np.fromfile(path,dtype=np.uint8),1)
+    if frame is None:raise ValueError(f'Unreadable image: {case["id"]}')
+    height,width=frame.shape[:2]
+    if [width,height]!=case['capture']['size']:raise ValueError('Frame dimensions differ from truth')
+    validate_truth(case,width,height)
+    return path
 
 
-def validate(case):
-    path = image_path(case)
-    if hashlib.sha256(path.read_bytes()).hexdigest() != case['sha256']:
-        raise ValueError(f"Image checksum changed: {case['id']}")
+def validate_truth(case,width,height):
+    """Metadata checks can use the PNG header; evaluation checks decoded pixels."""
     for field in case['truth'].values():
-        if field['status'] not in VERIFIED | {'pending', 'proposed'}:
-            raise ValueError('Unknown annotation status')
+        if field['status'] not in VERIFIED|{'pending','proposed'}:raise ValueError('Unknown annotation status')
         if field['status'] in VERIFIED and (field['value'] is None or not field['source']):
-            raise ValueError('Verified annotations need a value and evidence')
-    if not set(case['expected']['checks']).issubset(case['truth']):
-        raise ValueError('Every expected check needs an independent annotation')
-    width,height=case['capture']['size']
-    for field in ('target_regions', 'negative_regions'):
-        for x1,y1,x2,y2 in case['truth'].get(field,{}).get('value') or []:
-            if not (0<=x1<x2<=width and 0<=y1<y2<=height):
-                raise ValueError('Annotated region outside frame')
-    rectangles=case['capture'].get('retained_rectangles')
-    if rectangles is not None:
-        frame=cv2.imdecode(np.fromfile(path,dtype=np.uint8),1)
-        outside=frame.copy()
-        for x1,y1,x2,y2 in rectangles: outside[y1:y2,x1:x2]=0
-        if np.any(outside): raise ValueError('Pixels outside the retained public regions')
-    return path
+            raise ValueError('Approved truth needs a value and evidence')
+    if not set(case['expected']['checks']).issubset(case['truth']):raise ValueError('Missing independent truth')
+    for name in ('target_regions','negative_regions','wuji_card','chechi_card'):
+        boxes=case['truth'].get(name,{}).get('value') or []
+        if name.endswith('_card') and boxes:boxes=[boxes]
+        for x1,y1,x2,y2 in boxes:
+            if not 0<=x1<x2<=width or not 0<=y1<y2<=height:raise ValueError('Region outside image')
+
+
+def load_rounds():
+    rounds=[]
+    for folder in sorted((ROOT/'抓鬼/寻物').glob('*/第*轮')):
+        doc=read_answers(folder)
+        rounds.append({'id':folder.relative_to(ROOT).as_posix(),
+            'topic':{'上好的兵器':'兵器'}.get(folder.parent.name,folder.parent.name),
+            'frames':[p.relative_to(ROOT).as_posix() for p in sorted(folder.glob('*.png'))],
+            'answers':doc.get('正确',{})})
+    return rounds
+
+
+def crop_sources(cases):
+    """One representative per approved answer, not a separate seed registry."""
+    available={c['id']:c for c in cases};selected={};visited=set()
+    for case in cases:
+        folder=ROOT/Path(case['image']).parent
+        if folder in visited or case.get('augmentation'):continue
+        visited.add(folder)
+        for section,positive in [('正确',True),('反例',False)]:
+            for label,locations in read_answers(folder).get(section,{}).items():
+                name,boxes=next(iter(locations.items()));box=regions(boxes)[0]
+                identity=(folder/name).relative_to(ROOT).as_posix()
+                if identity in available and available[identity]['truth'].get('page',{}).get('value')=='find':
+                    selected.setdefault(identity,[]).append({'label':label,'region':box,'positive':positive})
+    return selected
+
+
+def transform(tile,mirror,turn):
+    return np.rot90(tile[:,::-1] if mirror else tile,-turn)
+
+
+def iter_variants(case,crops,original=None,persist=True):
+    if original is None:original=cv2.imdecode(np.fromfile(image_path(case),dtype=np.uint8),1)
+    validate(case,original)
+    for index,crop in enumerate(crops,1):
+        x1,y1,x2,y2=crop['region'];tile=original[y1:y2,x1:x2]
+        for mirror in (False,True):
+            for turn in range(4):
+                rotated=transform(tile,mirror,turn);height,width=rotated.shape[:2]
+                x,y=((100,650),(360,900),(650,1150))[(turn+2*int(mirror))%3]
+                canvas=original.copy();canvas[535:1435,15:887]=(215,204,185)
+                canvas[y:y+height,x:x+width]=rotated
+                name=f'{index:02d}_{crop["label"]}_{"镜像" if mirror else "原向"}_{turn*90}度.png'
+                relative=Path(case['id']).with_suffix('')/name
+                derived={'id':relative.as_posix(),'task':case['task'],'image':relative.as_posix(),
+                    'capture':{**case['capture'],'origin':'synthetic'},
+                    'truth':{k:deepcopy(case['truth'][k]) for k in ('page','question')},
+                    'augmentation':{'parent':case['id'],'crop':crop['region'],'label':crop['label'],
+                                    'mirror':mirror,'turn':turn,'destination':[x,y,x+width,y+height]}}
+                field='target_regions' if crop['positive'] else 'negative_regions'
+                derived['truth'][field]=annotation([[x,y,x+width,y+height]])
+                if crop['positive']:derived['truth']['target_regions_complete']=annotation(True)
+                else:derived['truth']['forbidden_actions']=annotation(['tap'])
+                derived['expected']={'checks':['page','question',field]+([] if crop['positive'] else ['forbidden_actions'])}
+                if persist:
+                    path=image_path(derived);path.parent.mkdir(parents=True,exist_ok=True)
+                    data=cv2.imencode('.png',canvas,[cv2.IMWRITE_PNG_COMPRESSION,1])[1].tobytes()
+                    if not path.exists() or path.read_bytes()!=data:path.write_bytes(data)
+                    yield derived
+                else:
+                    yield derived,canvas
+
+
+def evaluation_cases(cases):
+    crops=crop_sources(cases)
+    for case in cases:
+        yield case
+        yield from iter_variants(case,crops.get(case['id'],[]))
 
 
 def audit(cases):
-    fields = ['page', 'question', 'count', 'target_regions']
-    return {task: {
-        'frames': len(group),
-        'labels': {name: {
-            'verified': sum(c['truth'].get(name, {}).get('status') in VERIFIED for c in group),
-            'pending': sum(c['truth'].get(name, {}).get('status') in {'pending', 'proposed'} for c in group),
-        } for name in fields},
-    } for task in sorted({c['task'] for c in cases})
-        for group in [[c for c in cases if c['task'] == task]]}
+    return {task:{'frames':sum(c['task']==task for c in cases)} for task in sorted({c['task'] for c in cases})}

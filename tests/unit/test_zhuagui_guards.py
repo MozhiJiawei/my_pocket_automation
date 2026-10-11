@@ -15,7 +15,7 @@ class ZhuaGuiGuardTest(unittest.TestCase):
             ctx={config={step='start',allow_reward_claim=false,zhuagui_budget=0},account={alias='fake'}}
             package.preload['tasks.zhuagui.pages']=function() return {
                 state=function() return state end,
-                features={rules='rules',cancel='cancel',home_tasks='home_tasks',task_card='task_card',accept='accept'}
+                features={rules='rules',cancel='cancel',home_tasks='home_tasks',task_card='task_card',accept='accept',task_list_title='task_list_title',retry='retry',quota_dialogue='quota_dialogue'}
             } end
             package.preload['common.assets.home_tab']=function() return 'home_tab' end
             package.preload['tasks.zhuagui.counter']=function() return {read=function()
@@ -35,12 +35,17 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                 write=function(c,id,status,stage,counters)
                     if fail_reservation then error('reservation_write_failed') end
                     record={status=status,stage=stage}
-                    for _,k in ipairs({'attempts','reserved_energy','completed_count'}) do
+                    for _,k in ipairs({'attempts','reserved_energy','completed_count','find_retries'}) do
                         if counters and counters[k]~=nil then record[k]=counters[k] end
                     end
                 end
             } end
             package.preload['common.device']=function() return {
+                swipe=function(c,feature,label,start,finish)
+                    table.insert(taps,'swipe')
+                    if completion_card_after_scroll then state='quota_completed_card' end
+                    return true
+                end,
                 wait=function(predicate) return predicate() end,
                 tap=function(c,feature,label)
                     table.insert(taps,feature)
@@ -49,6 +54,8 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                     elseif feature=='home_tab' then state='home'
                     elseif feature=='home_tasks' then state=home_entry_state or 'task_list'
                     elseif feature=='task_card' then state='ready_cost_three'
+                    elseif feature=='retry' then state='find'
+                    elseif feature=='quota_dialogue' then state='task_list'
                     elseif feature=='accept' then
                         assert(c.identity_verified,'identity required before paid task')
                         assert(record.status=='running' and record.reserved_energy==3,'reserve before accepting')
@@ -72,6 +79,92 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assert_no_accept()
         self.assertIsNone(self.lua.globals().record)
 
+    def prepare_weapon_retry(self, retries=0, success_after=100, category='兵器', failure_state='retry'):
+        self.lua.globals().test_category=category
+        self.lua.globals().failure_state=failure_state
+        self.lua.globals().success_after=success_after
+        self.lua.execute(f'''
+            ctx.config.step='complete';ctx.config.zhuagui_budget=75
+            state='find';mSleep=function() end;solve_calls=0
+            record={{status='running',attempts=25,completed_count=24,reserved_energy=75,find_retries={retries}}}
+            package.preload['tasks.zhuagui.find']=function() return {{solve=function()
+                solve_calls=solve_calls+1
+                if solve_calls>=success_after then state='quota_completed_card';return true,'find_clicked' end
+                state=failure_state;return false,'find_time_expired',test_category
+            end}} end
+        ''')
+
+    def test_weapon_has_initial_attempt_plus_three_free_retries(self):
+        self.prepare_weapon_retry(success_after=4)
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(self.lua.globals().solve_calls,4)
+        self.assertEqual(list(self.lua.globals().taps.values()),['retry']*3)
+        self.assertEqual(self.lua.globals().record['reserved_energy'],75)
+        self.assertEqual(self.lua.globals().record['find_retries'],3)
+        self.assert_no_accept()
+
+    def test_weapon_retry_exhaustion_retains_owned_unfinished_attempt(self):
+        self.prepare_weapon_retry()
+        self.assertEqual(self.run_task()['reason'],'find_retry_limit')
+        self.assertEqual(self.lua.globals().solve_calls,4)
+        self.assertEqual(self.lua.globals().record['completed_count'],24)
+        self.assertEqual(list(self.lua.globals().taps.values()),['retry']*3)
+        self.assert_no_accept()
+
+    def test_retry_limit_survives_restart(self):
+        self.prepare_weapon_retry(retries=3)
+        self.lua.execute("state='retry'")
+        self.assertEqual(self.run_task()['reason'],'find_retry_limit')
+        self.assertEqual(len(self.lua.globals().taps),0)
+
+    def test_failed_retry_reservation_prevents_click(self):
+        self.prepare_weapon_retry()
+        self.lua.execute('fail_reservation=true')
+        with self.assertRaises(Exception):self.run_task()
+        self.assertEqual(len(self.lua.globals().taps),0)
+
+    def test_other_find_categories_are_not_automatically_retried(self):
+        self.prepare_weapon_retry(category='书籍')
+        self.assertEqual(self.run_task()['reason'],'find_time_expired')
+        self.assertEqual(len(self.lua.globals().taps),0)
+
+    def test_weapon_retry_does_not_click_paid_or_unknown_page(self):
+        for state in ('ready_cost_three','unknown'):
+            with self.subTest(state=state):
+                self.prepare_weapon_retry(failure_state=state)
+                self.assertEqual(self.run_task()['reason'],'find_time_expired')
+                self.assertEqual(len(self.lua.globals().taps),0)
+
+    def test_final_quota_dialogue_is_closed_before_completed_stamp_search(self):
+        self.lua.execute("ctx.config.step='complete';state='quota_dialogue';completion_card_after_scroll=true;mSleep=function() end;record={status='running',attempts=25,completed_count=24,reserved_energy=75}")
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(list(self.lua.globals().taps.values()),['quota_dialogue','swipe'])
+        self.assert_no_accept()
+
+    def test_quota_dialogue_cannot_complete_an_earlier_attempt(self):
+        self.lua.execute("ctx.config.step='complete';state='quota_dialogue';record={status='running',attempts=24,completed_count=23,reserved_energy=72}")
+        self.assertEqual(self.run_task()['reason'],'quota_dialogue_ledger_mismatch')
+        self.assertEqual(len(self.lua.globals().taps),0)
+
+    def test_final_recovery_reopens_completion_list_after_identity_verification(self):
+        self.lua.execute('''
+            ctx.config.step='complete';ctx.config.verify_role=true
+            state='quota_completed_card';completion_card_after_scroll=true;mSleep=function() end
+            record={status='running',attempts=25,completed_count=24,reserved_energy=75}
+            package.preload['common.navigation']=function() return {prepare_recorded=function(c)
+                state='home';c.identity_verified=true;return true
+            end} end
+        ''')
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(list(self.lua.globals().taps.values()),['home_tasks','swipe'])
+        self.assert_no_accept()
+
+    def test_final_recovery_from_home_never_reopens_paid_detail(self):
+        self.lua.execute("ctx.config.step='complete';ctx.identity_verified=true;state='unknown';completion_card_after_scroll=true;mSleep=function() end;record={status='running',attempts=25,completed_count=24,reserved_energy=75}")
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(list(self.lua.globals().taps.values()),['home_tasks','swipe'])
+        self.assert_no_accept()
+
     def test_entry_only_returns_home_verifies_identity_and_does_not_accept(self):
         self.lua.execute("ctx.config.step='enter'; state='rules'")
         result = self.run_task()
@@ -85,6 +178,26 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assertEqual(self.run_task()['status'], 'running')
         self.assertEqual(self.lua.globals().record['reserved_energy'], 3)
         self.assertEqual(list(self.lua.globals().taps.values()).count('accept'), 1)
+
+    def test_verified_role_accepts_next_task_without_leaving_ready_dialogue(self):
+        self.lua.execute('ctx.identity_verified=true; ctx.config.zhuagui_budget=3')
+        self.assertEqual(self.run_task()['status'],'running')
+        self.assertEqual(list(self.lua.globals().taps.values()),['accept'])
+
+    def test_in_place_continuation_still_requires_matching_count(self):
+        self.lua.execute('ctx.identity_verified=true; ctx.config.zhuagui_budget=6; visible_count=0; record={status="paused",stage="one_task_completed",attempts=1,completed_count=1,reserved_energy=3}')
+        self.assertEqual(self.run_task()['reason'],'count_requires_calibration')
+        self.assertEqual(len(self.lua.globals().taps),0)
+
+    def test_recovered_role_must_verify_identity_before_recording_completion(self):
+        self.lua.execute('''
+            ctx.config.step='advance';ctx.config.verify_role=true
+            record={status='running',attempts=1,completed_count=0,reserved_energy=3}
+            package.preload['common.navigation']=function() return {prepare_recorded=function() return false end} end
+        ''')
+        self.assertEqual(self.run_task()['reason'],'saved_role_not_ready')
+        self.assertEqual(self.lua.globals().record['completed_count'],0)
+        self.assert_no_accept()
 
     def test_reserved_attempt_cannot_be_repeated(self):
         self.lua.execute("ctx.config.zhuagui_budget=15; record={status='running',reserved_energy=3}")
@@ -124,6 +237,29 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assertEqual(self.run_task()['reason'],'one_task_completed')
         self.assertEqual(self.lua.globals().record['completed_count'],1)
         self.assert_no_accept()
+
+    def test_completed_card_confirms_last_completion_without_detail_count(self):
+        self.lua.execute("ctx.config.step='complete'; state='quota_completed_card'; missing_count=true; record={status='running',attempts=25,completed_count=24,reserved_energy=75}")
+        self.assertEqual(self.run_task()['status'], 'done')
+        self.assertEqual(self.lua.globals().record['completed_count'], 25)
+        self.assertEqual(len(self.lua.globals().taps), 0)
+
+    def test_completed_card_cannot_complete_an_earlier_attempt(self):
+        self.lua.execute("ctx.config.step='complete'; state='quota_completed_card'; record={status='running',attempts=24,completed_count=23,reserved_energy=72}")
+        self.assertEqual(self.run_task()['reason'], 'completed_card_ledger_mismatch')
+        self.assertEqual(self.lua.globals().record['completed_count'], 23)
+        self.assertEqual(len(self.lua.globals().taps), 0)
+
+    def test_final_list_search_requires_explicit_completed_card(self):
+        self.lua.execute("ctx.config.step='complete'; state='task_list'; completion_card_after_scroll=true; record={status='running',attempts=25,completed_count=24,reserved_energy=75}; mSleep=function() end")
+        self.assertEqual(self.run_task()['status'], 'done')
+        self.assertEqual(list(self.lua.globals().taps.values()), ['swipe'])
+
+    def test_missing_completed_card_stops_after_bounded_scrolls(self):
+        self.lua.execute("ctx.config.step='complete'; state='task_list'; record={status='running',attempts=25,completed_count=24,reserved_energy=75}; mSleep=function() end")
+        self.assertEqual(self.run_task()['reason'], 'completed_card_not_found')
+        self.assertEqual(self.lua.globals().record['completed_count'], 24)
+        self.assertEqual(list(self.lua.globals().taps.values()), ['swipe'] * 4)
 
     def test_reserved_but_unaccepted_task_is_not_completion(self):
         self.lua.execute("ctx.config.step='advance'; visible_count=0; record={status='running',attempts=1,completed_count=0,reserved_energy=3}")

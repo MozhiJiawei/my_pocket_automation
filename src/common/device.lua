@@ -11,7 +11,8 @@ function M.tap(ctx, feature, label)
         log.write(ctx,'tap_skipped',label .. ' target_changed_during_capture')
         return false
     end
-    local x, y = found.x + feature.tap_offset[1], found.y + feature.tap_offset[2]
+    local offset=found.tap_offset or feature.tap_offset
+    local x, y = found.x + offset[1], found.y + offset[2]
     log.write(ctx, 'tap', string.format('%s x=%d y=%d', label, x, y))
     tap(x, y)
     mSleep(1200)

@@ -1,0 +1,5 @@
+{
+"预期": {
+  "画面.png": {"forbidden_actions": ["tap"],"不检查": ["question","target_regions"]}
+}
+}

@@ -11,12 +11,12 @@ SHELL = shutil.which('pwsh') or shutil.which('powershell')
 
 @unittest.skipUnless(SHELL, 'PowerShell is required for the publish guard simulation')
 class PublishGuardTest(unittest.TestCase):
-    def evaluate(self, action, state):
+    @classmethod
+    def setUpClass(cls):
         source = (ROOT / 'scripts/device/ts-cli.ps1').read_text(encoding='utf-8')
         # Execute the production decision block; all external operations are replaced.
         block = source[source.index("    $state = Invoke-TouchSprite -Endpoint 'status'"):source.index('} finally {\n    if ($forwardPort')]
         script = '''
-            $script:published=0; $script:endpoints=@(); $script:rejected=$false
             function Publish-Script { $script:published++ }
             function Invoke-TouchSprite {
                 param($Endpoint,$Body)
@@ -25,12 +25,31 @@ class PublishGuardTest(unittest.TestCase):
                 return 'ok'
             }
             $remoteFile='fake.lua'
-        ''' + f"$Action='{action}'; $simulateState='{state}'\n" + 'try { & {\n' + block + '''
+            $results=@{}
+            foreach ($Action in @('deploy','run')) {
+                foreach ($simulateState in @('f00','f01','f02','unknown')) {
+                    $script:published=0; $script:endpoints=@(); $script:rejected=$false
+                    try { & {
+        ''' + block + '''
             } | Out-Null } catch { $script:rejected=$true }
-            @{published=$script:published; endpoints=$script:endpoints; rejected=$script:rejected} | ConvertTo-Json -Compress
+                    $results["$Action/$simulateState"]=@{published=$script:published; endpoints=$script:endpoints; rejected=$script:rejected}
+                }
+            }
         '''
+        path = (ROOT / 'scripts/device/ts-cli.ps1').as_posix().replace("'", "''")
+        script += f"""
+            $tokens=$null; $errors=$null
+            $ast=[System.Management.Automation.Language.Parser]::ParseFile('{path}',[ref]$tokens,[ref]$errors)
+            if ($errors.Count) {{ throw 'Invalid PowerShell source' }}
+            $calls=@($ast.FindAll({{param($node) $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Publish-Script'}},$true))
+            $results['ast']=@{{count=$calls.Count; offset=$calls[0].Extent.StartOffset; guard=$ast.Extent.Text.IndexOf("if (`$state -ne 'f00')")}}
+            $results | ConvertTo-Json -Compress -Depth 4
+        """
         result = subprocess.run([SHELL, '-NoProfile', '-NonInteractive', '-Command', script], capture_output=True, check=True)
-        return json.loads(result.stdout.decode('utf-8-sig'))
+        cls.results = json.loads(result.stdout.decode('utf-8-sig'))
+
+    def evaluate(self, action, state):
+        return self.results[f'{action}/{state}']
 
     def test_busy_or_unknown_blocks_both_deploy_and_run(self):
         for action in ('deploy', 'run'):
@@ -54,17 +73,8 @@ class PublishGuardTest(unittest.TestCase):
         self.assertEqual(result['endpoints'], ['status', 'setLuaPath', 'runLua'])
 
     def test_no_publishing_call_before_idle_guard(self):
-        source = (ROOT / 'scripts/device/ts-cli.ps1').as_posix().replace("'", "''")
         # Check the actual AST, rather than assuming the extracted block is the only call.
-        script = f"""
-            $tokens=$null; $errors=$null
-            $ast=[System.Management.Automation.Language.Parser]::ParseFile('{source}',[ref]$tokens,[ref]$errors)
-            if ($errors.Count) {{ throw 'Invalid PowerShell source' }}
-            $calls=@($ast.FindAll({{param($node) $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Publish-Script'}},$true))
-            @{{count=$calls.Count; offset=$calls[0].Extent.StartOffset; guard=$ast.Extent.Text.IndexOf("if (`$state -ne 'f00')")}} | ConvertTo-Json -Compress
-        """
-        result = subprocess.run([SHELL, '-NoProfile', '-NonInteractive', '-Command', script], capture_output=True, check=True)
-        data = json.loads(result.stdout.decode('utf-8-sig'))
+        data = self.results['ast']
         self.assertEqual(data['count'], 1)
         self.assertGreater(data['offset'], data['guard'])
 

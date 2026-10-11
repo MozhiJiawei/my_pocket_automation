@@ -29,6 +29,29 @@ def log_for(status='done', reason='completed', summary='dungeon_done=true daily_
 
 
 class RuntimeResultTest(unittest.TestCase):
+    def test_single_role_regression_cannot_claim_whole_roster_complete(self):
+        text='[account] current\n[task_result] zhuagui status=done reason=done\n[task_result] dungeon status=done reason=done\n[summary] scope=selected_roles roles_expected=1 roles_completed=1 all_roles_done=false selected_done=true daily_done=false\n[finished] script_exited_normally'
+        result=runner.runtime_result(text,'run','daily','dungeon',[{'alias':'current'}],['zhuagui','dungeon'])
+        self.assertTrue(result['expectation_met'])
+        self.assertTrue(result['selected_complete'])
+        self.assertFalse(result['daily_complete'])
+        self.assertFalse(runner.runtime_result(text,'run','daily','dungeon',[{'alias':'current'},{'alias':'other'}],['zhuagui','dungeon'])['expectation_met'])
+
+    def test_selected_completion_requires_both_roles_and_every_task(self):
+        text=''
+        for alias in ('first','second'):
+            text+=f'[account] {alias}\n[task_result] zhuagui status=done reason=done\n[task_result] dungeon status=done reason=done\n'
+        text+='[summary] scope=roles roles_expected=2 roles_completed=2 all_roles_done=true selected_done=true daily_done=false\n[finished] script_exited_normally'
+        accounts=[{'alias':'first'},{'alias':'second'}]
+        result=runner.runtime_result(text,'run','daily','dungeon',accounts,['zhuagui','dungeon'])
+        self.assertTrue(result['expectation_met'])
+        self.assertTrue(result['selected_complete'])
+        self.assertFalse(result['daily_complete'])
+        partial=text.replace('[task_result] zhuagui status=done reason=done\n','',1)
+        self.assertFalse(runner.runtime_result(partial,'run','daily','dungeon',accounts,['zhuagui','dungeon'])['expectation_met'])
+        extra=text.replace('[account] second','[account] third')
+        self.assertFalse(runner.runtime_result(extra,'run','daily','dungeon',accounts,['zhuagui','dungeon'])['expectation_met'])
+
     def test_daily_placeholders_remain_incomplete(self):
         result = runner.runtime_result(log_for(), 'run', 'daily')
         self.assertTrue(result['expectation_met'])

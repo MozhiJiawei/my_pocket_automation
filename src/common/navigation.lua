@@ -8,6 +8,7 @@ local confirm = require('common.assets.pocket_confirm')
 local picker = require('common.assets.saved_account_picker')
 local switch = require('common.assets.saved_account_switch')
 local current_marker = require('common.assets.current_role_marker')
+local return_home
 local function select_saved(ctx)
     local selector_path='/storage/emulated/0/TouchSprite/res/daily_selector_' .. ctx.account.alias .. '.lua'
     local load_selector=loadfile(selector_path)
@@ -24,21 +25,110 @@ local function select_saved(ctx)
     end
     return device.tap(ctx,selector,'select_saved_role')
 end
-local function return_home(ctx)
+local function selector_for(account)
+    local loader=loadfile('/storage/emulated/0/TouchSprite/res/daily_selector_'..account.alias..'.lua')
+    return loader and loader() or nil
+end
+function M.verify_roster(ctx)
+    require('common.screen').init(0)
+    if not detector.present(picker) then
+        ctx.account=ctx.config.accounts[1]
+        if not M.prepare_recorded(ctx) then return false end
+        if not device.tap(ctx,switch,'open_roster_picker') or
+            not device.wait(function() return detector.present(picker) end,20) then return false end
+    end
+    local seen,last,scrolls={},nil,0
+    local tile=require('common.assets.saved_role_tile')
+    for page=1,7 do
+        if not detector.present(picker) then return false end
+        local anchors
+        local matched,owners,signature=0,{},{}
+        local readable=device.wait(function()
+            if not detector.present(picker) then return false end
+            anchors={}
+            for _,range in ipairs({{150,300},{545,700}}) do
+                local top=330
+                for _=1,6 do
+                    local f={}; for k,v in pairs(tile) do f[k]=v end
+                    f.region={range[1],top,range[2],1340}
+                    local found=detector.find(f)
+                    if not found then break end
+                    anchors[#anchors+1]=found
+                    top=found.y+100
+                end
+            end
+            matched,owners,signature=0,{},{}
+            for _,account in ipairs(ctx.config.accounts) do
+                local selector=selector_for(account)
+                if not selector then return false end
+                local found=detector.find(selector)
+                if found then
+                    local belongs=nil
+                    for index,anchor in ipairs(anchors) do
+                        if math.abs(found.x-anchor.x)<220 and found.y-anchor.y>110 and found.y-anchor.y<240 then belongs=index end
+                    end
+                    if not belongs or owners[belongs] then return false end
+                    owners[belongs]=account.alias
+                    matched=matched+1
+                    signature[#signature+1]=account.alias..':'..found.x..':'..found.y
+                end
+            end
+            return #anchors>0 and matched==#anchors
+        end,10,500)
+        log.write(ctx,'roster_counts','page='..page..' tiles='..#anchors..' matched='..matched)
+        if not readable then
+            log.write(ctx,'roster_blocked','unconfigured_or_partial_role_tile')
+            return false
+        end
+        for _,alias in pairs(owners) do seen[alias]=true end
+        table.sort(signature)
+        local fingerprint=table.concat(signature,'|')
+        if fingerprint==last then
+            for _,account in ipairs(ctx.config.accounts) do if not seen[account.alias] then return false end end
+            for _=1,scrolls do
+                if not device.swipe(ctx,picker,'restore_roster_top',{780,560},{780,1200}) then return false end
+            end
+            if not device.tap(ctx,require('tasks.dungeon.assets.overview_back'),'close_verified_roster') then return false end
+            log.write(ctx,'roster_verified','roles='..#ctx.config.accounts)
+            return device.wait(function() return detector.present(home) end,20)
+        end
+        last=fingerprint
+        if not device.swipe(ctx,picker,'scan_saved_roster',{780,1200},{780,560}) then return false end
+        scrolls=scrolls+1
+    end
+    return false
+end
+return_home=function(ctx)
     local pages = require('tasks.dungeon.pages')
     for _=1,4 do
         if detector.present(home) then return true end
         local state=pages.state()
-        if state:match('^list_') then
+        if state:match('^switch_') then
+            local feature={}
+            for k,v in pairs(pages.features[state]) do feature[k]=v end
+            feature.tap_offset={feature.tap_offset[1]-390,feature.tap_offset[2]}
+            if not device.tap(ctx,feature,'cancel_dungeon_switch') then return false end
+            if not device.wait(function() return pages.state():match('^list_') end,20) then return false end
+        elseif state:match('^list_') then
             if not device.tap(ctx,pages.features.list_back,'return_home') then return false end
-        elseif state:match('_done$') or state:match('_ready$') then
+        elseif state:match('_done$') or state:match('_ready$') or state:match('_reward_sealed$') then
             if not device.tap(ctx,pages.features.overview_back,'return_dungeon_list') then return false end
         else
-            return false
+            local ghost=require('tasks.zhuagui.pages')
+            local gs=ghost.state()
+            if gs=='quota_dialogue' then
+                if not device.tap(ctx,ghost.features.quota_dialogue,'close_completed_ghost_dialogue') or
+                    not device.wait(function() return ghost.state()=='task_list' or ghost.state()=='quota_completed_card' end,20) then return false end
+            elseif gs=='task_list' or gs=='quota_completed_card' then
+                if not device.tap(ctx,require('common.assets.home_tab'),'return_home_from_tasks') then return false end
+            elseif gs=='ready_cost_three' or gs=='quota_idle' then
+                if not device.tap(ctx,ghost.features.cancel,'close_idle_ghost_detail') then return false end
+            else return false end
         end
     end
     return detector.present(home)
 end
+M.return_home=return_home
 function M.prepare_recorded(ctx)
     -- Authentication is manual; this only enters the already selected saved role.
     require('common.screen').init(1)

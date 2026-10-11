@@ -1,5 +1,5 @@
 """Recover capture rounds and register scrolling content, without inferring answers."""
-import re
+from pathlib import Path
 from collections import defaultdict
 
 import cv2
@@ -14,14 +14,10 @@ def rounds(cases):
     for case in cases:
         if case['capture']['origin'] != 'device':
             continue
-        for evidence in case['provenance']:
-            match = re.search(r'_catalog_r(\d+)_p(\d+)\.png$', evidence.get('source', ''))
-            if match and evidence.get('run'):
-                key = (evidence['run'], int(match[1]))
-                page = int(match[2])
-                if page in groups[key] and groups[key][page]['sha256'] != case['sha256']:
-                    raise ValueError('Conflicting capture page')
-                groups[key][page] = case
+        folder = str(Path(case['image']).parent).replace(chr(92), '/')
+        page=case['truth'].get('page',{}).get('value')
+        if page!='find' and not (page is None and '/寻物/' in folder):continue
+        groups[folder][len(groups[folder])+1] = case
     return groups
 
 

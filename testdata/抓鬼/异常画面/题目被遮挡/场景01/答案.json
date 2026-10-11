@@ -1,0 +1,5 @@
+{
+"预期": {
+  "画面.png": {"forbidden_actions": ["tap"],"question": {"target": "unknown","text": null},"合成": true}
+}
+}

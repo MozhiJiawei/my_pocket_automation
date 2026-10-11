@@ -10,9 +10,19 @@ function M.collect(ctx)
         return {status='blocked',reason='invalid_catalog_rounds'}
     end
     for round=1,rounds do
-        if pages.state()=='retry' then
-            if not device.tap(ctx,pages.features.retry,'catalog_retry_' .. round) then
+        for _=1,6 do
+            local state=pages.state()
+            if state=='find' then break end
+            local feature=({retry=pages.features.retry,dialogue=pages.features.dialogue_next,depart=pages.features.depart})[state]
+            if not feature then return {status='paused',reason='catalog_prepare_not_verified'} end
+            if not device.tap(ctx,feature,'catalog_prepare_'..round..'_'..state) then
                 return {status='paused',reason='catalog_retry_changed'}
+            end
+            if not device.wait(function()
+                local next_state=pages.state()
+                return next_state~=state and ({find=true,retry=true,dialogue=true,depart=true})[next_state]
+            end,6) then
+                return {status='paused',reason='catalog_prepare_changed'}
             end
         end
         if not device.wait(function() return pages.state()=='find' end,10) then
@@ -39,7 +49,7 @@ function M.collect(ctx)
             captured=page
         end
         log.write(ctx,'catalog_round_done','round=' .. round .. ' pages=' .. captured .. ' candidate_taps=0')
-        if round<rounds and not device.wait(function() return pages.state()=='retry' end,45,500) then
+        if round<rounds and not device.wait(function() return ({retry=true,dialogue=true,depart=true})[pages.state()] end,45,500) then
             snapshot.capture(ctx,prefix .. 'retry_missing')
             return {status='paused',reason='catalog_retry_not_observed'}
         end

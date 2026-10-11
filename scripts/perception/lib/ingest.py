@@ -1,36 +1,69 @@
-"""Add collector evidence without overwriting reviewed truth or accepting predictions."""
-import hashlib
+"""Import public pixels without inferring or overwriting answers."""
 import json
-import re
 from pathlib import Path
-from scripts.perception.lib.corpus import ROOT, annotation
+import cv2
+import numpy as np
+from scripts.perception.lib import corpus
 
 
-def sync_catalog():
-    folder=ROOT/'zhuagui'
-    index=folder/'images/catalog/manifest.json'
-    document=json.loads((folder/'cases.json').read_text(encoding='utf-8'))
-    captures=json.loads(index.read_text(encoding='utf-8'))
-    known={c['sha256'] for c in document['cases']}
-    added=0
-    for record in captures['cases']:
-        for item in record['frames']:
-            path=folder/'images/catalog'/item['image']
-            digest=hashlib.sha256(path.read_bytes()).hexdigest()
-            if digest!=item['sha256']: raise ValueError('Collector frame hash changed')
-            if digest in known: continue
-            match=re.search(r'_r(\d+)_',item['image'])
-            run=item['source'].split('/')[1] if item['source'].startswith('debug-runs/') else record['source_run']
-            truth={'page':annotation('find' if item['hint_visible'] else 'not_find','proposed','Machine visibility flag; requires independent review'),
-                   'target_regions':annotation(None,'pending','Object position not annotated')}
-            if item['hint_visible']:
-                truth['question']=annotation({'text':record['question'],'target':record['topic']},'proposed','Reviewed round label inherited; confirm this frame')
-            document['cases'].append({'id':'zhuagui_'+digest[:16],'task':'zhuagui',
-                'image':path.relative_to(folder).as_posix(),'sha256':digest,
-                'capture':{'size':[900,1600],'game_version':None,'group':run,
-                           'split':'calibration','origin':'device','retained_rectangles':[[15,174,887,1435]]},
-                'truth':truth,'expected':{'checks':list(truth),'on_unknown':'abstain'},
-                'provenance':[{'source':item['source'],'run':run,'round':int(match[1]) if match else record['source_round']}]})
-            known.add(digest); added+=1
-    (folder/'cases.json').write_text(json.dumps(document,ensure_ascii=False,indent=2),encoding='utf-8')
-    print(f'Added {added} pending evidence cases; existing reviewed labels preserved')
+def import_frames(sources, case, rectangles, split='holdout'):
+    folder=(corpus.ROOT/case).resolve()
+    if not folder.is_relative_to(corpus.ROOT.resolve()) or Path(case).parts[0] not in corpus.TASKS.values():
+        raise ValueError('Case must be a named directory within a supported task')
+    if folder.exists():raise ValueError('Case already exists; approved data will not be overwritten')
+    prepared=[]
+    for source in sources:
+        if not source.is_absolute():raise ValueError('Source must be an absolute path')
+        image=cv2.imdecode(np.fromfile(source,dtype=np.uint8),1)
+        if image is None:raise ValueError('Unreadable source image')
+        height,width=image.shape[:2];frame=np.zeros_like(image)
+        for x1,y1,x2,y2 in rectangles:
+            if not 0<=x1<x2<=width or not 0<=y1<y2<=height:raise ValueError('Invalid retained rectangle')
+            frame[y1:y2,x1:x2]=image[y1:y2,x1:x2]
+        prepared.append(cv2.imencode('.png',frame)[1].tobytes())
+    if not prepared:raise ValueError('At least one image is required')
+    folder.mkdir(parents=True)
+    expected={}
+    for index,data in enumerate(prepared,1):
+        name='画面.png' if len(prepared)==1 else f'第{index:02d}页.png'
+        (folder/name).write_bytes(data)
+        pending={key:None for key in corpus.directory_truth(Path(case))}
+        pending.setdefault('page',None)
+        if Path(case).parts[0]=='抓鬼':pending.update(question=None,target_regions=None)
+        pending['用途']=split
+        expected[name]=pending
+    (folder/'答案.json').write_text(json.dumps({'预期':expected},ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    return folder
+
+
+def approve(case, proposal, reviewer, evidence):
+    """Replace reviewed coordinates, never union stale answers after a correction."""
+    from copy import deepcopy
+    folder=(corpus.ROOT/case).resolve()
+    if not folder.is_relative_to(corpus.ROOT.resolve()) or not folder.is_dir():raise ValueError('Unknown case')
+    if not reviewer.strip() or not evidence.strip():raise ValueError('Explicit reviewer and approval evidence required')
+    document=deepcopy(proposal)
+    if set(document)-{'正确','反例','预期'}:raise ValueError('Unsupported answer sections')
+    for section in ('正确','反例'):
+        for locations in document.get(section,{}).values():
+            for name,box in locations.items():
+                image=folder/name
+                if image.parent!=folder or not image.is_file():raise ValueError('Answer references an unknown image')
+                frame=cv2.imdecode(np.fromfile(image,dtype=np.uint8),1)
+                height,width=frame.shape[:2]
+                for x1,y1,x2,y2 in corpus.regions(box):
+                    if not 0<=x1<x2<=width or not 0<=y1<y2<=height:raise ValueError('Answer outside image')
+    for name,expected in document.get('预期',{}).items():
+        if Path(name).name!=name or not (folder/name).is_file():raise ValueError('Expected fields reference an unknown image')
+        if expected.get('target_regions') not in (None,[]):raise ValueError('Approved positions belong in 正确')
+        if expected.get('negative_regions') not in (None,[]):raise ValueError('Approved negatives belong in 反例')
+    # A holdout remains a holdout after annotation; approval is not permission to train.
+    for name,old in corpus.read_answers(folder).get('预期',{}).items():
+        if '用途' in old:document.setdefault('预期',{}).setdefault(name,{})['用途']=old['用途']
+    previous=corpus.read_answers(folder)
+    history=folder/'审核.md'
+    record=f'\n{reviewer}: {evidence}\n'
+    if previous.get('正确') or previous.get('反例'):
+        record+='更正前答案：'+json.dumps({k:v for k,v in previous.items() if k in ('正确','反例')},ensure_ascii=False)+'\n'
+    with history.open('a',encoding='utf-8') as stream:stream.write(record)
+    (folder/'答案.json').write_text(json.dumps(document,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

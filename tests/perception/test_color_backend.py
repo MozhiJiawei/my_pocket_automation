@@ -1,5 +1,7 @@
 """Sparse matching must preserve the historical max-channel-25 contract."""
 import unittest
+from unittest.mock import patch
+import cv2
 import numpy as np
 from tests.support.touchsprite_adapter import Screen
 
@@ -38,6 +40,42 @@ class ColorBackendTest(unittest.TestCase):
         self.assertEqual(Screen(frame)._find(*args),(3,2))
         self.assertEqual(Screen(frame)._find(0,'-1|0|0x000000',90,0,0,0,0),(-1,-1))
         self.assertEqual(Screen(frame)._find(0,'0|0|0x000000',90,5,5,4,4),(-1,-1))
+
+    def test_planted_matches_equal_brute_force(self):
+        rng = np.random.default_rng(7)
+        for _ in range(40):
+            frame = rng.integers(0, 256, (12, 14, 3), dtype=np.uint8)
+            for x, y in ((10, 4), (3, 7)):
+                frame[y, x] = [100, 100, 100]
+                frame[y + 1, x - 2] = [20, 30, 40]
+                frame[y - 2, x + 1] = [200, 210, 220]
+            offsets = '-2|1|0x281e14,1|-2|0xdcd2c8'
+            box = [2, 2, 11, 9]
+            self.assertEqual(Screen(frame)._find(0x646464, offsets, 90, *box),
+                             brute(frame, 0x646464, offsets, box))
+
+    def test_candidate_order_and_offsets_outside_search_region(self):
+        frame = np.zeros((10, 10, 3), dtype=np.uint8)
+        native = cv2.findNonZero
+        with patch('tests.support.touchsprite_adapter.cv2.findNonZero',
+                   side_effect=lambda mask: native(mask)[::-1]):
+            self.assertEqual(Screen(frame)._find(0, '-1|0|0', 90, 2, 3, 7, 8), (2, 3))
+
+    def test_anchor_reuse_including_misses_and_frame_isolation(self):
+        frame = np.zeros((10, 10, 3), dtype=np.uint8)
+        screen = Screen(frame)
+        with patch('tests.support.touchsprite_adapter.cv2.findNonZero',
+                   wraps=cv2.findNonZero) as scan:
+            for offsets in ('1|0|0', '-1|0|0'):
+                self.assertEqual(screen._find(0, offsets, 90, 2, 3, 7, 8), (2, 3))
+            self.assertEqual(scan.call_count, 1)
+            for offsets in ('1|0|0', '-1|0|0'):
+                self.assertEqual(screen._find(0xffffff, offsets, 90, 2, 3, 7, 8), (-1, -1))
+            self.assertEqual(scan.call_count, 2)
+            screen._find(0xffffff, '0|0|0', 90, 0, 0, 9, 9)
+            self.assertEqual(scan.call_count, 3)
+        self.assertEqual(Screen(np.full_like(frame, 255))._find(
+            0xffffff, '0|0|0xffffff', 90, 2, 3, 7, 8), (2, 3))
 
 
 if __name__=='__main__': unittest.main()

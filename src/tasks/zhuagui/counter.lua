@@ -4,13 +4,20 @@ function M.read()
     local glyphs={}
     for digit=0,9 do
         local ok,value=pcall(require,'tasks.zhuagui.assets.digits.d' .. digit)
-        if ok then glyphs[digit]=value end
+        if ok then glyphs[digit]={value} end
+    end
+    local ok,variants=pcall(require,'tasks.zhuagui.assets.digits.variants')
+    if ok then
+        for digit,items in pairs(variants) do
+            glyphs[digit]=glyphs[digit] or {}
+            for _,glyph in ipairs(items) do glyphs[digit][#glyphs[digit]+1]=glyph end
+        end
     end
     local columns,rows={},{}
     keepScreen(true)
     for y=208,229 do
         rows[y]={}
-        for x=740,802 do
+        for x=740,806 do
             local c=getColor(x,y)
             local r,g,b=math.floor(c/65536)%256,math.floor(c/256)%256,c%256
             local on=g>140 and r<150 and b<120
@@ -20,12 +27,13 @@ function M.read()
     end
     keepScreen(false)
     local digits,left={},nil
-    for x=740,803 do
+    for x=740,807 do
         if columns[x] and not left then left=x end
         if left and not columns[x] then
             local width=x-left
             local best,best_error=nil,1
-            for digit,glyph in pairs(glyphs) do
+            for digit,items in pairs(glyphs) do
+            for _,glyph in ipairs(items) do
                 if #glyph[1]==width then
                     local errors=0
                     for y=208,229 do
@@ -36,6 +44,7 @@ function M.read()
                     local ratio=errors/(22*width)
                     if ratio<best_error then best,best_error=digit,ratio end
                 end
+            end
             end
             if best==nil or best_error>0.06 then return nil end
             digits[#digits+1]=tostring(best)

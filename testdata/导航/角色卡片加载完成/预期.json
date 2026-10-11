@@ -1,0 +1,7 @@
+{
+"feature": "common.assets.saved_role_tile",
+"anchor_regions": [[180, 422, 207, 452], [575, 422, 602, 452]],
+"initial_tiles": 0,
+"loaded_tiles": 2,
+"outcome": "wait_then_verify_unique_configured_owners"
+}

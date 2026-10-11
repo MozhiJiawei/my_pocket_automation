@@ -10,9 +10,15 @@
 | `support/` | Lua 加载器与离线触动接口替代实现，不连接设备。 |
 
 ```powershell
-python -m unittest discover -s tests
+python scripts/test.py
 ```
 
-数据读取、校验与评分共用 `scripts/perception/lib/`。回归基线只包含旧评测实际通过的断言；全量识别能力结果另存 `debug-runs/<运行编号>/offline-evaluation/`。测试方法通过不代表全部新答案可识别，也不证明设备业务完成。
+统一入口同时运行生产测试和工具测试，并检查总耗时不超过 30 秒。独立画面并行评测，增强图直接在内存生成；每张图仍执行实际 Lua 识别和真值校验，失败增强图才保存到 `.tmp/`。可用的 OpenCL GPU 批量执行大区域找色，小区域留在 CPU；`POCKET_TEST_GPU=off` 可切回 CPU 对照，`required` 可禁止静默回退。依赖见 `scripts/requirements.txt`。其它机器可用 `--max-seconds` 调整性能门槛。
+
+只运行生产测试仍可使用 `python -m unittest discover -s tests`。
+
+Lua 模块只缓存编译后的源码，不缓存模块实例或识别答案；每张画面仍使用独立虚拟机，源码内容变化会重新编译。发布保护场景在一次 PowerShell 启动中逐项重置、执行和断言。
+
+数据读取、校验与评分共用 `scripts/perception/lib/`。目录与局部真值提供回归预期；全部已确认的评分失败都会使测试失败，新修复场景不能仅留在报告里。待审核或部分真值的未知区域保持未评分。评测结果另存 `debug-runs/<运行编号>/offline-evaluation/`；离线通过不证明设备业务完成。
 
 用例维护与评测见 [工具说明](</D:/Agent Repo/my_pocket_automation/scripts/perception/README.md>)；目录边界见 [协作规则](</D:/Agent Repo/my_pocket_automation/AGENTS.md>)。

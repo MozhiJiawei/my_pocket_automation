@@ -1,0 +1,2 @@
+-- Generated from an approved question; see calibrate-reviewed-ghosts.py.
+return {width=900,height=1600,base=0x8994c4,offsets="-39|15|0x666c99,-23|-1|0x7d85b4,-7|15|0x7f88b7,-39|-1|0x7d85b4,-23|15|0x666c99,-10|4|0x737ba8,-31|7|0x8994c3,-18|6|0x6f76a3,-3|8|0x8a95c4,-31|-1|0x666c99,-31|15|0x666c99,0|15|0x787fae,-38|8|0x6a709d,-16|-1|0x7e86b5,-25|9|0x686e9b,-8|-1|0x6b719e,-24|4|0x787fae,-19|11|0x666c99,-35|2|0x6d74a1,-5|3|0x6e75a2,-34|10|0x828cbb,-27|1|0x666c99,-11|8|0x8893c2",degree=90,region={228,371,238,381},tap_offset={0,0}}

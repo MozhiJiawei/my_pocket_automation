@@ -1,0 +1,17 @@
+{
+  "case_id": "副本/副本切换/车迟国切换乌鸡国/场景01/画面.png",
+  "source": "testdata/dungeon/cases.json",
+  "approved_field": "truth.page",
+  "crop": [
+    83,
+    900,
+    820,
+    1040
+  ],
+  "tap": [
+    640,
+    1170
+  ],
+  "generator": "scripts/perception/calibrate-feature.py --foreground-ink",
+  "guard": "Current role identity verified and chechi completion recorded before confirmation."
+}

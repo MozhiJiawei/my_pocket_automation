@@ -12,3 +12,17 @@
 | `dfx_device.py` | 共用设备通信、命令执行与请求实现。 |
 
 使用仓库根目录的 [项目说明](</D:/Agent Repo/my_pocket_automation/README.md>) 查看运行参数和费用边界；具体故障处理见 [DFX 说明](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。运行器用于当前主循环，CLI 的默认源码仍是早期登录实验，直接使用时须明确目标源码。
+
+## 已保存角色轮转
+
+`run-daily.py --mode run --step daily --tasks zhuagui,dungeon --zhuagui-budget 75 --max-seconds 10800 --device emulator-5562` 遍历外部配置的全部已登录角色，核对选择页名单与每次进入后的身份。遇到未配置卡片或名单不完整时暂停，不遗漏新角色。
+
+`~/.my_pocket_automation/daily-accounts.json` 保存稳定别名与逐角色策略；身份、选择特征由 `calibrate-role.py` 保存到同一外部配置目录。别名不得重新绑定其他角色，既有进度按业务日期和别名隔离。新角色需要先从已登录选择页和主页校准身份资源；工具不输入账号密码。
+
+每个角色可配置 `claim_dungeon_rewards` 和 `dungeon_reward_budget`（0、100、200）。默认禁止领取；只有已授权角色、已完成副本、确认100精力按钮与预算都满足时才发送一次领取请求。请求先保存，未知结果不重复点击。该策略不允许开抓鬼或背包葫芦。
+
+`--account <已配置别名>` 用于有界的单角色恢复；与 `--step daily` 组合时，核对全名单后仅运行指定角色，汇总范围为 `selected_roles`，不会报告全部角色完成。副本接管已有战斗只被动等待；抓鬼可推进已记录任务的免费对话、寻物和重试。身份未核对时不新接任务，不记录抓鬼完成；返回待接取页面后先核对主页身份。
+
+每个副本默认最多等待60分钟，覆盖连续多场战斗；运行器默认完整流程等待10800秒，`complete/advance` 等待3900秒，`--max-seconds` 可明确设置电脑端上限。超时保留已启动记录，先检查现场再恢复，不重新开启副本。
+
+`selected_complete` 表示本轮所选范围内的角色都完成所选任务；指定单角色时不能据此称作全部角色完成。`daily_complete` 只有师门、抓鬼、副本、收尾处理四类都实现并完成时才为真。师门和收尾仍是占位，不能把本轮三件任务当作全部日常完成。

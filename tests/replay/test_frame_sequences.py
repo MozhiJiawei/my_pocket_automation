@@ -10,18 +10,19 @@ from tests.support.touchsprite_adapter import Screen
 class FrameReplayTest(unittest.TestCase):
     def test_capture_transition_revalidates_target_before_tapping(self):
         index={c['id']:c for c in load_cases('zhuagui')}
-        folder=Path(__file__).resolve().parents[2]/'testdata/zhuagui'
-        scenarios=json.loads((folder/'sequences.json').read_text(encoding='utf-8'))
+        folder=Path(__file__).resolve().parents[2]/'testdata/抓鬼/连续帧'
+        scenarios=[{'id':p.parent.name, **json.loads(p.read_text(encoding='utf-8'))} for p in sorted(folder.glob('*/预期.json'))]
         for scenario in scenarios:
             with self.subTest(scenario=scenario['id']):
                 frames=[index[key] for key in scenario['frames']]
                 def transition(runtime,label):
                     runtime.screen=Screen.read(image_path(frames[1]))
                 runtime=Runtime(Screen.read(image_path(frames[0])),capture_hook=transition)
-                source=runtime.require('tasks.zhuagui.assets.icon_snake_wine')
+                source=runtime.require(scenario.get('feature','tasks.zhuagui.assets.icon_snake_wine'))
                 feature=runtime.lua.table_from(dict(source.items()))
                 # The task expands the calibrated feature's original ROI for search.
-                feature['region']=runtime.lua.table_from([65,540,825,1405])
+                if 'feature' not in scenario:
+                    feature['region']=runtime.lua.table_from([65,540,825,1405])
                 self.assertIsNotNone(runtime.require('common.detector').find(feature))
                 result=runtime.require('common.device').tap(runtime.lua.table(),feature,'replay')
                 self.assertEqual(bool(result),scenario['expected']['tap_return'])

@@ -17,7 +17,7 @@ class WaitExpired(RuntimeError):
     pass
 
 
-def runtime_result(text, mode, step, task='dungeon'):
+def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tasks=None):
     """Interpret device evidence independently of transport/host exit status."""
     tasks = []
     account = None
@@ -66,10 +66,26 @@ def runtime_result(text, mode, step, task='dungeon'):
         expected = 'running' if step in ('start', 'enter') else 'done'
         dungeons = [item for item in tasks if item['task'] == task]
         acceptable = acceptable and bool(dungeons) and all(item['status'] == expected for item in dungeons)
-        if step == 'daily':
+        if step == 'daily' and summary.get('scope')!='roles':
             acceptable = acceptable and summary.get('dungeon_done') == 'true'
+    selected_complete=False
+    if step=='daily' and summary.get('scope') in ('roles','selected_roles'):
+        expected_aliases=[item['alias'] for item in accounts or []]
+        required=selected_tasks or []
+        verified=bool(expected_aliases and required)
+        for alias in expected_aliases:
+            for name in required:
+                evidence=[item for item in tasks if item['account']==alias and item['task']==name]
+                verified=verified and len(evidence)==1 and evidence[0]['status']=='done'
+        verified=verified and all(item['account'] in expected_aliases for item in tasks)
+        selected_complete=bool(verified and (summary.get('scope')=='selected_roles' or summary.get('all_roles_done')=='true') and summary.get('selected_done')=='true'
+                               and summary.get('roles_expected')==str(len(expected_aliases))
+                               and summary.get('roles_completed')==str(len(expected_aliases)))
+        acceptable=script=='succeeded' and selected_complete and not any(item['status']!='done' for item in tasks)
+        if not acceptable and business=='done': business,reason='incomplete','all_roles_not_verified'
     return {'script_status': script, 'business_status': business, 'termination_reason': reason,
-            'tasks': tasks, 'device_summary': summary, 'daily_complete': False,
+            'tasks': tasks, 'device_summary': summary, 'selected_complete':selected_complete,
+            'daily_complete': bool(selected_complete and summary.get('daily_done')=='true'),
             'expectation_met': acceptable}
 
 
@@ -78,7 +94,12 @@ def run_once(args, accounts, max_seconds, run_id, archive):
     archive.mkdir(parents=True)  # A collision must not overwrite previous evidence.
     record = {'run_id': run_id, 'mode': args.mode, 'step': args.step,
               'task': getattr(args, 'task', 'dungeon'),
-              'reward_claim_allowed': False, 'daily_complete': False,
+              'selected_account':getattr(args,'account',None),
+              'reward_claim_allowed': any(item.get('claim_dungeon_rewards') is True for item in accounts
+                                          if not getattr(args,'account',None) or item['alias']==args.account),
+              'reward_policies': {item['alias']: {'claim_dungeon_rewards':item.get('claim_dungeon_rewards',False),
+                                                'dungeon_reward_budget':item.get('dungeon_reward_budget',0)} for item in accounts},
+              'daily_complete': False,
               'host_status': 'running', 'phase': 'build', 'launch_status': 'not_attempted',
               'last_device_status': None, 'may_still_be_running': False,
               'collection_status': 'not_attempted', 'script_status': 'unknown',
@@ -116,7 +137,9 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         log = archive / 'log' / f'daily_{run_id}.log'
         if log.exists():
             text = log.read_text(encoding='utf-8')
-            record.update(runtime_result(text, args.mode, args.step, getattr(args, 'task', 'dungeon')))
+            expected_accounts=[item for item in accounts if not getattr(args,'account',None) or item['alias']==args.account]
+            record.update(runtime_result(text, args.mode, args.step, getattr(args, 'task', 'dungeon'),expected_accounts,
+                                         getattr(args,'tasks',None)))
             return text
         return ''
 
@@ -126,17 +149,30 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         shutil.copyfile(ROOT / 'dist/manifest.json', archive / 'manifest.json')
         record['bundle_sha256'] = hashlib.sha256(bundle.read_bytes()).hexdigest()
         config = ROOT / 'dist/daily_config.lua'
-        account_lua = ','.join('{alias="%s"}' % item['alias'] for item in accounts)
+        account_lua = ','.join('{alias="%s",claim_dungeon_rewards=%s,dungeon_reward_budget=%d}' %
+                              (item['alias'],'true' if item.get('claim_dungeon_rewards') is True else 'false',
+                               item.get('dungeon_reward_budget',0)) for item in accounts)
         config.write_text('return {run_id="%s", business_date="%s", mode="%s", step="%s", task="%s", dungeon="%s", zhuagui_budget=%d, browse_rounds=%d, allow_reward_claim=false, accounts={%s}}\n' %
                           (run_id, datetime.now().strftime('%Y%m%d'), args.mode, args.step, getattr(args, 'task', 'dungeon'), args.dungeon,
                            getattr(args, 'zhuagui_budget', 0), getattr(args,'browse_rounds',1), account_lua), encoding='utf-8')
+        if args.step=='daily' and getattr(args,'tasks',None):
+            text=config.read_text(encoding='utf-8').rstrip()
+            text=text[:-1]+',tasks={'+','.join('"'+name+'"' for name in args.tasks)+'}}\n'
+            config.write_text(text,encoding='utf-8')
+        if args.step=='daily' or (getattr(args,'task',None)=='zhuagui' and args.step=='complete'):
+            text=config.read_text(encoding='utf-8').rstrip()
+            config.write_text(text[:-1]+',zhuagui_timeout='+str(max_seconds)+'}\n',encoding='utf-8')
+        if getattr(args,'account',None):
+            text=config.read_text(encoding='utf-8').rstrip()
+            selection=',selected_account="'+args.account+'"' if args.step=='daily' else ''
+            config.write_text(text[:-1]+',verify_role=true'+selection+'}\n',encoding='utf-8')
         shutil.copyfile(config, archive / 'run-config.lua')
         record['phase'] = 'authorize'
         device.authorize()
         if observe_status() != 'f00':
             raise RuntimeError('Device is not idle; no files published')
         record['phase'] = 'publish_config'
-        if args.step == 'daily' or (getattr(args, 'task', 'dungeon')=='zhuagui' and args.mode=='run' and args.step in ('enter','start','complete')):
+        if args.step == 'daily' or getattr(args,'account',None) or (getattr(args, 'task', 'dungeon')=='zhuagui' and args.mode=='run' and args.step in ('enter','start','complete')):
             for item in accounts:
                 alias = item['alias']
                 for local_name, remote_kind in [('role.lua', 'identity'), ('selector.lua', 'selector')]:
@@ -220,8 +256,13 @@ def main():
     p.add_argument('--zhuagui-budget', type=int, default=0, help='Explicit daily energy cap for ZhuaGui; defaults to zero')
     p.add_argument('--browse-rounds',type=int,default=1,help='Observation-only retries of the existing find task (1–60)')
     p.add_argument('--accounts', type=Path, help='External JSON list of configured saved-role aliases')
+    p.add_argument('--account', help='One configured role for bounded recovery; full daily runs still verify the roster')
+    p.add_argument('--tasks', default='zhuagui,dungeon', help='Daily selected task modules, comma-separated')
     p.add_argument('--step', choices=['enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
     args = p.parse_args()
+    args.tasks=args.tasks.split(',')
+    if len(set(args.tasks))!=len(args.tasks) or any(name not in ('shimen','zhuagui','dungeon','rewards') for name in args.tasks):
+        raise ValueError('Invalid selected tasks')
     if not 1<=args.browse_rounds<=60:
         raise ValueError('Browse rounds must be between 1 and 60')
     if args.browse_rounds!=1 and (args.task!='zhuagui' or args.step!='browse' or args.mode!='run'):
@@ -238,11 +279,23 @@ def main():
     if not isinstance(accounts,list) or not accounts:
         raise ValueError('Accounts must be a nonempty list')
     aliases=[item['alias'] for item in accounts]
+    for item in accounts:
+        if not isinstance(item.get('claim_dungeon_rewards',False),bool):
+            raise ValueError('Reward policy must be boolean')
+        budget=item.get('dungeon_reward_budget',0)
+        if type(budget)!=int or budget not in (0,100,200):
+            raise ValueError('Dungeon reward budget must be 0, 100 or 200')
     if len(set(aliases))!=len(aliases) or not all(re.fullmatch(r'[A-Za-z0-9_-]+',name) for name in aliases):
         raise ValueError('Aliases must be unique and contain only ASCII letters, digits, underscore or hyphen')
-    if args.step!='daily' and aliases!=['current']:
+    if args.account:
+        selected=[item for item in accounts if item['alias']==args.account]
+        if len(selected)!=1: raise ValueError('Selected role is not configured')
+        if args.step!='daily':
+            accounts=selected
+            aliases=[args.account]
+    if args.step!='daily' and aliases!=['current'] and not args.account:
         raise ValueError('Development steps are limited to the inspected current account')
-    max_seconds = args.max_seconds or (3900 if args.step=='daily' else 2000 if args.step in ['advance','complete'] else 90)
+    max_seconds = args.max_seconds or (10800 if args.step=='daily' else 3900 if args.step in ['advance','complete'] else 90)
     if args.task=='zhuagui' and args.step=='browse' and not args.max_seconds:
         max_seconds=max(max_seconds,args.browse_rounds*65+30)
     run_id = datetime.now().strftime('%Y%m%d_%H%M%S')

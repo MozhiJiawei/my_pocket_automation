@@ -1,0 +1,10 @@
+{
+  "case_id": "副本/战斗/场景02/画面.png",
+  "region": [
+    458,
+    8,
+    545,
+    52
+  ],
+  "excludes": "round number and tinted background"
+}

@@ -13,7 +13,7 @@ class CatalogTest(unittest.TestCase):
             state='retry'; taps={}; swipes=0; shots={}
             ctx={config={browse_rounds=2}}
             package.preload['tasks.zhuagui.pages']=function() return {
-                state=function() return state end,features={retry='retry',find_title='find_title'}
+                state=function() return state end,features={retry='retry',find_title='find_title',dialogue_next='dialogue',depart='depart'}
             } end
             package.preload['dfx.snapshot']=function() return {capture=function(c,label)
                 table.insert(shots,label)
@@ -21,8 +21,8 @@ class CatalogTest(unittest.TestCase):
             package.preload['dfx.log']=function() return {write=function() end} end
             package.preload['common.device']=function() return {
                 tap=function(c,feature)
-                    assert(feature=='retry','candidate/accept clicks forbidden')
-                    table.insert(taps,feature); state='find'; return true
+                    assert(feature=='retry' or feature=='dialogue' or feature=='depart','candidate/accept clicks forbidden')
+                    table.insert(taps,feature); state=delayed_open and 'unknown' or feature=='dialogue' and 'depart' or 'find'; return true
                 end,
                 swipe=function(c,feature)
                     assert(feature=='find_title'); swipes=swipes+1
@@ -32,7 +32,7 @@ class CatalogTest(unittest.TestCase):
                 end,
                 wait=function(predicate)
                     if predicate() then return true end
-                    state='retry'; return predicate()
+                    state=delayed_open and state=='unknown' and 'find' or 'retry'; return predicate()
                 end
             } end
         ''')
@@ -45,6 +45,21 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().swipes,12)
         self.assertEqual(len(self.lua.globals().shots),14)
         self.assertEqual(self.lua.globals().shots[8],'catalog_r002_p01')
+
+    def test_existing_npc_dialogue_is_free_preparation_only(self):
+        self.lua.execute("state='dialogue';ctx.config.browse_rounds=1")
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'find_catalog_observation_only')
+        self.assertEqual(list(self.lua.globals().taps.values()),['dialogue','depart'])
+
+    def test_retry_waits_for_known_page_after_transient_overlay(self):
+        self.lua.execute("delayed_open=true;ctx.config.browse_rounds=1")
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'find_catalog_observation_only')
+        self.assertEqual(len(self.lua.globals().shots),7)
+
+    def test_paid_accept_page_is_never_used_for_sampling(self):
+        self.lua.execute("state='ready_cost_three'")
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'catalog_prepare_not_verified')
+        self.assertEqual(len(self.lua.globals().taps),0)
 
     def test_changed_page_is_incomplete(self):
         self.lua.execute('break_page=true')

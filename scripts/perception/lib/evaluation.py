@@ -1,18 +1,57 @@
 """One evaluator for unittest and algorithm experiments; predictions never edit labels."""
-import hashlib
 import json
-import subprocess
 import sys
+import os
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import cv2
-from scripts.perception.lib.corpus import VERIFIED, audit, image_path, validate
+from scripts.perception.lib.corpus import VERIFIED, audit, image_path, validate, load_rounds, crop_sources, iter_variants
 from tests.support.lua_runtime import ROOT, Runtime
 from tests.support.touchsprite_adapter import CONTRACT, Screen
 from scripts.perception.lib.round_truth import evaluate_rounds
 
+if os.environ.get('POCKET_TEST_GPU','auto')!='off':
+    try:
+        from tests.support.opencl_colors import GpuScreen
+        if GpuScreen.available():Screen=GpuScreen
+        elif os.environ.get('POCKET_TEST_GPU')=='required':raise RuntimeError('No OpenCL GPU available')
+    except (ImportError,RuntimeError):
+        if os.environ.get('POCKET_TEST_GPU')=='required':raise
 
-def evaluate_case(case):
-    screen=Screen.read(validate(case))
+
+def _evaluate_input(job):
+    case,crops,origin=job
+    frame=Screen.read(image_path(case)).frame
+    cases=[];results=[]
+    if not origin or case['capture']['origin']==origin:
+        cases.append(case);results.append(evaluate_case(case,frame))
+    if origin!='device':
+        for derived,pixels in iter_variants(case,crops,frame,persist=False):
+            cases.append(derived);results.append(evaluate_case(derived,pixels))
+            if results[-1]['status']=='failed':
+                path=image_path(derived);path.parent.mkdir(parents=True,exist_ok=True)
+                cv2.imencode('.png',pixels)[1].tofile(path)
+    return cases,results
+
+
+def evaluate_inputs(inputs,origin=None,workers=None):
+    """Each worker reads one original and evaluates its eight pixel transforms.
+
+    Only failures need PNG output; scoring still executes production Lua and
+    validates every transformed image, without PNG encode/decode round trips.
+    """
+    crops=crop_sources(inputs)
+    jobs=[(c,crops.get(c['id'],[]),origin) for c in inputs]
+    cases=[];results=[]
+    with ProcessPoolExecutor(max_workers=workers or min(12,os.cpu_count() or 1)) as pool:
+        for batch,predictions in pool.map(_evaluate_input,jobs):
+            cases.extend(batch);results.extend(predictions)
+    return cases,results
+
+
+def evaluate_case(case, frame=None):
+    screen=Screen.read(image_path(case)) if frame is None else Screen(frame)
+    validate(case,screen.frame)
     if list(reversed(screen.frame.shape[:2]))!=case['capture']['size']:
         raise ValueError('Frame dimensions changed')
     runtime=Runtime(screen,planning=True)
@@ -70,30 +109,23 @@ def evaluate_case(case):
 
 def write_report(cases, results, output, baseline=None):
     output.mkdir(parents=True,exist_ok=True)
-    source=hashlib.sha256()
-    for path in sorted((ROOT/'src').rglob('*.lua')):
-        source.update(path.relative_to(ROOT).as_posix().encode()); source.update(path.read_bytes())
-    dataset=hashlib.sha256(json.dumps(cases,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-    revision=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True)
-    summary={'source_sha256':source.hexdigest(),'git_revision':revision.stdout.strip() if revision.returncode==0 else None,
-             'dataset_sha256':dataset,'backend':CONTRACT,'annotation_audit':audit(cases),
+    summary={'backend':CONTRACT,'annotation_audit':audit(cases),
              'frames':len(results),'failed_frames':sum(r['status']=='failed' for r in results),
              'checks':{status:sum(c['status']==status for r in results for c in r['checks'])
                        for status in ('passed','failed','unscored')}}
-    harness=hashlib.sha256()
-    for path in sorted([*(ROOT/'tests/support').glob('*.py'), *(ROOT/'scripts/perception/lib').glob('*.py')]):
-        harness.update(path.relative_to(ROOT).as_posix().encode()); harness.update(path.read_bytes())
-    summary['harness_sha256']=harness.hexdigest()
+    derived=[c for c in cases if c.get('augmentation')]
+    summary['input_cases']=len({c['augmentation']['parent'] if c.get('augmentation') else c['id'] for c in cases})
+    summary['augmentation_sources']=len({(c['augmentation']['parent'],tuple(c['augmentation']['crop'])) for c in derived})
+    summary['generated_images']=len(derived)
     summary['environment']={'python':sys.version.split()[0],'opencv':cv2.__version__}
     summary['full_question_text_evaluated']=False
+    origins={c['id']:c['capture']['origin'] for c in cases}
+    summary['by_origin']={origin:{'frames':sum(origins[r['id']]==origin for r in results),
+        'failed_frames':sum(origins[r['id']]==origin and r['status']=='failed' for r in results)}
+        for origin in sorted(set(origins.values()))}
     summary['game_postconditions_simulated']=False
-    round_file=ROOT/'testdata/zhuagui/rounds.json'
-    round_cases=[]
-    if round_file.exists():
-        selected_ids={c['id'] for c in cases}
-        round_document=json.loads(round_file.read_text(encoding='utf-8'))
-        round_cases=[r for r in round_document['rounds'] if {c['case_id'] for c in r['captures']}.issubset(selected_ids)]
-        summary['round_truth_sha256']=hashlib.sha256(round_file.read_bytes()).hexdigest()
+    selected_ids={c['id'] for c in cases}
+    round_cases=[r for r in load_rounds() if set(r['frames']).issubset(selected_ids)]
     round_results=evaluate_rounds(round_cases,results)
     summary['rounds']={'count':len(round_results),
                        'status':{state:sum(r['status']==state for r in round_results) for state in ('passed','failed','unscored')},
@@ -120,8 +152,10 @@ def write_report(cases, results, output, baseline=None):
                 kind='new_check' if before is None else 'annotation_changed' if before.get('expected')!=check.get('expected') else 'regressed' if before['status']=='passed' and check['status']=='failed' else 'fixed' if before['status']=='failed' and check['status']=='passed' else None
                 if kind: changes.append({'id':result['id'],'field':check['field'],'kind':kind})
         summary['baseline_comparison']=changes
-    (output/'results.json').write_text(json.dumps({'summary':summary,'results':results,'round_results':round_results},ensure_ascii=False,indent=2),encoding='utf-8')
-    lines=['# 离线识别评测','',f"画面 {len(results)}；失败 {summary['failed_frames']}；断言统计 {summary['checks']}。",
+    (output/'results.json').write_text(json.dumps({'summary':summary,'results':results,'round_results':round_results},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+    lines=['# 离线识别评测','',f"输入用例 {summary['input_cases']}；增强裁图来源 {summary['augmentation_sources']}；执行时生成图片 {summary['generated_images']}。",
+           '',f"实际识别画面 {len(results)}；失败 {summary['failed_frames']}；断言统计 {summary['checks']}。",
+           '', f"来源分别统计：{summary['by_origin']}。增强帧不增加真实采集轮数。",
            '', '未标注项不参与通过率；电脑颜色匹配是近似后端，不能证明设备完成。','']
     lines.extend([f'整轮选答案评测：{summary["rounds"]}。', '',
                   '选中任一正确答案表示本轮具备可用选择；未选中其他正确答案不计作检测召回率。只评测当前所选原始帧齐全的轮次；部分采集不宣称覆盖整题。', '',
@@ -140,7 +174,8 @@ def write_report(cases, results, output, baseline=None):
             cv2.rectangle(frame,(x1,y1),(x2,y2),(255,100,0),3)
         for action in result['actions']:
             if action['kind']=='tap': cv2.circle(frame,tuple(action['point']),10,(0,0,255),3)
-        target=output/f"{result['id']}.png"
+        target=output/"failures"/result["id"]
+        target.parent.mkdir(parents=True,exist_ok=True)
         cv2.imencode('.png',frame)[1].tofile(target)
         lines.append(f"- [{result['id']}](</{target.as_posix()}>): " + ', '.join(c['field'] for c in result['checks'] if c['status']=='failed'))
     (output/'README.md').write_text('\n'.join(lines)+'\n',encoding='utf-8')

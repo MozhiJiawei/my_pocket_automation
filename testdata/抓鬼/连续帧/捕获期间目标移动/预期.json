@@ -1,0 +1,7 @@
+{
+"frames": ["抓鬼/寻物/蛇胆酒/场景01/画面.png", "抓鬼/寻物/蛇胆酒/场景02/画面.png"],
+"expected": {
+  "tap_return": true,
+  "allowed_regions": [[63,539,203,677]]
+}
+}

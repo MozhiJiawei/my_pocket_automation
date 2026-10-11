@@ -13,12 +13,30 @@ local ok, err = pcall(function()
     else
         assert(config.mode == 'run', 'invalid mode')
         assert(config.allow_reward_claim == false, 'debug policy must forbid reward claims')
+        if config.step=='daily' and config.tasks then
+            require('daily').run(ctx)
+            return
+        end
         local dungeon_done = false
         local placeholders = {}
         for _, account in ipairs(config.accounts) do
             ctx.account = account
             ctx.identity_verified = false
             log.write(ctx, 'account', account.alias)
+            if config.verify_role and not require('common.navigation').prepare_recorded(ctx) then
+                local ghost=config.task=='zhuagui'
+                local state=require(ghost and 'tasks.zhuagui.pages' or 'tasks.dungeon.pages').state()
+                local owned=require('progress').read(ctx,ghost and 'zhuagui' or config.dungeon or 'wuji')
+                local active=ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true})[state]
+                    or not ghost and (state=='battle' or state=='loading')
+                local recovery=config.step=='complete' or (ghost and config.step=='browse')
+                if not recovery or not active or not owned or owned.status~='running' then
+                    log.write(ctx,'task_result','account status=blocked reason=saved_role_not_ready')
+                    log.write(ctx,'summary','daily_done=false reason=account_blocked')
+                    return
+                end
+                log.write(ctx,'owned_resume','task='..config.task..' identity_unverified_no_new_accept_or_reward_claim')
+            end
             if config.step == 'daily' and not require('common.navigation').prepare_recorded(ctx) then
                 log.write(ctx, 'task_result', 'account status=blocked reason=saved_role_not_ready')
                 log.write(ctx, 'summary', 'daily_done=false reason=account_blocked')

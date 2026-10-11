@@ -1,0 +1,8 @@
+{
+"frames": ["抓鬼/页面/出发/场景01/画面.png", "抓鬼/页面/战斗/场景01/画面.png"],
+"feature": "tasks.zhuagui.assets.depart",
+"expected": {
+  "tap_return": false,
+  "actions": []
+}
+}

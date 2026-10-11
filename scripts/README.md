@@ -13,8 +13,7 @@
 
 ```powershell
 python scripts/device/run-daily.py --help
-python -m unittest discover -s tests
-python -m unittest discover -s scripts/perception/tests -t .
+python scripts/test.py
 python scripts/perception/evaluate.py
 ```
 

@@ -7,7 +7,7 @@ M.features = {
     enter = require('tasks.dungeon.assets.enter'),
     wuji_title = require('tasks.dungeon.wuji.assets.title'),
     start = require('tasks.dungeon.assets.start'),
-    battle = require('tasks.dungeon.assets.battle'),
+    battle = require('common.assets.battle_title'),
     speed_one = require('tasks.dungeon.assets.speed_one'),
     loading = require('tasks.dungeon.assets.loading'),
     sealed_reward = require('tasks.dungeon.assets.sealed_reward'),
@@ -18,6 +18,7 @@ M.features = {
     chechi_card = require('tasks.dungeon.chechi.assets.card'),
     chechi = require('tasks.dungeon.chechi.assets.list_name'),
     switch_wuji_chechi = require('tasks.dungeon.assets.switch_wuji_chechi'),
+    switch_chechi_wuji = require('tasks.dungeon.assets.switch_chechi_wuji'),
     chechi_title = require('tasks.dungeon.chechi.assets.title'),
     continue = require('tasks.dungeon.assets.continue'),
 }
@@ -33,6 +34,7 @@ local function all_done(definition)
     return true
 end
 function M.state()
+    if detector.present(M.features.switch_chechi_wuji) then return 'switch_chechi_wuji' end
     if detector.present(M.features.switch_wuji_chechi) then return 'switch_wuji_chechi' end
     if detector.present(M.features.sealed_reward) then
         for id,def in pairs(M.definitions) do

@@ -1,0 +1,23 @@
+{
+  "case_id": "副本/乌鸡国/副本列表/场景03/画面.png",
+  "source": "testdata/dungeon/cases.json",
+  "approved_field": "truth.chechi_card",
+  "crop": [
+    130,
+    1182,
+    295,
+    1225
+  ],
+  "tap": [
+    220,
+    1200
+  ],
+  "generator": "scripts/perception/calibrate-feature.py --foreground-ink",
+  "search_region": [
+    15,
+    1140,
+    870,
+    1260
+  ],
+  "reason": "Preflight confirmed same unselected glyph mismatch as wuji; existing matcher only."
+}
