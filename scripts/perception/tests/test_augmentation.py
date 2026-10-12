@@ -2,6 +2,9 @@
 import unittest
 import numpy as np
 import cv2
+import json
+from copy import deepcopy
+from scripts.perception.lib.corpus import ROOT
 from scripts.perception.lib.corpus import load_cases,crop_sources,iter_variants,validate,transform
 
 
@@ -34,3 +37,22 @@ class AugmentationTest(unittest.TestCase):
     def test_pending_regions_never_create_variants(self):
         cases=[c for c in load_cases('zhuagui') if '/待审核/' in c['id']]
         self.assertTrue(cases);self.assertEqual(crop_sources(cases),{})
+
+    def test_puzzle_permutations_preserve_pixels_and_canonical_answer(self):
+        case=next(c for c in load_cases('zhuagui') if 'puzzle_order' in c['truth'])
+        original=cv2.imdecode(np.fromfile(validate(case),dtype=np.uint8),1)
+        cells=json.loads((ROOT/'抓鬼/拼图/格位.json').read_text(encoding='utf-8'))
+        tiles=[original[y1:y2,x1:x2].copy() for x1,y1,x2,y2 in cells]
+        canonical=[tiles[ord(letter)-65] for letter in case['truth']['puzzle_order']['value']]
+        seen={(0,1,2,3)}
+        for derived,pixels in iter_variants(case,[],original,persist=False):
+            permutation=tuple(derived['augmentation']['permutation'])
+            self.assertNotIn(permutation,seen);seen.add(permutation)
+            for letter,expected in zip(derived['truth']['puzzle_order']['value'],canonical):
+                x1,y1,x2,y2=cells[ord(letter)-65]
+                np.testing.assert_array_equal(pixels[y1:y2,x1:x2],expected)
+            np.testing.assert_array_equal(pixels[:500],original[:500])
+            self.assertEqual(derived['capture']['split'],case['capture']['split'])
+        self.assertEqual(len(seen),24)
+        pending=deepcopy(case);pending['truth']['puzzle_order']['status']='proposed'
+        self.assertEqual(list(iter_variants(pending,[],original,persist=False)),[])

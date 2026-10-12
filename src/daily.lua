@@ -33,9 +33,15 @@ function M.run(ctx)
             for _,name in ipairs(selected) do
                 local outcome=require('tasks.'..name..'.task').run(ctx)
                 log.write(ctx,'task_result',name..' status='..outcome.status..' reason='..(outcome.reason or ''))
-                if outcome.status~='done' then complete=false; break end
+                if outcome.status~='done' then
+                    complete=false
+                    log.write(ctx,'error','task='..name..' status='..outcome.status..' reason='..(outcome.reason or ''))
+                    snapshot.capture(ctx,'task_'..name..'_incomplete')
+                end
                 if not navigation.finish_account(ctx) then
                     log.write(ctx,'task_result','navigation status=blocked reason=return_home_not_verified')
+                    log.write(ctx,'error','task=navigation reason=return_home_not_verified')
+                    snapshot.capture(ctx,'return_home_not_verified')
                     complete=false; break
                 end
             end

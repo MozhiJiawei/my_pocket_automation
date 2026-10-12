@@ -159,6 +159,13 @@ def run_once(args, accounts, max_seconds, run_id, archive):
             text=config.read_text(encoding='utf-8').rstrip()
             text=text[:-1]+',tasks={'+','.join('"'+name+'"' for name in args.tasks)+'}}\n'
             config.write_text(text,encoding='utf-8')
+        text=config.read_text(encoding='utf-8').rstrip()
+        extra=',profile=true,zhuagui_target='+str(getattr(args,'zhuagui_target',25))
+        extra+=',puzzle_retry_attempt='+str(getattr(args,'puzzle_retry_attempt',0))
+        extra+=',dungeons={'+','.join('"'+name+'"' for name in getattr(args,'dungeons',['wuji','chechi']))+'}'
+        config.write_text(text[:-1]+extra+'}\n',encoding='utf-8')
+        record['zhuagui_target']=getattr(args,'zhuagui_target',25)
+        record['dungeons']=getattr(args,'dungeons',['wuji','chechi'])
         if args.step=='daily' or (getattr(args,'task',None)=='zhuagui' and args.step=='complete'):
             text=config.read_text(encoding='utf-8').rstrip()
             config.write_text(text[:-1]+',zhuagui_timeout='+str(max_seconds)+'}\n',encoding='utf-8')
@@ -254,6 +261,9 @@ def main():
     p.add_argument('--dungeon', choices=['wuji', 'chechi'], default='wuji')
     p.add_argument('--task', choices=['dungeon', 'zhuagui'], default='dungeon')
     p.add_argument('--zhuagui-budget', type=int, default=0, help='Explicit daily energy cap for ZhuaGui; defaults to zero')
+    p.add_argument('--zhuagui-target',type=int,default=25,help='Verified daily completion count to stop at (1–25)')
+    p.add_argument('--puzzle-retry-attempt',type=int,default=0,help='One explicitly authorized free puzzle resume for this owned attempt; otherwise zero')
+    p.add_argument('--dungeons',default='wuji,chechi',help='Selected daily dungeons, comma-separated')
     p.add_argument('--browse-rounds',type=int,default=1,help='Observation-only retries of the existing find task (1–60)')
     p.add_argument('--accounts', type=Path, help='External JSON list of configured saved-role aliases')
     p.add_argument('--account', help='One configured role for bounded recovery; full daily runs still verify the roster')
@@ -261,6 +271,11 @@ def main():
     p.add_argument('--step', choices=['enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
     args = p.parse_args()
     args.tasks=args.tasks.split(',')
+    args.dungeons=args.dungeons.split(',')
+    if not 1<=args.zhuagui_target<=25: raise ValueError('Ghost target must be between 1 and 25')
+    if not 0<=args.puzzle_retry_attempt<=25: raise ValueError('Invalid owned puzzle retry attempt')
+    if not args.dungeons or len(set(args.dungeons))!=len(args.dungeons) or any(name not in ('wuji','chechi') for name in args.dungeons):
+        raise ValueError('Invalid selected dungeons')
     if len(set(args.tasks))!=len(args.tasks) or any(name not in ('shimen','zhuagui','dungeon','rewards') for name in args.tasks):
         raise ValueError('Invalid selected tasks')
     if not 1<=args.browse_rounds<=60:

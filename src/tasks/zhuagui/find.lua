@@ -48,7 +48,7 @@ function M.solve(ctx)
     local features=catalog[name] or catalog[category] or legacy.items(category)
     log.write(ctx,'find_search','features=' .. #features .. ' category=' .. category)
     for pass=1,6 do
-        snapshot.capture(ctx,'find_catalog_page_' .. pass)
+        snapshot.capture(ctx,'find_catalog_page_' .. pass, 'debug')
         local started=os.time()
         local feature,scan_reason=scan(features)
         log.write(ctx,'find_scan','page='..pass..' features='..#features..' seconds='..(os.time()-started)..

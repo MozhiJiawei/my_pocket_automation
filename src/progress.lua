@@ -15,7 +15,7 @@ function M.write(ctx, task, status, stage, counters)
     local target = path(ctx, task)
     local file = assert(io.open(target .. '.pending', 'w'))
     local extra=''
-    for _,key in ipairs({'attempts','reserved_energy','completed_count','reward_cost_reserved','find_retries'}) do
+    for _,key in ipairs({'attempts','reserved_energy','completed_count','reward_cost_reserved','find_retries','find_retry_pending','puzzle_retries'}) do
         if counters and counters[key]~=nil then
             local value=counters[key]
             assert(type(value)=='number' and value>=0 and value%1==0,'invalid progress counter')

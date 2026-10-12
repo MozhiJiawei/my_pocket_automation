@@ -22,12 +22,13 @@ class GpuScreen(Screen):
             return False
 
     @classmethod
-    def configure_catalog(cls, catalog):
+    def configure_catalog(cls, *catalogs):
         if cls.groups is not None:
             return
         cls.groups = []
         cls.query_groups = {}
-        for _, features in catalog.items():
+        collections=[item for catalog in catalogs for item in catalog.items()]
+        for _, features in collections:
             queries = []
             def add(feature):
                 queries.append((int(feature['base']), feature['offsets'], feature['degree'] or 90,

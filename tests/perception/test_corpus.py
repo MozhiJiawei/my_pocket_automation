@@ -17,6 +17,8 @@ class CorpusTest(unittest.TestCase):
 
     def test_reviewed_recognition_and_planned_coordinates(self):
         cases,results=evaluate_inputs(load_cases())
+        for family in {c['truth']['puzzle_family']['value'] for c in cases if 'puzzle_family' in c['truth']}:
+            self.assertEqual(sum(c['truth'].get('puzzle_family',{}).get('value')==family for c in cases),24,family)
         seen=set()
         for result in results:
             with self.subTest(case=result['id']):

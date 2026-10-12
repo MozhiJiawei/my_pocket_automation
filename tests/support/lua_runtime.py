@@ -16,11 +16,19 @@ def compiled_source(path, source):
     return dump(source,('@'+path).encode('utf-8'))
 
 
+@lru_cache(maxsize=256)
+def versioned_module_code(path, modified_ns, size):
+    # Reuse immutable executable bytes across fresh VMs. File changes invalidate
+    # this cache; Lua module tables and recognition results are never shared.
+    source=Path(path).read_bytes()
+    return compiled_source(path,source),path
+
+
 def module_code(name):
     path=ROOT/'src'/Path(name.replace('.','/')+'.lua')
-    try:source=path.read_bytes()
+    try:version=path.stat()
     except FileNotFoundError:return None,None
-    return compiled_source(path.as_posix(),source),path.as_posix()
+    return versioned_module_code(path.as_posix(),version.st_mtime_ns,version.st_size)
 SEMANTICS = {'wild': '野鬼', 'horse': '马面', 'bull': '牛头', 'paper': '黄纸', 'zombie': '僵尸', 'skeleton': '骷髅怪',
              'snake_wine': '蛇胆酒', 'dew_wine': '珍露酒', 'tiger_wine': '虎骨酒',
              'plum_wine': '梅花酒', 'wine': '酒', 'weapon': '兵器'}
@@ -61,8 +69,11 @@ class Runtime:
                 return assert(load(code,'@'..path,'b')),path
             end
         """)
-        if hasattr(screen,'configure_catalog'):
-            screen.configure_catalog(self.require('tasks.zhuagui.assets.catalog'))
+        if hasattr(screen,'configure_catalog') and screen.groups is None:
+            entries=self.lua.table_from({'task_card':self.lua.table_from([
+                self.require('tasks.zhuagui.assets.task_card')])})
+            screen.configure_catalog(self.require('tasks.zhuagui.assets.catalog'),
+                                     self.require('tasks.zhuagui.assets.puzzle')['families'],entries)
         self.lua.execute("""
             package.preload['dfx.log']=function() return {write=offline_log} end
             package.preload['dfx.snapshot']=function() return {capture=offline_capture} end
@@ -77,7 +88,7 @@ class Runtime:
                 } end
             """)
 
-    def capture(self, ctx, label):
+    def capture(self, ctx, label, kind=None):
         if self.capture_hook:
             self.capture_hook(self, label)
 

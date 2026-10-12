@@ -1,6 +1,7 @@
 local detector = require('common.detector')
 local M = {}
 M.features = {
+    puzzle=require('tasks.zhuagui.assets.puzzle'),
     quota_dialogue=require('tasks.zhuagui.assets.quota_dialogue'),
     gourd_prompt=require('tasks.zhuagui.assets.gourd_prompt'),
     retry=require('tasks.zhuagui.assets.retry'),
@@ -27,12 +28,14 @@ function M.state()
     if detector.present(M.features.gourd_prompt) then return 'unknown' end
     if detector.present(M.features.quota_dialogue) then return 'quota_dialogue' end
     if detector.present(M.features.battle) then return 'battle' end
+    if detector.present(M.features.puzzle.title) then return 'puzzle' end
     if detector.present(M.features.find_title) then return 'find' end
     if detector.present(M.features.dialogue_next) then return 'dialogue' end
     if detector.present(M.features.rules) then return 'rules' end
     if detector.present(M.features.task_tutorial) then return 'task_tutorial' end
     if detector.present(M.features.calendar_tutorial) then return 'calendar_tutorial' end
     if detector.present(M.features.title) then
+        if detector.present(M.features.puzzle.retry_prompt) and detector.present(M.features.puzzle.retry_button) then return 'puzzle_retry' end
         if detector.present(M.features.retry) then return 'retry' end
         if detector.present(M.features.idle) and not detector.present(M.features.accept)
             and require('tasks.zhuagui.counter').read()==25 then return 'quota_idle' end

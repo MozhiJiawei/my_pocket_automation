@@ -9,6 +9,7 @@
 | `ts-cli.ps1` | 发布、启动、查询状态和采集；发布前检查空闲状态并校验哈希。 |
 | `collect-debug.ps1` | 采集指定设备和轮次的日志、截图及结果。 |
 | `inspect-device.py` | 观察当前画面，按已验证条件执行开发调试操作。 |
+| `collect-puzzles.py` | 对当前有账本的未完成拼图做有界免费重开采集，不选择图块、不接新任务。 |
 | `dfx_device.py` | 共用设备通信、命令执行与请求实现。 |
 
 使用仓库根目录的 [项目说明](</D:/Agent Repo/my_pocket_automation/README.md>) 查看运行参数和费用边界；具体故障处理见 [DFX 说明](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。运行器用于当前主循环，CLI 的默认源码仍是早期登录实验，直接使用时须明确目标源码。
@@ -24,5 +25,11 @@
 `--account <已配置别名>` 用于有界的单角色恢复；与 `--step daily` 组合时，核对全名单后仅运行指定角色，汇总范围为 `selected_roles`，不会报告全部角色完成。副本接管已有战斗只被动等待；抓鬼可推进已记录任务的免费对话、寻物和重试。身份未核对时不新接任务，不记录抓鬼完成；返回待接取页面后先核对主页身份。
 
 每个副本默认最多等待60分钟，覆盖连续多场战斗；运行器默认完整流程等待10800秒，`complete/advance` 等待3900秒，`--max-seconds` 可明确设置电脑端上限。超时保留已启动记录，先检查现场再恢复，不重新开启副本。
+
+`--zhuagui-target 10 --zhuagui-budget 30 --dungeons wuji` 配置每日第10次抓鬼目标、30精力预算及乌鸡国范围，不执行车迟国。抓鬼以页面次数验证完成，达到本轮目标不把整日25次记为已完成。预算保护存在未修复缺口，配置值不能保证实际消耗上限，见 `docs/STATUS.md`。寻物识别失败最多免费重试3次，先保存错误现场；其他页面错误不触发该重试。
+
+运行器默认开启 Profile。`daily_<轮次>.log` 保存关键状态与结果，`_error.log` 保存错误与截图路径，`_profile.log` 保存调用次数、累计耗时、最大耗时与 CPU 时间。常规截图和逐次点击日志默认关闭；仅在专项采集时显式启用配置中的 `routine_screenshots` 或 `verbose_logs`。
+
+拼图专项采集须有用户明确授权：`python scripts/device/collect-puzzles.py --device <设备> --account <别名> --rounds 10`。电脑端验证设备空闲与当天running账本，只点击该抓鬼NPC失败对话的“继续”，每个重开画面保存一张原图，等待上一张到时后才重开下一张；结束复核接取、完成和预算记录未改变。该工具是电脑辅助采集，不代表设备脚本已适配拼图。原图与采集记录在 `debug-runs/`，审核图由 `scripts/perception/review-puzzles.py <采集目录...> --output <审核目录>` 生成；未批准的归组与标注过程数据在 `.tmp/annotation/拼图/`。
 
 `selected_complete` 表示本轮所选范围内的角色都完成所选任务；指定单角色时不能据此称作全部角色完成。`daily_complete` 只有师门、抓鬼、副本、收尾处理四类都实现并完成时才为真。师门和收尾仍是占位，不能把本轮三件任务当作全部日常完成。

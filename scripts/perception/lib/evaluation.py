@@ -74,6 +74,10 @@ def evaluate_case(case, frame=None):
             actual=runtime.count()
             actual='unknown' if actual is None else actual
             passed=actual==value
+        elif name in ('puzzle_family','puzzle_order'):
+            family,locations=runtime.require('tasks.zhuagui.puzzle').read()
+            actual=family if name=='puzzle_family' else ''.join(chr(64+int(i)) for i in locations.values()) if locations else None
+            passed=actual==value
         elif name in ('target_regions', 'negative_regions'):
             if plan is None:
                 plan=runtime.locate()

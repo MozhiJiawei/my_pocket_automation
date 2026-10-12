@@ -1,6 +1,7 @@
 local log = require('dfx.log')
 local M = {}
-function M.capture(ctx, label)
+function M.capture(ctx, label, kind)
+    if kind=='debug' and (not ctx.config or ctx.config.routine_screenshots~=true) then return end
     assert(label:match('^[%w_-]+$'), 'invalid snapshot label')
     ctx.sequence = ctx.sequence + 1
     local w, h = require('common.screen').size()
@@ -9,7 +10,7 @@ function M.capture(ctx, label)
     local file = assert(io.open(path, 'rb'))
     assert(file:seek('end') > 0, 'empty snapshot')
     file:close()
-    log.write(ctx, 'screenshot', path)
+    log.write(ctx, kind=='debug' and 'screenshot' or 'error_screenshot', path)
     return path
 end
 return M

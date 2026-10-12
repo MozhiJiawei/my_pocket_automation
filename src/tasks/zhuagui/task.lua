@@ -10,7 +10,7 @@ local function act(ctx,feature,label)
     return device.tap(ctx,feature,label)
 end
 local function is_active(state)
-    return state=='go' or state=='depart' or state=='dialogue' or state=='find' or state=='battle' or state=='retry'
+    return state=='go' or state=='depart' or state=='dialogue' or state=='find' or state=='battle' or state=='retry' or state=='puzzle' or state=='puzzle_retry'
 end
 local function resume_active(ctx)
     local record=progress.read(ctx,'zhuagui')
@@ -19,6 +19,21 @@ local function resume_active(ctx)
 end
 function M.observe(ctx)
     log.write(ctx,'zhuagui_observe','state=' .. pages.state() .. ' no_actions=true')
+end
+local function open_list_card(ctx)
+    -- Card order and the list's retained scroll position are not fixed.
+    for page=1,13 do
+        local state=pages.state()
+        if state~='task_list' and state~='quota_completed_card' then return false,'task_list_changed' end
+        if act(ctx,pages.features.task_card,'zhuagui_open_detail') then return true end
+        if page==13 then break end
+        local from,to={780,1250},{780,570}
+        if page>4 then from,to=to,from end
+        if not device.swipe(ctx,pages.features.task_list_title,'zhuagui_find_task_card',from,to) then
+            return false,'task_list_changed'
+        end
+    end
+    return false,'task_card_not_found_after_scroll'
 end
 local function enter(ctx)
     local state=pages.state()
@@ -60,12 +75,20 @@ local function enter(ctx)
     if is_active(pages.state()) then return resume_active(ctx) end
     local owned=progress.read(ctx,'zhuagui')
     if owned and owned.attempts==25 then return result('running','entered_completion_list_no_accept') end
-    if not act(ctx,pages.features.task_card,'zhuagui_open_detail') then
-        return result('blocked','task_card_disappeared')
+    local opened,reason=open_list_card(ctx)
+    if not opened then
+        snapshot.capture(ctx,reason)
+        return result('blocked',reason)
     end
-    if not device.wait(function() return pages.state()=='ready_cost_three' end,20) then
+    if not device.wait(function() local s=pages.state();return s=='ready_cost_three' or s=='rules' end,20) then
         snapshot.capture(ctx,'zhuagui_entry_result')
         return result('paused','entry_postcondition_not_verified')
+    end
+    if pages.state()=='rules' then
+        if not act(ctx,pages.features.rules,'zhuagui_close_rules') or
+            not device.wait(function() return pages.state()=='ready_cost_three' end,20) then
+            return result('paused','rules_return_not_verified')
+        end
     end
     log.write(ctx,'energy_policy','zhuagui per_task=3 cap=' .. tostring(ctx.config.zhuagui_budget or 0))
     return result('running','entered_ready_cost_three_no_task_accepted')
@@ -83,7 +106,7 @@ local function start(ctx)
     local count=counter.read()
     if count==nil or count~=(existing and existing.attempts or 0) then return result('paused','count_requires_calibration') end
     local counters={reserved_energy=reserved+3,attempts=(existing and existing.attempts or 0)+1,
-        completed_count=existing and existing.completed_count or 0,find_retries=0}
+        completed_count=existing and existing.completed_count or 0,find_retries=0,find_retry_pending=0,puzzle_retries=0}
     progress.write(ctx,'zhuagui','running','start_requested',counters)
     log.write(ctx,'energy_reservation','zhuagui reserved=' .. counters.reserved_energy .. ' cap=' .. cap)
     if not act(ctx,pages.features.accept,'zhuagui_accept') then
@@ -134,7 +157,7 @@ local function drive(ctx,stop_after_one)
                 progress.write(ctx,'zhuagui','paused','one_task_completed',record)
                 record.status='paused'
                 log.write(ctx,'zhuagui_completed','count=' .. count .. ' reserved_energy=' .. record.reserved_energy)
-                snapshot.capture(ctx,'zhuagui_completion_evidence')
+                snapshot.capture(ctx,'zhuagui_completion_evidence','debug')
             elseif record.stage~='one_task_completed' then
                 return result('blocked','unverified_progress_stage')
             end
@@ -142,6 +165,9 @@ local function drive(ctx,stop_after_one)
                 progress.write(ctx,'zhuagui','done','all_25_completed_gourds_unopened',record)
                 log.write(ctx,'reward_policy','zhuagui gourds_opened=false')
                 return result('done','all_25_completed_gourds_unopened')
+            end
+            if count>=(ctx.config.zhuagui_target or 25) then
+                return result('done','target_'..count..'_completed_gourds_unopened')
             end
             if stop_after_one then return result('paused','one_task_completed') end
             local entered=enter(ctx)
@@ -164,25 +190,48 @@ local function drive(ctx,stop_after_one)
             completion_scrolls=completion_scrolls+1
         elseif state=='battle' then
             mSleep(1000)
+        elseif state=='puzzle_retry' then
+            if ctx.config.puzzle_retry_attempt~=record.attempts or (record.puzzle_retries or 0)>=1 then
+                snapshot.capture(ctx,'puzzle_retry_not_authorized')
+                return result('paused','puzzle_retry_not_authorized')
+            end
+            record.puzzle_retries=(record.puzzle_retries or 0)+1
+            progress.write(ctx,'zhuagui','running','authorized_puzzle_resume',record)
+            log.write(ctx,'puzzle_retry','owned_attempt='..record.attempts..' retry=1 no_new_accept=true')
+            if not act(ctx,pages.features.puzzle.retry_button,'resume_owned_puzzle') then return result('paused','puzzle_retry_target_changed') end
+        elseif state=='puzzle' then
+            local solved,reason=require('tasks.zhuagui.puzzle').solve(ctx)
+            if not solved then snapshot.capture(ctx,reason);return result('paused',reason) end
+            log.write(ctx,'puzzle_solved','attempt='..record.attempts)
         elseif state=='find' then
             local solved,reason,category=require('tasks.zhuagui.find').solve(ctx)
             if not solved then
+                log.write(ctx,'error','task=zhuagui attempt='..record.attempts..' reason='..reason..' category='..tostring(category))
                 snapshot.capture(ctx,reason)
-                local retryable=reason=='find_icon_not_found' or reason=='find_time_expired' or reason=='find_page_changed'
-                if category~='兵器' or not retryable or
-                    not device.wait(function() return pages.state()=='retry' end,30,300) then
+                local retryable=({find_icon_not_found=true,find_time_expired=true,find_target_unknown=true,
+                    find_click_not_confirmed=true,wine_requires_specific_calibration=true,
+                    find_target_requires_calibration=true})[reason]
+                if not retryable then return result('paused',reason) end
+                record.find_retry_pending=1
+                progress.write(ctx,'zhuagui','running','find_recognition_failed',record)
+                if not device.wait(function() return pages.state()=='retry' end,120,300) then
                     return result('paused',reason)
                 end
-                log.write(ctx,'find_retry_pending','weapon reason=' .. reason)
+                log.write(ctx,'find_retry_pending','reason=' .. reason)
             end
         elseif state=='dialogue' or state=='go' or state=='depart' or state=='retry' then
             actions=actions+1
             if actions>12 then snapshot.capture(ctx,'action_limit'); return result('paused','action_limit') end
             if state=='retry' then
+                if record.find_retry_pending~=1 then
+                    snapshot.capture(ctx,'unexpected_retry_page')
+                    return result('paused','retry_without_recognition_failure')
+                end
                 if (record.find_retries or 0)>=3 then
                     snapshot.capture(ctx,'find_retry_limit'); return result('paused','find_retry_limit')
                 end
                 record.find_retries=(record.find_retries or 0)+1
+                record.find_retry_pending=0
                 progress.write(ctx,'zhuagui','running','free_find_retry_reserved',record)
                 log.write(ctx,'find_retry','attempt=' .. record.attempts .. ' retries=' .. record.find_retries .. '/3 no_new_accept=true')
                 actions=0
@@ -201,7 +250,7 @@ local function drive(ctx,stop_after_one)
         if state~='active_uncalibrated' and state~='unknown' then unknown_since=nil end
         if os.time()-heartbeat>=30 then
             log.write(ctx,'waiting','zhuagui ' .. state)
-            snapshot.capture(ctx,'zhuagui_waiting')
+            snapshot.capture(ctx,'zhuagui_waiting','debug')
             heartbeat=os.time()
         end
         mSleep(500)
@@ -211,6 +260,8 @@ local function drive(ctx,stop_after_one)
 end
 function M.run(ctx)
     assert(ctx.config.allow_reward_claim==false,'reward claims forbidden')
+    local target=ctx.config.zhuagui_target or 25
+    assert(type(target)=='number' and target>=1 and target<=25 and target%1==0,'invalid ghost target')
     M.observe(ctx)
     local step=ctx.config.step
     if step=='observe' then return result('paused','observation_only') end

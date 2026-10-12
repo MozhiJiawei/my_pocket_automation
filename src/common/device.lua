@@ -5,7 +5,7 @@ local M = {}
 function M.tap(ctx, feature, label)
     local found = detector.find(feature)
     if not found then return false end
-    snapshot.capture(ctx, label .. '_before')
+    snapshot.capture(ctx, label .. '_before', 'debug')
     found = detector.find(feature)
     if not found then
         log.write(ctx,'tap_skipped',label .. ' target_changed_during_capture')
@@ -16,7 +16,7 @@ function M.tap(ctx, feature, label)
     log.write(ctx, 'tap', string.format('%s x=%d y=%d', label, x, y))
     tap(x, y)
     mSleep(1200)
-    snapshot.capture(ctx, label .. '_after')
+    snapshot.capture(ctx, label .. '_after', 'debug')
     return true
 end
 function M.wait(predicate, attempts, interval)
@@ -29,7 +29,7 @@ end
 function M.swipe(ctx, feature, label, from, to, options)
     options=options or {}
     if not detector.present(feature) then return false end
-    if options.capture_before~=false then snapshot.capture(ctx, label .. '_before') end
+    if options.capture_before~=false then snapshot.capture(ctx, label .. '_before', 'debug') end
     log.write(ctx, 'swipe', label)
     if not detector.present(feature) then
         log.write(ctx,'swipe_skipped',label .. ' target_changed_during_capture')
@@ -42,7 +42,7 @@ function M.swipe(ctx, feature, label, from, to, options)
     end
     touchUp(1, to[1], to[2])
     mSleep(options.settle_ms or 1200)
-    if options.capture_after~=false then snapshot.capture(ctx, label .. '_after') end
+    if options.capture_after~=false then snapshot.capture(ctx, label .. '_after', 'debug') end
     return true
 end
 return M

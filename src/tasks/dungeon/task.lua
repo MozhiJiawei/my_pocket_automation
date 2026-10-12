@@ -44,7 +44,7 @@ local function finish(ctx, id)
         snapshot.capture(ctx,id..'_completion_not_verified')
         return result('blocked', 'completion_not_verified')
     end
-    snapshot.capture(ctx, id .. '_completion_evidence')
+    snapshot.capture(ctx, id .. '_completion_evidence', 'debug')
     local ownership=progress.read(ctx,id)
     if not ownership or (ownership.status~='running' and ownership.status~='done') then
         progress.write(ctx,id,'observed','completion_date_unverified')
@@ -107,7 +107,7 @@ end
 local function recover_completed(ctx,id)
     local record=progress.read(ctx,id)
     if record and (record.status=='running' or record.status=='done') then return finish(ctx,id) end
-    snapshot.capture(ctx,id..'_carryover_completion_evidence')
+    snapshot.capture(ctx,id..'_carryover_completion_evidence', 'debug')
     progress.write(ctx,id,'observed','completion_date_unverified')
     log.write(ctx,'dungeon_carryover',id..' complete_observed=true today_start_verified=false')
     if pages.state()==id..'_reward_sealed' then
@@ -125,7 +125,7 @@ local function wait_battles(ctx, id, stop_after_battle)
         local state = pages.state()
         if state ~= last_state then log.write(ctx, 'state', id .. ' ' .. state); last_state=state end
         if state == id .. '_reward_sealed' or state == id .. '_done' then
-            if stop_after_battle then snapshot.capture(ctx, 'next_state'); return result('paused', 'battle_completed') end
+            if stop_after_battle then snapshot.capture(ctx, 'next_state', 'debug'); return result('paused', 'battle_completed') end
             return finish(ctx, id)
         elseif state == 'battle' then
             unknown_since = nil
@@ -142,7 +142,7 @@ local function wait_battles(ctx, id, stop_after_battle)
         end
         if os.time()-heartbeat >= 30 then
             log.write(ctx, 'waiting', id .. ' ' .. state)
-            snapshot.capture(ctx, 'waiting')
+            snapshot.capture(ctx, 'waiting', 'debug')
             heartbeat=os.time()
         end
         mSleep(1000)
@@ -216,7 +216,7 @@ function M.run(ctx)
     if step=='daily' then
         assert(ctx.identity_verified, 'role identity must be verified')
         local outcomes={}
-        for _, target in ipairs({'wuji','chechi'}) do
+        for _, target in ipairs(ctx.config.dungeons or {'wuji','chechi'}) do
             local record=progress.read(ctx,target)
             if not record or record.status~='done' or (ctx.account.claim_dungeon_rewards==true and record.stage~='reward_claimed') then
                 if detector.present(require('common.assets.home_dungeon')) then
@@ -244,7 +244,7 @@ function M.run(ctx)
             log.write(ctx,'dungeon_result',target .. ' status=' .. outcome.status .. ' reason=' .. outcome.reason)
             if outcome.status~='done' then outcome.items=outcomes; return outcome end
         end
-        return {status='done',reason=ctx.account.claim_dungeon_rewards==true and 'both_dungeons_done_rewards_claimed' or 'both_dungeons_done_rewards_unclaimed',items=outcomes}
+        return {status='done',reason=ctx.account.claim_dungeon_rewards==true and 'selected_dungeons_done_rewards_claimed' or 'selected_dungeons_done_rewards_unclaimed',items=outcomes}
     end
     M.observe(ctx)
     if step=='observe' then return result('paused','observation_only') end

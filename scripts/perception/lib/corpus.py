@@ -1,6 +1,7 @@
 """Discover named image cases. Directory names and local answers are the only truth."""
 import json
 import struct
+import itertools
 from pathlib import Path
 from copy import deepcopy
 import cv2
@@ -52,6 +53,7 @@ def directory_truth(relative):
             target={'上好的兵器':'兵器','未知题目':'unknown'}.get(parts[2],parts[2])
             return {'page':'find','question':{'target':target,'text':None},'target_regions':None}
         if parts[1]=='页面':return {'page':PAGES[parts[2]]}
+        if parts[1]=='拼图':return {'page':'puzzle','puzzle_family':parts[2]}
         if parts[1]=='次数识别':return {'count':int(parts[2][3:-1])}
     if parts[0]=='副本':
         page=DUNGEON.get('/'.join(parts[1:-1]))
@@ -60,13 +62,14 @@ def directory_truth(relative):
 
 
 def load_cases(task=None):
-    cases=[]
+    cases=[];documents={}
     for key,name in TASKS.items():
         if task and task not in (key,name):continue
         for image in sorted((ROOT/name).rglob('*.png')):
             relative=image.relative_to(ROOT)
             if '审核依据' in relative.parts or '连续帧' in relative.parts:continue
-            document=read_answers(image.parent)
+            if image.parent not in documents:documents[image.parent]=read_answers(image.parent)
+            document=documents[image.parent]
             extra=document.get('预期',{}).get(image.name,{})
             values=directory_truth(relative.parent)
             values.update({k:v for k,v in extra.items() if k not in ('不检查','用途','合成')})
@@ -179,6 +182,28 @@ def iter_variants(case,crops,original=None,persist=True):
                     yield derived
                 else:
                     yield derived,canvas
+    field=case['truth'].get('puzzle_order',{})
+    if field.get('status') not in VERIFIED:return
+    cells=json.loads((ROOT/'抓鬼/拼图/格位.json').read_text(encoding='utf-8'))
+    tiles=[original[y1:y2,x1:x2].copy() for x1,y1,x2,y2 in cells]
+    for permutation in itertools.permutations(range(4)):
+        if permutation==(0,1,2,3):continue  # The original is evaluated once.
+        canvas=original.copy()
+        for cell,source in zip(cells,permutation):
+            x1,y1,x2,y2=cell;canvas[y1:y2,x1:x2]=tiles[source]
+        order=''.join(chr(65+permutation.index(ord(letter)-65)) for letter in field['value'])
+        relative=Path(case['id']).with_suffix('')/('四格_'+''.join(chr(65+i) for i in permutation)+'.png')
+        derived={'id':relative.as_posix(),'task':case['task'],'image':relative.as_posix(),
+                 'capture':{**case['capture'],'origin':'synthetic'},
+                 'truth':deepcopy(case['truth']),'expected':deepcopy(case['expected']),
+                 'augmentation':{'parent':case['id'],'crop':[cells[0][0],cells[0][1],cells[-1][2],cells[-1][3]],
+                                 'cells':cells,'permutation':list(permutation)}}
+        derived['truth']['puzzle_order']=annotation(order)
+        if persist:
+            path=image_path(derived);path.parent.mkdir(parents=True,exist_ok=True)
+            cv2.imencode('.png',canvas)[1].tofile(path)
+            yield derived
+        else:yield derived,canvas
 
 
 def evaluation_cases(cases):

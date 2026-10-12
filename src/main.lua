@@ -4,10 +4,12 @@ local snapshot = require('dfx.snapshot')
 local config_file = '/storage/emulated/0/TouchSprite/res/daily_config.lua'
 local config = assert(loadfile(config_file))()
 local ctx = require('dfx.run').new(config)
+local profile = require('dfx.profile')
 local ok, err = pcall(function()
     require('common.screen').init(0)
     log.write(ctx, 'start', 'version=daily_002 mode=' .. config.mode)
-    snapshot.capture(ctx, 'start')
+    profile.install(ctx)
+    snapshot.capture(ctx, 'start', 'debug')
     if config.mode == 'observe' then
         require('tasks.' .. (config.task or 'dungeon') .. '.task').observe(ctx)
     else
@@ -23,19 +25,20 @@ local ok, err = pcall(function()
             ctx.account = account
             ctx.identity_verified = false
             log.write(ctx, 'account', account.alias)
-            if config.verify_role and not require('common.navigation').prepare_recorded(ctx) then
+            if config.verify_role then
                 local ghost=config.task=='zhuagui'
                 local state=require(ghost and 'tasks.zhuagui.pages' or 'tasks.dungeon.pages').state()
                 local owned=require('progress').read(ctx,ghost and 'zhuagui' or config.dungeon or 'wuji')
-                local active=ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true})[state]
+                local active=ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true,puzzle=true,puzzle_retry=true})[state]
                     or not ghost and (state=='battle' or state=='loading')
                 local recovery=config.step=='complete' or (ghost and config.step=='browse')
-                if not recovery or not active or not owned or owned.status~='running' then
+                if recovery and active and owned and owned.status=='running' then
+                    log.write(ctx,'owned_resume','task='..config.task..' identity_unverified_no_new_accept_or_reward_claim')
+                elseif not require('common.navigation').prepare_recorded(ctx) then
                     log.write(ctx,'task_result','account status=blocked reason=saved_role_not_ready')
                     log.write(ctx,'summary','daily_done=false reason=account_blocked')
                     return
                 end
-                log.write(ctx,'owned_resume','task='..config.task..' identity_unverified_no_new_accept_or_reward_claim')
             end
             if config.step == 'daily' and not require('common.navigation').prepare_recorded(ctx) then
                 log.write(ctx, 'task_result', 'account status=blocked reason=saved_role_not_ready')
@@ -70,5 +73,6 @@ if not ok then
     if not error_logged then pcall(nLog, '[daily][' .. ctx.run_id .. '][failed] ' .. tostring(err)) end
     pcall(snapshot.capture, ctx, 'failure')
 end
+pcall(profile.flush,ctx)
 local finished_ok = pcall(log.write, ctx, 'finished', ok and 'script_exited_normally' or 'script_failed')
 if not finished_ok then pcall(nLog, '[daily][' .. ctx.run_id .. '][finished] diagnostic_log_unavailable') end
