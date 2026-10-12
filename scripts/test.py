@@ -26,6 +26,7 @@ def tooling_tests():
     # Separate process: tooling tests patch evaluator methods and must not
     # change the production suite's runtime while both suites run.
     suite=unittest.TestLoader().discover(str(ROOT/'scripts/perception/tests'),top_level_dir=str(ROOT))
+    suite.addTests(unittest.TestLoader().discover(str(ROOT/'annotation-web'),pattern='test_*.py'))
     output=io.StringIO()
     result=unittest.TextTestRunner(stream=output,verbosity=1,resultclass=TimedResult).run(suite)
     for elapsed,name in sorted(result.timings,reverse=True)[:3]:

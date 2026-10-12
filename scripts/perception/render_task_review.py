@@ -8,14 +8,24 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from scripts.perception.lib.corpus import image_path,load_cases,read_answers,regions
-from scripts.perception.lib.task_review import VIEWPORT,rounds,scroll_offset
+from scripts.perception.lib.task_review import VIEWPORT,rounds,scroll_offset,compose_rows,item_cells
 
 
-def compose(pages):
+def compose(pages, with_sources=False):
+    if pages:
+        import numpy as np
+        first=pages[min(pages)]
+        if item_cells(np.asarray(Image.open(image_path(first)).convert('RGB'))):
+            result=compose_rows(pages)
+            return result if with_sources else result[:3]
+    return _compose_pixels(pages,with_sources)
+
+def _compose_pixels(pages, with_sources=False):
     images = [(page, case, Image.open(image_path(case)).convert('RGB'))
               for page, case in sorted(pages.items())]
     segments, records, previous, position = [], [], None, 0
     height = 0
+    sources_map = []
     for capture_index, (page, case, frame) in enumerate(images):
         crop = frame.crop(VIEWPORT)
         alignment = None if previous is None else scroll_offset(previous, crop)
@@ -29,7 +39,11 @@ def compose(pages):
         duplicated = previous is not None and alignment['accepted'] and extension <= 32
         if not duplicated:
             source_start = max(0, height - position)
-            segments.append((height if source_start else position, crop.crop((0, source_start, crop.width, crop.height))))
+            destination=height if source_start else position
+            segments.append((destination, crop.crop((0, source_start, crop.width, crop.height))))
+            sources_map.append({'image':Path(case['image']).name,
+                                'source':[VIEWPORT[0],VIEWPORT[1]+source_start,VIEWPORT[2],VIEWPORT[3]],
+                                'destination':[0,destination,crop.width,destination+crop.height-source_start]})
             height = max(height, position + crop.height)
         records.append({'page': page, 'case_id': case['id'],
                         'list_origin_y': position, 'alignment': alignment,
@@ -54,7 +68,11 @@ def compose(pages):
             if eligible and bottom > top:
                 _, record, crop = min(eligible, key=lambda item: item[0])
                 strip.paste(crop.crop((0, top-record['list_origin_y'], crop.width, bottom-record['list_origin_y'])), (0, top))
-    return strip, records, images[0][2]
+                sources_map.append({'image':Path(record['case_id']).name,
+                    'source':[VIEWPORT[0],VIEWPORT[1]+top-record['list_origin_y'],VIEWPORT[2],VIEWPORT[1]+bottom-record['list_origin_y']],
+                    'destination':[0,top,crop.width,bottom]})
+    result=(strip, records, images[0][2])
+    return (*result,sources_map) if with_sources else result
 
 
 def main():
@@ -70,27 +88,30 @@ def main():
     output.mkdir(parents=True,exist_ok=True)
     font=ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',18)
     lines=['# 原图真值审核','', '绿框为正式正确答案，蓝框为明确反例；未框选位置仍为未知。','']
-    cases=load_cases('zhuagui');groups=rounds(cases)
+    cases=load_cases();groups=rounds(cases)
     if args.case:
         selected=[c for c in cases if str(Path(c['image']).parent).replace(chr(92),'/')==args.case]
-        if selected:groups[args.case]={i:c for i,c in enumerate(selected,1)}
+        if not selected:parser.error('No input images in the selected case')
+        groups[args.case]={i:c for i,c in enumerate(selected,1)}
     for identity,pages in groups.items():
         if args.case and identity!=args.case:continue
         if args.topic and (pages[1]['truth'].get('question',{}).get('value') or {}).get('target')!=args.topic:continue
-        strip,records,header=compose(pages)
+        strip,records,header,layers=compose(pages,with_sources=True)
         draw=ImageDraw.Draw(strip)
         documents=[(read_answers(ROOT/'testdata'/identity),'green','blue')]
         if args.proposal:
             documents.append((json.loads(args.proposal.read_text(encoding='utf-8')),'orange','orange'))
-        for record in records:
-            case=pages[record['page']]
+        for layer in layers:
             for document,positive,negative in documents:
                 for section,color in [('正确',positive),('反例',negative)]:
                     for label,locations in document.get(section,{}).items():
-                        for x1,y1,x2,y2 in regions(locations.get(Path(case['image']).name,[])):
-                            box=[x1-VIEWPORT[0],y1-VIEWPORT[1]+record['list_origin_y'],x2-VIEWPORT[0],y2-VIEWPORT[1]+record['list_origin_y']]
-                            draw.rectangle(box,outline=color,width=4)
-                            draw.text((box[0],box[1]),label,font=font,fill=color,stroke_width=1,stroke_fill='white')
+                        for alias in layer.get('aliases',[layer]):
+                            sx,sy,ex,ey=alias['source'];dx,dy,_,_=layer['destination']
+                            for x1,y1,x2,y2 in regions(locations.get(alias['image'],[])):
+                                if not (sx<=x1<x2<=ex and sy<=y1<y2<=ey):continue
+                                box=[x1-sx+dx,y1-sy+dy,x2-sx+dx,y2-sy+dy]
+                                draw.rectangle(box,outline=color,width=4)
+                                draw.text((box[0],box[1]),label,font=font,fill=color,stroke_width=1,stroke_fill='white')
         hint=header.crop((VIEWPORT[0],245,VIEWPORT[2],450))
         sheet=Image.new('RGB',(strip.width,strip.height+hint.height),'#40556d')
         sheet.paste(hint,(0,0));sheet.paste(strip,(0,hint.height))

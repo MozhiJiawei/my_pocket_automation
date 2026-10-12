@@ -9,6 +9,10 @@ logs/
 debug-runs/
 dist/
 .tmp/
+annotation-web/未完成/*
+!annotation-web/未完成/.gitkeep
+annotation-web/已完成/*
+!annotation-web/已完成/.gitkeep
 *.log
 __pycache__/
 .DS_Store
