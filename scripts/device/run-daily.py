@@ -59,6 +59,8 @@ def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tas
         expected_pause=mode=='run'
     if task=='zhuagui' and step=='browse' and reason=='find_catalog_observation_only':
         expected_pause=mode=='run'
+    if task=='shimen' and step=='advance':
+        expected_pause=mode=='run' and reason in ('one_minigame_completed','one_task_completed')
     acceptable = script == 'succeeded' and (
         business in ('observed', 'incomplete', 'done', 'running') or
         (business == 'paused' and expected_pause))
@@ -137,7 +139,8 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         log = archive / 'log' / f'daily_{run_id}.log'
         if log.exists():
             text = log.read_text(encoding='utf-8')
-            expected_accounts=[item for item in accounts if not getattr(args,'account',None) or item['alias']==args.account]
+            selected=getattr(args,'select_accounts',None) or ([args.account] if getattr(args,'account',None) else None)
+            expected_accounts=[item for item in accounts if not selected or item['alias'] in selected]
             record.update(runtime_result(text, args.mode, args.step, getattr(args, 'task', 'dungeon'),expected_accounts,
                                          getattr(args,'tasks',None)))
             return text
@@ -159,9 +162,17 @@ def run_once(args, accounts, max_seconds, run_id, archive):
             text=config.read_text(encoding='utf-8').rstrip()
             text=text[:-1]+',tasks={'+','.join('"'+name+'"' for name in args.tasks)+'}}\n'
             config.write_text(text,encoding='utf-8')
+        if getattr(args,'select_accounts',None):
+            text=config.read_text(encoding='utf-8').rstrip()
+            config.write_text(text[:-1]+',selected_accounts={'+','.join(json.dumps(alias) for alias in args.select_accounts)+'},verify_role=true}\n',encoding='utf-8')
         text=config.read_text(encoding='utf-8').rstrip()
         extra=',profile=true,zhuagui_target='+str(getattr(args,'zhuagui_target',25))
         extra+=',puzzle_retry_attempt='+str(getattr(args,'puzzle_retry_attempt',0))
+        extra+=',shimen_needed='+str(getattr(args,'shimen_needed',2))
+        if getattr(args,'shimen_puzzle_family',None):
+            extra+=',shimen_puzzle_family='+json.dumps(args.shimen_puzzle_family,ensure_ascii=False)
+        extra+=',routine_screenshots='+str(getattr(args,'routine_screenshots',False)).lower()
+        extra+=',verbose_logs='+str(getattr(args,'verbose_logs',False)).lower()
         extra+=',dungeons={'+','.join('"'+name+'"' for name in getattr(args,'dungeons',['wuji','chechi']))+'}'
         config.write_text(text[:-1]+extra+'}\n',encoding='utf-8')
         record['zhuagui_target']=getattr(args,'zhuagui_target',25)
@@ -259,7 +270,11 @@ def main():
     p.add_argument('--mode', choices=['observe', 'run'], default='observe')
     p.add_argument('--max-seconds', type=int)
     p.add_argument('--dungeon', choices=['wuji', 'chechi'], default='wuji')
-    p.add_argument('--task', choices=['dungeon', 'zhuagui'], default='dungeon')
+    p.add_argument('--task', choices=['dungeon', 'zhuagui','shimen'], default='dungeon')
+    p.add_argument('--shimen-needed',type=int,default=2)
+    p.add_argument('--shimen-puzzle-family',help='Explicit family for one owned legacy-puzzle attempt; no new task or automatic retry')
+    p.add_argument('--routine-screenshots',action='store_true',help='Archive before/after frames for device debugging')
+    p.add_argument('--verbose-logs',action='store_true',help='Record individual guarded taps and swipes')
     p.add_argument('--zhuagui-budget', type=int, default=0, help='Explicit daily energy cap for ZhuaGui; defaults to zero')
     p.add_argument('--zhuagui-target',type=int,default=25,help='Verified daily completion count to stop at (1–25)')
     p.add_argument('--puzzle-retry-attempt',type=int,default=0,help='One explicitly authorized free puzzle resume for this owned attempt; otherwise zero')
@@ -267,10 +282,16 @@ def main():
     p.add_argument('--browse-rounds',type=int,default=1,help='Observation-only retries of the existing find task (1–60)')
     p.add_argument('--accounts', type=Path, help='External JSON list of configured saved-role aliases')
     p.add_argument('--account', help='One configured role for bounded recovery; full daily runs still verify the roster')
+    p.add_argument('--select-accounts',nargs='+',help='Configured roles to run in daily mode; verify the full saved roster first')
     p.add_argument('--tasks', default='zhuagui,dungeon', help='Daily selected task modules, comma-separated')
     p.add_argument('--step', choices=['enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
     args = p.parse_args()
+    if not 1<=args.shimen_needed<=10:raise ValueError('Invalid Shimen item count')
+    if args.shimen_puzzle_family and (args.task!='shimen' or args.step!='advance' or args.mode!='run' or not re.fullmatch(r'[\w\u4e00-\u9fff]{1,20}',args.shimen_puzzle_family)):
+        raise ValueError('Puzzle family requires one Shimen advance run')
     args.tasks=args.tasks.split(',')
+    if len(set(args.tasks))!=len(args.tasks) or not set(args.tasks)<= {'shimen','zhuagui','dungeon','rewards'}:
+        raise ValueError('Tasks must be a unique list of supported modules')
     args.dungeons=args.dungeons.split(',')
     if not 1<=args.zhuagui_target<=25: raise ValueError('Ghost target must be between 1 and 25')
     if not 0<=args.puzzle_retry_attempt<=25: raise ValueError('Invalid owned puzzle retry attempt')
@@ -294,6 +315,8 @@ def main():
     if not isinstance(accounts,list) or not accounts:
         raise ValueError('Accounts must be a nonempty list')
     aliases=[item['alias'] for item in accounts]
+    if args.select_accounts and (args.step!='daily' or args.account or len(set(args.select_accounts))!=len(args.select_accounts) or not set(args.select_accounts)<=set(aliases)):
+        raise ValueError('Selected accounts require daily mode, configured unique aliases and no single-account option')
     for item in accounts:
         if not isinstance(item.get('claim_dungeon_rewards',False),bool):
             raise ValueError('Reward policy must be boolean')

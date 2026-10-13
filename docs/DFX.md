@@ -35,7 +35,7 @@ Lua 故障处理分别尝试写首个错误、保存截图、记录退出；某�
 
 ```powershell
 python scripts/device/build.py
-python scripts/test.py
+python scripts/test.py --group 其他
 ```
 
 - `test_dfx_runner.py`：模拟发布／设备／采集，注入响应丢失、等待超时、通信错误、采集超时、清理失败、缺失日志和业务暂停，验证每轮持久化结果、保留首个错误且不重发启动。

@@ -29,6 +29,16 @@ def log_for(status='done', reason='completed', summary='dungeon_done=true daily_
 
 
 class RuntimeResultTest(unittest.TestCase):
+    def test_host_transport_rejects_ui_commands_before_adb_runs(self):
+        from dfx_device import Device
+        device=Device('offline')
+        with patch('dfx_device.command') as command:
+            for args in [('shell','input','tap','10','20'),('shell','input swipe 1 2 3 4'),('shell','am','force-stop','app'),('shell','monkey','-p','app','1')]:
+                with self.assertRaises(RuntimeError):device.adb_call(*args)
+            command.assert_not_called()
+            device.adb_call('shell','sha256sum','/storage/emulated/0/TouchSprite/lua/main.lua')
+            command.assert_called_once()
+
     def test_single_role_regression_cannot_claim_whole_roster_complete(self):
         text='[account] current\n[task_result] zhuagui status=done reason=done\n[task_result] dungeon status=done reason=done\n[summary] scope=selected_roles roles_expected=1 roles_completed=1 all_roles_done=false selected_done=true daily_done=false\n[finished] script_exited_normally'
         result=runner.runtime_result(text,'run','daily','dungeon',[{'alias':'current'}],['zhuagui','dungeon'])
@@ -68,6 +78,31 @@ class RuntimeResultTest(unittest.TestCase):
         for reason, expected in [('battle_completed', True), ('stable_unknown_state_no_actions', False)]:
             with self.subTest(reason=reason):
                 self.assertEqual(runner.runtime_result(log_for('paused', reason), 'run', 'advance')['expectation_met'], expected)
+
+    def test_shimen_advance_accepts_only_normal_completion_pauses(self):
+        cases = [
+            ('paused', 'one_task_completed', 'script_exited_normally', True),
+            ('paused', 'one_minigame_completed', 'script_exited_normally', True),
+            ('paused', 'shimen_completion_count_mismatch', 'script_exited_normally', False),
+            ('paused', 'find_icon_not_found', 'script_exited_normally', False),
+            ('paused', 'battle_completed', 'script_exited_normally', False),
+            ('blocked', 'one_task_completed', 'script_exited_normally', False),
+            ('failed', 'one_task_completed', 'script_exited_normally', False),
+            ('paused', 'one_task_completed', 'script_failed', False),
+            ('paused', 'one_task_completed', None, False),
+        ]
+        for status, reason, finished, expected in cases:
+            with self.subTest(status=status, reason=reason, finished=finished):
+                prefix = '[daily][20261013_120000]'
+                text = (f'{prefix}[account] current\n'
+                        f'{prefix}[task_result] shimen status={status} reason={reason}\n'
+                        f'{prefix}[summary] daily_done=false reason=shimen_{status}\n')
+                if finished:
+                    text += f'{prefix}[finished] {finished}\n'
+                result = runner.runtime_result(text, 'run', 'advance', 'shimen')
+                self.assertEqual(result['expectation_met'], expected)
+                self.assertFalse(result['daily_complete'])
+                self.assertEqual(result['tasks'][0]['account'], 'current')
 
     def test_legacy_summary_only_navigation_failure_is_rejected(self):
         result = runner.runtime_result(log_for(summary='daily_done=false reason=return_home_not_verified'), 'run', 'daily')

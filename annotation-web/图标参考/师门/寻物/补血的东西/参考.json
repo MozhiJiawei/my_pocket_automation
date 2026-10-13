@@ -1,0 +1,204 @@
+{
+  "说明": "仅展示已逐项核对功效、明确直接恢复当前气血的正例参考。包含气血/魔法双补、回血兼疗伤及回血兼解毒/解封；不收纯补魔、纯疗伤、寿命、愤怒酒或复活药。端游历史资料图标用于与口袋版截图核对，非口袋版官方素材。",
+  "图标": [
+    {
+      "名称": "包子",
+      "图片": "包子.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj003.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/2009/xyq1/2009/06/17/20090617105851260.jpg",
+      "功效": "补充少量气血"
+    },
+    {
+      "名称": "臭豆腐",
+      "图片": "臭豆腐.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj003.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/2009/xyq1/2009/06/17/20090617105851333.jpg",
+      "功效": "补充大量气血"
+    },
+    {
+      "名称": "烤鸭",
+      "图片": "烤鸭.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj003.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/2009/xyq1/2009/06/17/20090617105851356.jpg",
+      "功效": "补充气血、治疗伤势"
+    },
+    {
+      "名称": "烤肉",
+      "图片": "烤肉.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj003.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/2009/xyq1/2009/06/17/20090617105851380.jpg",
+      "功效": "补充气血、治疗伤势"
+    },
+    {
+      "名称": "翡翠豆腐",
+      "图片": "翡翠豆腐.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj003.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/2009/xyq1/2009/06/17/20090617105851426.jpg",
+      "功效": "恢复气血及魔法值"
+    },
+    {
+      "名称": "四叶花",
+      "图片": "四叶花.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0240.jpg",
+      "功效": "恢复气血40点"
+    },
+    {
+      "名称": "七叶莲",
+      "图片": "七叶莲.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0243.jpg",
+      "功效": "恢复气血60点"
+    },
+    {
+      "名称": "天青地白",
+      "图片": "天青地白.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0246.jpg",
+      "功效": "恢复气血80点"
+    },
+    {
+      "名称": "山药",
+      "图片": "山药.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0242.jpg",
+      "功效": "恢复气血40,治疗伤势10点"
+    },
+    {
+      "名称": "八角莲叶",
+      "图片": "八角莲叶.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0245.jpg",
+      "功效": "恢复气血60,治疗伤势15点"
+    },
+    {
+      "名称": "人参",
+      "图片": "人参.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0248.jpg",
+      "功效": "恢复气血80,治疗伤势20点"
+    },
+    {
+      "名称": "月见草",
+      "图片": "月见草.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0249.jpg",
+      "功效": "恢复气血40,法力30点"
+    },
+    {
+      "名称": "天不老",
+      "图片": "天不老.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0261.jpg",
+      "功效": "恢复气血100点"
+    },
+    {
+      "名称": "紫石英",
+      "图片": "紫石英.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0263.jpg",
+      "功效": "恢复气血100点"
+    },
+    {
+      "名称": "鹿茸",
+      "图片": "鹿茸.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0265.jpg",
+      "功效": "恢复气血150点"
+    },
+    {
+      "名称": "血色茶花",
+      "图片": "血色茶花.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0262.jpg",
+      "功效": "恢复气血150点"
+    },
+    {
+      "名称": "六道轮回",
+      "图片": "六道轮回.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0267.jpg",
+      "功效": "恢复气血200点"
+    },
+    {
+      "名称": "凤凰尾",
+      "图片": "凤凰尾.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0260.jpg",
+      "功效": "恢复气血250点"
+    },
+    {
+      "名称": "硫磺草",
+      "图片": "硫磺草.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0264.jpg",
+      "功效": "恢复气血250点"
+    },
+    {
+      "名称": "龙之心屑",
+      "图片": "龙之心屑.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0268.jpg",
+      "功效": "恢复气血300点"
+    },
+    {
+      "名称": "火凤之睛",
+      "图片": "火凤之睛.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0269.jpg",
+      "功效": "恢复气血300点"
+    },
+    {
+      "名称": "金创药",
+      "图片": "金创药.png",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_cedf8ae175404ff2fbf5e07c0c227f89.png",
+      "功效": "补充大量气血",
+      "图标名称依据": "https://nmsl.fans/?keyword=%E9%87%91%E5%88%9B%E8%8D%AF"
+    },
+    {
+      "名称": "金香玉",
+      "图片": "金香玉.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0288.jpg",
+      "功效": "补充大量气血"
+    },
+    {
+      "名称": "小还丹",
+      "图片": "小还丹.png",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_f1ae778cd34b311a101ed92ffe8ff88f.png",
+      "功效": "补充大量气血并疗伤",
+      "图标名称依据": "https://nmsl.fans/?keyword=%E5%B0%8F%E8%BF%98%E4%B8%B9"
+    },
+    {
+      "名称": "千年保心丹",
+      "图片": "千年保心丹.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0282.jpg",
+      "功效": "补充大量气血并疗伤"
+    },
+    {
+      "名称": "红雪散",
+      "图片": "红雪散.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0290.jpg",
+      "功效": "解毒、补充大量气血"
+    },
+    {
+      "名称": "五龙丹",
+      "图片": "五龙丹.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "http://i.17173cdn.com/z6mhfw/xyq/images/item/pic/0291.jpg",
+      "功效": "解除封类异常状态、补充大量气血"
+    },
+    {
+      "名称": "熊胆",
+      "图片": "熊胆.png",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_3c1067aae3a6ddfa8758426b85eed804.png?v=1789707330",
+      "功效": "恢复气血200点",
+      "图标名称依据": "https://nmsl.fans/?keyword=%E7%86%8A%E8%83%86"
+    }
+  ]
+}

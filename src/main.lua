@@ -27,11 +27,19 @@ local ok, err = pcall(function()
             log.write(ctx, 'account', account.alias)
             if config.verify_role then
                 local ghost=config.task=='zhuagui'
-                local state=require(ghost and 'tasks.zhuagui.pages' or 'tasks.dungeon.pages').state()
-                local owned=require('progress').read(ctx,ghost and 'zhuagui' or config.dungeon or 'wuji')
+                local shimen=config.task=='shimen'
+                local state=require(shimen and 'tasks.shimen.pages' or ghost and 'tasks.zhuagui.pages' or 'tasks.dungeon.pages').state()
+                local owned=require('progress').read(ctx,shimen and 'shimen' or ghost and 'zhuagui' or config.dungeon or 'wuji')
                 local active=ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true,puzzle=true,puzzle_retry=true})[state]
                     or not ghost and (state=='battle' or state=='loading')
-                local recovery=config.step=='complete' or (ghost and config.step=='browse')
+                if shimen then active=state~='unknown' and state~='home' and state~='task_list' end
+                local recovery=config.step=='complete' or (ghost and config.step=='browse') or (shimen and config.step=='advance')
+                if shimen and recovery and state=='unknown' and owned and owned.status=='running' then
+                    snapshot.capture(ctx,'shimen_page_requires_calibration')
+                    log.write(ctx,'task_result','shimen status=paused reason=shimen_page_requires_calibration')
+                    log.write(ctx,'summary','daily_done=false reason=shimen_paused')
+                    return
+                end
                 if recovery and active and owned and owned.status=='running' then
                     log.write(ctx,'owned_resume','task='..config.task..' identity_unverified_no_new_accept_or_reward_claim')
                 elseif not require('common.navigation').prepare_recorded(ctx) then

@@ -14,7 +14,10 @@
 ```powershell
 python scripts/device/run-daily.py --help
 python scripts/test.py
+python scripts/test.py --group shimen other
 python scripts/perception/evaluate.py
 ```
 
 设备命令与费用边界见 [项目说明](</D:/Agent Repo/my_pocket_automation/README.md>)，用例维护见 [识别工具说明](</D:/Agent Repo/my_pocket_automation/scripts/perception/README.md>)。
+
+`test.py` 支持抓鬼、副本、师门、其他四类，可组合选择；开发只跑相关类别，合入前运行默认全量，耗时上限60秒。`test_test.py` 验证分类无遗漏、无重复，以及部分回归的数据范围。

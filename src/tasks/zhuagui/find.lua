@@ -7,21 +7,7 @@ local catalog=require('tasks.zhuagui.assets.catalog')
 local title=require('tasks.zhuagui.assets.find_title')
 local expired=require('tasks.zhuagui.assets.find_time_expired')
 local M={}
-local function scan(features)
-    -- https://helpdoc.touchsprite.com/dev_docs/5.html
-    -- One captured frame for the whole read-only search. Never act while held.
-    keepScreen(true)
-    local ok,feature,reason=pcall(function()
-        if not detector.present(title) then return nil,'find_page_changed' end
-        if detector.present(expired) then return nil,'find_time_expired' end
-        for _,candidate in ipairs(features) do
-            if detector.present(candidate) then return candidate end
-        end
-    end)
-    keepScreen(false)
-    if not ok then error(feature) end
-    return feature,reason
-end
+local matcher=require('common.find_items')
 function M.identify()
     if not detector.present(title) then return nil,nil,'not_find_page' end
     for _,entry in ipairs({{'dew_wine','dew_wine','酒'},{'tiger_wine','tiger_wine','酒'},
@@ -50,7 +36,7 @@ function M.solve(ctx)
     for pass=1,6 do
         snapshot.capture(ctx,'find_catalog_page_' .. pass, 'debug')
         local started=os.time()
-        local feature,scan_reason=scan(features)
+        local feature,scan_reason=matcher.scan(features,title,expired)
         log.write(ctx,'find_scan','page='..pass..' features='..#features..' seconds='..(os.time()-started)..
             ' matched='..tostring(feature~=nil))
         if scan_reason then return false,scan_reason,category end

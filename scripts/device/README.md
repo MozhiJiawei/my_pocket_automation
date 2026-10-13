@@ -8,14 +8,16 @@
 | `run-daily.py` | 构建、发布、运行、等待、采集并验证业务证据。 |
 | `ts-cli.ps1` | 发布、启动、查询状态和采集；发布前检查空闲状态并校验哈希。 |
 | `collect-debug.ps1` | 采集指定设备和轮次的日志、截图及结果。 |
-| `inspect-device.py` | 观察当前画面，按已验证条件执行开发调试操作。 |
-| `collect-puzzles.py` | 对当前有账本的未完成拼图做有界免费重开采集，不选择图块、不接新任务。 |
-| `collect-shimen.py` | 师门的电脑辅助观察与采集；已有任务按十轮统计素材，免费认输重试，不选择答案、不自动接新任务。 |
+| `inspect-device.py` | 只读截图与 OCR 诊断，不发送任何页面操作。 |
 | `dfx_device.py` | 共用设备通信、命令执行与请求实现。 |
 
 使用仓库根目录的 [项目说明](</D:/Agent Repo/my_pocket_automation/README.md>) 查看运行参数和费用边界；具体故障处理见 [DFX 说明](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。运行器用于当前主循环，CLI 的默认源码仍是早期登录实验，直接使用时须明确目标源码。
 
 ## 已保存角色轮转
+
+设备操作统一在触动精灵 Lua 状态机执行。电脑端仅构建、发布、启动 Lua、采集与验证证据，不通过 MuMu、ADB 或电脑 OCR 点击、滑动、按键、启动或重启游戏。识别或拼图失败会停止本轮，非识别流程问题修改 Lua 后发布复测。
+
+`--step daily --tasks shimen,zhuagui,dungeon --select-accounts <别名1> <别名2>` 配置本轮的多个角色和任务范围。完整已登录名单仍由 `--accounts <仓库外配置.json>` 提供；Lua 核对完整名单后只执行选中角色，按名单顺序运行。`--account <别名>` 选择单角色；省略角色选择则遍历配置中的全部角色。身份、进度和预算按角色隔离。
 
 `run-daily.py --mode run --step daily --tasks zhuagui,dungeon --zhuagui-budget 75 --max-seconds 10800 --device emulator-5562` 遍历外部配置的全部已登录角色，核对选择页名单与每次进入后的身份。遇到未配置卡片或名单不完整时暂停，不遗漏新角色。
 
@@ -31,8 +33,9 @@
 
 运行器默认开启 Profile。`daily_<轮次>.log` 保存关键状态与结果，`_error.log` 保存错误与截图路径，`_profile.log` 保存调用次数、累计耗时、最大耗时与 CPU 时间。常规截图和逐次点击日志默认关闭；仅在专项采集时显式启用配置中的 `routine_screenshots` 或 `verbose_logs`。
 
-拼图专项采集须有用户明确授权：`python scripts/device/collect-puzzles.py --device <设备> --account <别名> --rounds 10`。电脑端验证设备空闲与当天running账本，只点击该抓鬼NPC失败对话的“继续”，每个重开画面保存一张原图，等待上一张到时后才重开下一张；结束复核接取、完成和预算记录未改变。该工具是电脑辅助采集，不代表设备脚本已适配拼图。原图与采集记录在 `debug-runs/`，审核图由 `scripts/perception/review-puzzles.py <采集目录...> --output <审核目录>` 生成；未批准的归组与标注过程数据在 `.tmp/annotation/拼图/`。
 
-`selected_complete` 表示本轮所选范围内的角色都完成所选任务；指定单角色时不能据此称作全部角色完成。`daily_complete` 只有师门、抓鬼、副本、收尾处理四类都实现并完成时才为真。师门和收尾仍是占位，不能把本轮三件任务当作全部日常完成。
+`selected_complete` 表示本轮所选范围内的角色都完成所选任务；指定单角色时不能据此称作全部角色完成。`daily_complete` 只有师门、抓鬼、副本、收尾处理四类都实现并完成时才为真。师门自主流程未完成，收尾仍是占位，不能把部分任务当作全部日常完成。
 
-师门采集：`python scripts/device/collect-shimen.py --device <设备> --collect --ownership <本次已核对角色的师门进度.json>`。`--previous <采集目录...>` 恢复已见题目和拼图图案；完整十轮没有新门类才报告饱和，同门类下的不同物品图片不计为新增。启动采集前先打开标注器，完整采集轮次主动进入本地未完成队列；网页不重新扫描历史采集。上限、异常或中断均不算完成。电脑辅助操作与设备任务运行须分开报告；按需在交互模式逐步核对新页面，费用入口限制师门次数与可见费用，不开启葫芦或充值。
+
+
+师门已有任务使用 run-daily.py 的 --task shimen --mode run --step advance --account <别名> 单步推进；--step complete 在交付、身份与次数核对后继续领取下一项。设备 Lua 负责全部操作；寻物首次尝试后最多免费重试3次，拼图先匹配旧特征中的唯一题型，不能识别或不能完成则保存现场停止。已接入任务列表、抓怪准备、前往、交付与领取页，但寻物准备、免费重试和最终完成页尚未全部校准；未知页面会停止，完整师门日常尚未验证。

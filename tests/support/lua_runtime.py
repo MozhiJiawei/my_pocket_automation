@@ -5,6 +5,15 @@ from lupa import LuaRuntime
 from tests.support.touchsprite_adapter import Screen
 
 ROOT = Path(__file__).resolve().parents[2]
+MODULE_VERSIONS=None
+
+def freeze_module_versions():
+    """One evaluator worker uses one source version throughout its run."""
+    global MODULE_VERSIONS
+    MODULE_VERSIONS={}
+    for path in (ROOT/'src').rglob('*.lua'):
+        name='.'.join(path.relative_to(ROOT/'src').with_suffix('').parts)
+        version=path.stat();MODULE_VERSIONS[name]=(path.as_posix(),version.st_mtime_ns,version.st_size)
 
 
 @lru_cache(maxsize=256)
@@ -25,6 +34,9 @@ def versioned_module_code(path, modified_ns, size):
 
 
 def module_code(name):
+    if MODULE_VERSIONS is not None:
+        version=MODULE_VERSIONS.get(name)
+        return versioned_module_code(*version) if version else (None,None)
     path=ROOT/'src'/Path(name.replace('.','/')+'.lua')
     try:version=path.stat()
     except FileNotFoundError:return None,None
@@ -46,6 +58,7 @@ class Runtime:
         self.actions = []
         self.logs = []
         self.capture_hook = capture_hook
+        self.shimen_observation=None
         self.lua = LuaRuntime(unpack_returned_tuples=True)
         g = self.lua.globals()
         g.getScreenSize = lambda: (self.screen.frame.shape[1], self.screen.frame.shape[0])
@@ -72,8 +85,17 @@ class Runtime:
         if hasattr(screen,'configure_catalog') and screen.groups is None:
             entries=self.lua.table_from({'task_card':self.lua.table_from([
                 self.require('tasks.zhuagui.assets.task_card')])})
-            screen.configure_catalog(self.require('tasks.zhuagui.assets.catalog'),
-                                     self.require('tasks.zhuagui.assets.puzzle')['families'],entries)
+            catalogs=[self.require('tasks.zhuagui.assets.catalog'),
+                      self.require('tasks.zhuagui.assets.puzzle')['families'],entries]
+            extra=[]
+            if (ROOT/'src/tasks/shimen/assets/catalog.lua').is_file():
+                factories=self.require('tasks.shimen.assets.catalog')
+                extra=[self.lua.table_from({name:factory() for name,factory in factories.items()})];catalogs.extend(extra)
+                bank=[]
+                for entry in self.require('tasks.shimen.assets.questions')['topics'].values():
+                    bank.extend(entry['features'].values())
+                entries['shimen_questions']=self.lua.table_from(bank)
+            screen.configure_catalog(*catalogs,enumerate_catalogs=extra)
         self.lua.execute("""
             package.preload['dfx.log']=function() return {write=offline_log} end
             package.preload['dfx.snapshot']=function() return {capture=offline_capture} end
@@ -92,6 +114,18 @@ class Runtime:
         if self.capture_hook:
             self.capture_hook(self, label)
 
+    def close(self):
+        # Lua-held Python callbacks otherwise keep this VM and its frame alive.
+        if self.lua is None:return
+        self.shimen_observation=None
+        globals=self.lua.globals()
+        for name in ('getScreenSize','keepScreen','getColor','findMultiColorInRegionFuzzy',
+                     'offline_log','offline_capture','tap','mSleep','touchDown','touchMove','touchUp',
+                     'offline_plan_tap','offline_plan_swipe'):
+            globals[name]=None
+        self.lua.execute('for k in pairs(package.loaded) do package.loaded[k]=nil end; for k in pairs(package.preload) do package.preload[k]=nil end; collectgarbage("collect")')
+        self.lua=None
+
     def require(self, module):
         result = self.lua.eval(f"require('{module}')")
         return result[0] if isinstance(result, tuple) else result
@@ -99,7 +133,9 @@ class Runtime:
     def page(self, task):
         return self.require(f'tasks.{task}.pages').state()
 
-    def question(self):
+    def question(self, task='zhuagui'):
+        if task=='shimen':
+            return self.read_shimen()[0]
         result = self.require('tasks.zhuagui.find').identify()
         name, category, *reason = result if isinstance(result, tuple) else (result, None)
         return semantic_target(name, category)
@@ -107,9 +143,21 @@ class Runtime:
     def count(self):
         return self.require('tasks.zhuagui.counter').read()
 
-    def locate(self):
+    def locate(self, task='zhuagui'):
+        if task=='shimen':
+            topic,matches,reason=self.read_shimen()
+            self.actions.extend({'kind':'tap','point':[int(matches[i]['x']),int(matches[i]['y'])]}
+                                for i in range(1,len(matches)+1))
+            return topic,reason
         # Only simulate the input transport, not the subsequent game's success.
         return self.require('tasks.zhuagui.find').solve(self.lua.table())
+
+    def read_shimen(self):
+        # One immutable frame, one production observation. Both assertions
+        # inspect that observation; no truth or result crosses frame/VM boundaries.
+        if self.shimen_observation is None:
+            self.shimen_observation=self.require('tasks.shimen.find').read()
+        return self.shimen_observation
 
     def plan_tap(self, ctx, feature, label):
         found = self.require('common.detector').find(feature)

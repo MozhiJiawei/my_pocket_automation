@@ -2,7 +2,7 @@
 
 目标是按游戏中已保存的角色，串联师门、抓鬼、副本、葫芦与活跃度处理四类任务。账号认证由用户人工完成。
 
-已实现角色调度、抓鬼和乌鸡国／车迟国副本（新版名“车迟斗法”）；师门与收尾处理返回 `not_implemented`。抓鬼预算保护存在未修复问题，不能视作可靠的无人值守流程。具体实现和限制见 [当前能力](docs/STATUS.md) 与 [抓鬼说明](src/tasks/zhuagui/README.md)。
+已实现角色调度、抓鬼和乌鸡国／车迟国副本（新版名“车迟斗法”）；师门支持寻物及旧特征拼图，已接入部分导航、交付与领取页面，完整日常尚未验证，收尾处理返回 `not_implemented`。全部设备操作由触动精灵 Lua 状态机执行，MuMu 与电脑工具仅观察和采集证据。抓鬼预算保护存在未修复问题，不能视作可靠的无人值守流程。具体实现和限制见 [当前能力](docs/STATUS.md) 与 [抓鬼说明](src/tasks/zhuagui/README.md)。
 
 ## 代码入口
 
@@ -27,7 +27,9 @@ python -m pip install -r scripts/requirements.txt
 python scripts/device/run-daily.py --device emulator-5562 --mode observe
 # 主循环；当前抓鬼默认零预算，会在接任务前阻塞
 python scripts/device/run-daily.py --device emulator-5562 --mode run --step daily
-# 离线回归，不接触设备
+# 开发时只跑相关类别，不接触设备
+python scripts/test.py --group 师门
+# 合入前全量回归，默认上限60秒
 python scripts/test.py
 python scripts/perception/evaluate.py
 ```

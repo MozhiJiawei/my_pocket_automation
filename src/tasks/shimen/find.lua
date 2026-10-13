@@ -1,0 +1,65 @@
+local detector=require('common.detector')
+local matcher=require('common.find_items')
+local resources=require('tasks.shimen.assets.catalog')
+local questions=require('tasks.shimen.assets.questions')
+local M={}
+function M.identify()
+    if not detector.present(questions.title) then return nil,'not_find_page' end
+    for _,entry in ipairs(questions.topics) do
+        for _,feature in ipairs(entry.features) do
+            if detector.present(feature) then return entry.name end
+        end
+    end
+    return nil,'find_target_unknown'
+end
+function M.read()
+    local topic,reason=M.identify()
+    if not topic then return nil,{},reason end
+    local matches,scan_reason=matcher.scan(resources[topic](),questions.title,nil,true)
+    return topic,matches or {},scan_reason
+end
+function M.solve(ctx)
+    local device=require('common.device')
+    local expired=require('tasks.zhuagui.assets.find_time_expired')
+    local required=ctx.config.shimen_needed or 2
+    assert(required>=1 and required<=10 and required%1==0,'invalid item count')
+    local selected={}
+    local topic,reason=M.identify()
+    if not topic then return false,reason end
+    local features=resources[topic]()
+    for page=1,7 do
+        -- Find only as many answers as this attempt still needs. Full enumeration
+        -- remains available through read() for offline scoring and annotation.
+        local points,reason=matcher.scan(features,questions.title,expired,true,required-#selected)
+        if reason then return false,reason end
+        require('dfx.log').write(ctx,'shimen_find','page='..page..' matches='..#points..' selected='..#selected..' required='..required)
+        if require('common.detector').present(expired) then return false,'find_time_expired' end
+        for _,point in ipairs(points) do
+            local duplicate=false
+            for _,previous in ipairs(selected) do
+                if previous.page==page and math.abs(previous.x-point.x)<50 and math.abs(previous.y-point.y)<50 then duplicate=true end
+            end
+            if not duplicate then
+                if not detector.present(questions.title) then return false,'find_page_changed' end
+                if detector.present(expired) then return false,'find_time_expired' end
+                -- A small, nonempty search box tolerates final scroll settling;
+                -- retain the full signature and never search another icon.
+                local anchor=point.feature.region
+                point.feature.region={anchor[1]-4,anchor[2]-4,anchor[3]+4,anchor[4]+4}
+                if not device.tap(ctx,point.feature,'shimen_find_item') then return false,'find_target_changed' end
+                selected[#selected+1]={page=page,x=point.x,y=point.y}
+                if #selected<required then
+                    if not detector.present(questions.title) then return false,'find_incomplete_exit' end
+                elseif device.wait(function() return not detector.present(questions.title) end,10,200) then
+                    return true,'find_completed'
+                end
+                if #selected>=required then return false,'find_click_not_confirmed' end
+            end
+        end
+        if page<7 and not device.swipe(ctx,questions.title,'shimen_find_scroll',{800,1260},{800,800}) then
+            return false,'find_page_changed'
+        end
+    end
+    return false,'find_icon_not_found'
+end
+return M

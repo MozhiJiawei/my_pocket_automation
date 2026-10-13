@@ -40,3 +40,13 @@ class RoundTruthTest(unittest.TestCase):
     def test_all_existing_rounds_keep_multi_answer_truth(self):
         rounds=load_rounds();self.assertEqual(len(rounds),82)
         self.assertTrue(any(len(r['answers'])>1 for r in rounds))
+
+    def test_shimen_requires_every_positive_and_keeps_negative_failures(self):
+        self.round['id']='师门/寻物/酒/第01轮'
+        self.round['answers']={'酒':{'第01页.png':[[10,10,30,30],[50,10,70,30]]}}
+        frame={'id':'第01页.png','actions':[{'kind':'tap','point':[20,20]}],'status':'passed'}
+        self.assertEqual(evaluate_rounds([self.round],[frame])[0]['status'],'failed')
+        frame['actions'].append({'kind':'tap','point':[60,20]})
+        self.assertEqual(evaluate_rounds([self.round],[frame])[0]['status'],'passed')
+        frame['status']='failed'
+        self.assertEqual(evaluate_rounds([self.round],[frame])[0]['status'],'failed')

@@ -22,7 +22,8 @@ class Novelty:
         return added
     def puzzle(self,parts):
         samples=[cv2.resize(p,(24,30)).astype(np.float32) for p in parts]
-        for previous in self.puzzles:
+        for index,previous in enumerate(self.puzzles,1):
             costs=np.array([[np.abs(a-b).mean() for b in previous] for a in samples])
-            if min(sum(costs[i,j] for i,j in enumerate(p))/4 for p in itertools.permutations(range(4)))<6:return 0
-        self.puzzles.append(samples);return 1
+            if min(sum(costs[i,j] for i,j in enumerate(p))/4 for p in itertools.permutations(range(4)))<6:
+                self.last_family=index;return 0
+        self.puzzles.append(samples);self.last_family=len(self.puzzles);return 1

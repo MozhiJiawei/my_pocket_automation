@@ -1,0 +1,53 @@
+{
+  "说明": "本题为乐器实物道具。编钟、笛子、木鱼、唢呐、琵琶、竖琴来自第三方长安物价局的名称绑定图标，已与本题原图核对；箫、钹来自明确命名电脑版截图。仅提供本题正例参考，非官方真值；锣暂缺可靠命名网图。",
+  "图标": [
+    {
+      "名称": "箫",
+      "图片": "箫.png",
+      "来源": "https://game.xiaomi.com/viewpoint/1127866428_1599593190090_16",
+      "图片来源": "https://pic.kts.g.mi.com/hussan_talosfea3165dd8acf140522982e426b011fe_1599593189.jpg"
+    },
+    {
+      "名称": "钹",
+      "图片": "钹.png",
+      "来源": "https://xyq.yzz.cn/focus/202203/1664971.shtml",
+      "图片来源": "https://i1.cdn.yzz.cn/pub/imgx2022/03/28/503_121744_0c239.jpg"
+    },
+    {
+      "名称": "编钟",
+      "图片": "编钟.png",
+      "来源": "https://nmsl.fans/?keyword=%E7%BC%96%E9%92%9F",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_4e9d7035711e7640a235010466d2a8e7.png"
+    },
+    {
+      "名称": "笛子",
+      "图片": "笛子.png",
+      "来源": "https://nmsl.fans/?keyword=%E7%AC%9B%E5%AD%90",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_0957467d4225601d787520b1a707939a.png"
+    },
+    {
+      "名称": "木鱼",
+      "图片": "木鱼.png",
+      "来源": "https://nmsl.fans/?keyword=%E6%9C%A8%E9%B1%BC",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_e8ea3f4a38d52eb91b7021d763bb5097.png?v=1789707418"
+    },
+    {
+      "名称": "唢呐",
+      "图片": "唢呐.png",
+      "来源": "https://nmsl.fans/?keyword=%E5%94%A2%E5%91%90",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_982367f715ea15399c41d6a7895f4c4d.png"
+    },
+    {
+      "名称": "琵琶",
+      "图片": "琵琶.png",
+      "来源": "https://nmsl.fans/?keyword=%E7%90%B5%E7%90%B6",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_591273dd1efefe1affa158ff27fc73c6.png"
+    },
+    {
+      "名称": "竖琴",
+      "图片": "竖琴.png",
+      "来源": "https://nmsl.fans/?keyword=%E7%AB%96%E7%90%B4",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_cf77f88d61240512acda7cfc8401b504.png"
+    }
+  ]
+}

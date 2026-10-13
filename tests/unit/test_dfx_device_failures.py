@@ -107,6 +107,18 @@ class DeviceDiagnosticsTest(unittest.TestCase):
         self.configure_owned_ghost_recovery(False)
         self.assertIn(('task_result','account status=blocked reason=saved_role_not_ready'),self.execute())
 
+    def test_owned_shimen_puzzle_reaches_collection_without_navigation(self):
+        self.lua.execute('''
+            config.step='advance';config.task='shimen';config.verify_role=true
+            package.preload['common.navigation']=function() return {prepare_recorded=function()
+                error('must not navigate away from puzzle evidence') end} end
+            package.preload['tasks.shimen.pages']=function() return {state=function() return 'puzzle' end} end
+            package.preload['progress']=function() return {read=function() return {status='running'} end} end
+        ''')
+        events=self.execute()
+        self.assertTrue(any(event=='owned_resume' for event,_ in events))
+        self.assertFalse(any(event=='failed' for event,_ in events))
+
 
 if __name__ == '__main__':
     unittest.main()

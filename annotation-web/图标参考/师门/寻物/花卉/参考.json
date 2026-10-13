@@ -1,0 +1,29 @@
+{
+  "说明": "本题花卉指赠礼、师门或任务使用的鲜花道具，至少包括牡丹、康乃馨、百合、红玫瑰；也有桃花、兰花。这里只展示实际核对的花卉正例。四张参考来自梦幻西游电脑版物价页面的同名物品图标，牡丹和康乃馨、红玫瑰另以带名称的电脑版截图核对。口袋版题目使用旋转、镜像图标，不能只凭花形判定；水黄莲、天不老、旋复花、曼佗罗花、血色茶花是药品，装饰植物家具也不计入本题花卉。参考和AI建议仅供用户审核，不是正式真值。",
+  "图标": [
+    {
+      "名称": "牡丹",
+      "图片": "牡丹.png",
+      "来源": "https://nmsl.fans/?keyword=%E7%89%A1%E4%B8%B9",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_9fb5f53c9952d10b4fe26508ecbc644a.png"
+    },
+    {
+      "名称": "康乃馨",
+      "图片": "康乃馨.png",
+      "来源": "https://nmsl.fans/?keyword=%E5%BA%B7%E4%B9%83%E9%A6%A8",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_f6e6d63cd7848529f45961f00e2140dd.png"
+    },
+    {
+      "名称": "百合",
+      "图片": "百合.png",
+      "来源": "https://nmsl.fans/?keyword=%E7%99%BE%E5%90%88",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_1138cf90bd1eeaba3f1bc584cfc6e30f.png"
+    },
+    {
+      "名称": "红玫瑰",
+      "图片": "红玫瑰.png",
+      "来源": "https://nmsl.fans/?keyword=%E7%BA%A2%E7%8E%AB%E7%91%B0",
+      "图片来源": "https://nmsl.fans/uploads/price/item/item_a59099ada8a157546fb5b476d9297c08.png"
+    }
+  ]
+}

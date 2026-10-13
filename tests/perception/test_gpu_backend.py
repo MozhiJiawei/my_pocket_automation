@@ -13,6 +13,27 @@ except (ImportError,RuntimeError):
 
 @unittest.skipUnless(AVAILABLE, 'No OpenCL GPU')
 class GpuBackendTest(unittest.TestCase):
+    def test_enumerated_subregions_and_overflow_match_cpu(self):
+        class IsolatedGpu(GpuScreen):
+            engine=None
+            all_kernel=None
+            groups=None
+            query_groups=None
+            all_queries={}
+        frame=np.zeros((1600,900,3),dtype=np.uint8)
+        for x,y in [(100,700),(400,1000),(700,1300)]:frame[y,x]=[10,30,210]
+        query=(0xd21e0a,'1|0|0x000000',90,65,535,829,1410)
+        IsolatedGpu.groups=[(query,)];IsolatedGpu.query_groups={query:0};IsolatedGpu.all_queries={query[:3]:(0,query)}
+        overflowing=np.zeros_like(frame);overflowing[::2,::2]=[10,30,210]
+        pictures=(frame,np.zeros_like(frame),overflowing)
+        batch={'pixels':np.stack(pictures),'results':{}}
+        for index,pixels in enumerate(pictures):
+            screen=IsolatedGpu(pixels)
+            screen.frame_batch=batch;screen.batch_index=index
+            for region in [(65,535,829,1410),(101,535,829,1410),(400,999,500,1001),(101,701,200,800)]:
+                q=(*query[:3],*region)
+                self.assertEqual(screen.find(*q),Screen(pixels).find(*q))
+
     def test_batch_matches_independent_brute_force(self):
         class IsolatedGpu(GpuScreen):
             engine=None

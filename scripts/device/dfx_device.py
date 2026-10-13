@@ -25,6 +25,9 @@ class Device:
         self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     def adb_call(self, *args):
+        shell_text=' '.join(map(str,args[1:])) if args and args[0]=='shell' else ''
+        if re.search(r'\b(input|sendevent|monkey|am|wm|settings)\b',shell_text):
+            raise RuntimeError('Device UI operations must run through the Lua state machine')
         return command([self.adb, '-s', self.device, *args])
 
     def request(self, url, body=None, authenticated=False):

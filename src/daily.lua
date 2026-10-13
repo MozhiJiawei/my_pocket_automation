@@ -13,12 +13,17 @@ function M.run(ctx)
         return
     end
     local accounts=ctx.config.accounts
-    if ctx.config.selected_account then
+    local selection=ctx.config.selected_accounts or (ctx.config.selected_account and {ctx.config.selected_account})
+    if selection then
+        local wanted={}
+        for _,alias in ipairs(selection) do
+            assert(not wanted[alias],'duplicate selected role');wanted[alias]=true
+        end
         accounts={}
         for _,account in ipairs(ctx.config.accounts) do
-            if account.alias==ctx.config.selected_account then accounts[#accounts+1]=account end
+            if wanted[account.alias] then accounts[#accounts+1]=account end
         end
-        assert(#accounts==1,'selected role must be configured')
+        assert(#accounts>0 and #accounts==#selection,'selected roles must be configured')
     end
     for _,account in ipairs(accounts) do
         ctx.account=account
@@ -37,6 +42,10 @@ function M.run(ctx)
                     complete=false
                     log.write(ctx,'error','task='..name..' status='..outcome.status..' reason='..(outcome.reason or ''))
                     snapshot.capture(ctx,'task_'..name..'_incomplete')
+                    if outcome.status=='paused' or outcome.status=='blocked' or outcome.status=='failed' then
+                        log.write(ctx,'summary','all_roles_done=false selected_done=false daily_done=false reason='..name..'_'..outcome.status)
+                        return
+                    end
                 end
                 if not navigation.finish_account(ctx) then
                     log.write(ctx,'task_result','navigation status=blocked reason=return_home_not_verified')
@@ -57,9 +66,9 @@ function M.run(ctx)
     local full={}
     for _,name in ipairs(selected) do full[name]=true end
     local done=completed==#accounts and failed==0
-    local all=done and not ctx.config.selected_account
+    local all=done and not selection
     local daily=all and full.shimen and full.zhuagui and full.dungeon and full.rewards or false
-    log.write(ctx,'summary','scope='..(ctx.config.selected_account and 'selected_roles' or 'roles')..' roles_expected='..#accounts..' roles_completed='..completed..
+    log.write(ctx,'summary','scope='..(selection and 'selected_roles' or 'roles')..' roles_expected='..#accounts..' roles_completed='..completed..
         ' all_roles_done='..tostring(all)..' selected_done='..tostring(done)..' daily_done='..tostring(daily))
 end
 return M

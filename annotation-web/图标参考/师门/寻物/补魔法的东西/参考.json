@@ -1,0 +1,194 @@
+{
+  "说明": "梦幻西游电脑版物品资料图，按补魔法/法力筛选；月见草和翡翠豆腐双补也纳入。仅回气血、伤势、寿命或愤怒的物品排除。逐项核对口袋版题目图标；参考不是正式真值。",
+  "图标": [
+    {
+      "名称": "紫丹罗",
+      "图片": "紫丹罗.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0250.jpg",
+      "功效": "恢复法力20点"
+    },
+    {
+      "名称": "佛手",
+      "图片": "佛手.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0253.jpg",
+      "功效": "恢复法力20点"
+    },
+    {
+      "名称": "旋复花",
+      "图片": "旋复花.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0256.jpg",
+      "功效": "恢复法力20点"
+    },
+    {
+      "名称": "百色花",
+      "图片": "百色花.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0251.jpg",
+      "功效": "恢复法力30点"
+    },
+    {
+      "名称": "香叶",
+      "图片": "香叶.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0254.jpg",
+      "功效": "恢复法力30点"
+    },
+    {
+      "名称": "龙须草",
+      "图片": "龙须草.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0258.jpg",
+      "功效": "恢复法力30点"
+    },
+    {
+      "名称": "灵脂",
+      "图片": "灵脂.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0252.jpg",
+      "功效": "恢复法力40点"
+    },
+    {
+      "名称": "白玉骨头",
+      "图片": "白玉骨头.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0255.jpg",
+      "功效": "恢复法力40点"
+    },
+    {
+      "名称": "鬼切草",
+      "图片": "鬼切草.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0259.jpg",
+      "功效": "恢复法力40点"
+    },
+    {
+      "名称": "曼佗罗花",
+      "图片": "曼佗罗花.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0257.jpg",
+      "功效": "恢复法力50点"
+    },
+    {
+      "名称": "月见草",
+      "图片": "月见草.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0249.jpg",
+      "功效": "恢复气血40,法力30点"
+    },
+    {
+      "名称": "丁香水",
+      "图片": "丁香水.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0274.jpg",
+      "功效": "恢复法力75点"
+    },
+    {
+      "名称": "月星子",
+      "图片": "月星子.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0278.jpg",
+      "功效": "恢复法力75点"
+    },
+    {
+      "名称": "仙狐涎",
+      "图片": "仙狐涎.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0271.jpg",
+      "功效": "恢复法力100点"
+    },
+    {
+      "名称": "地狱灵芝",
+      "图片": "地狱灵芝.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0272.jpg",
+      "功效": "恢复法力100点"
+    },
+    {
+      "名称": "麝香",
+      "图片": "麝香.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0273.jpg",
+      "功效": "恢复法力100点"
+    },
+    {
+      "名称": "血珊瑚",
+      "图片": "血珊瑚.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0275.jpg",
+      "功效": "恢复法力100点"
+    },
+    {
+      "名称": "餐风饮露",
+      "图片": "餐风饮露.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0276.jpg",
+      "功效": "恢复法力100点"
+    },
+    {
+      "名称": "白露为霜",
+      "图片": "白露为霜.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0277.jpg",
+      "功效": "恢复法力100点"
+    },
+    {
+      "名称": "天龙水",
+      "图片": "天龙水.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0270.jpg",
+      "功效": "恢复法力150点"
+    },
+    {
+      "名称": "孔雀红",
+      "图片": "孔雀红.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_2.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0279.jpg",
+      "功效": "恢复法力150点"
+    },
+    {
+      "名称": "风水混元丹",
+      "图片": "风水混元丹.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0283.jpg",
+      "功效": "补充大量魔法"
+    },
+    {
+      "名称": "定神香",
+      "图片": "定神香.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0284.jpg",
+      "功效": "补充大量魔法"
+    },
+    {
+      "名称": "蛇蝎美人",
+      "图片": "蛇蝎美人.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0287.jpg",
+      "功效": "补充大量魔法"
+    },
+    {
+      "名称": "十香返生丸",
+      "图片": "十香返生丸.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj002_3.html",
+      "图片来源": "https://images.17173.com/xyq/images/item/pic/0285.jpg",
+      "功效": "解除酒类异常状态、补充大量魔法"
+    },
+    {
+      "名称": "佛跳墙",
+      "图片": "佛跳墙.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj003.html",
+      "图片来源": "https://images.17173.com/2009/xyq1/2009/06/17/20090617105851403.jpg",
+      "功效": "补充魔法"
+    },
+    {
+      "名称": "翡翠豆腐",
+      "图片": "翡翠豆腐.jpg",
+      "来源": "https://xyq.17173.com/introduce/dj003.html",
+      "图片来源": "https://images.17173.com/2009/xyq1/2009/06/17/20090617105851426.jpg",
+      "功效": "恢复气血及魔法值"
+    }
+  ]
+}

@@ -9,6 +9,24 @@ from scripts.perception.lib.corpus import load_cases,crop_sources,iter_variants,
 
 
 class AugmentationTest(unittest.TestCase):
+    def test_shimen_transforms_every_approved_region_together(self):
+        case=next(c for c in load_cases('shimen') if c['truth'].get('target_regions',{}).get('value'))
+        crops=crop_sources([case])[case['id']]
+        self.assertEqual(len(crops),sum(len(case['truth'].get(k,{}).get('value') or []) for k in ('target_regions','negative_regions')))
+        original=cv2.imdecode(np.fromfile(validate(case),dtype=np.uint8),1)
+        variants=list(iter_variants(case,crops,original,persist=False));self.assertEqual(len(variants),8)
+        buffer=np.empty((8,*original.shape),dtype=original.dtype)
+        buffered=list(iter_variants(case,crops,original,persist=False,canvases=buffer))
+        for (expected_doc,expected),(actual_doc,actual) in zip(variants,buffered):
+            self.assertEqual(expected_doc,actual_doc)
+            self.assertTrue(np.array_equal(expected,actual))
+            self.assertTrue(np.shares_memory(actual,buffer))
+        for variant,pixels in variants:
+            self.assertEqual(variant['truth'],case['truth'])
+            for crop in crops:
+                x1,y1,x2,y2=crop['region']
+                np.testing.assert_array_equal(pixels[y1:y2,x1:x2],transform(original[y1:y2,x1:x2],variant['augmentation']['mirror'],variant['augmentation']['turn']))
+            np.testing.assert_array_equal(pixels[:535],original[:535])
     def test_all_eight_orientations_preserve_pixels(self):
         tile=np.arange(18,dtype=np.uint8).reshape(2,3,3)
         variants=[transform(tile,mirror,turn) for mirror in (False,True) for turn in range(4)]

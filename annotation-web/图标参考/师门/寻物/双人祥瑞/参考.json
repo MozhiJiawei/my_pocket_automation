@@ -1,0 +1,75 @@
+{
+  "说明": "仅展示官网明确列为2人或≤2人的双人祥瑞：灯笼锦鱼、沙漠驼铃、霓羽锦鹊、叠彩仙蜗、玄霜玉兔、琉璃宝象、踏雪灵熊、甜蜜猪猪、鹤雪锦犀、莽林猛犸。已覆盖所查官方基础/限量图鉴中列明双人的全部10项，单人和五人祥瑞不展示。尚缺梅隐寒香、青梅竹马、情缘玉象等后续双人祥瑞的可靠命名图及人数联合核对，不声称覆盖所有历史活动。图片为梦幻西游电脑版官方动态形象，不是口袋版原生物品图标；仅供人工审核对照。",
+  "图标": [
+    {
+      "名称": "灯笼锦鱼",
+      "图片": "灯笼锦鱼.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/200_03408be.gif",
+      "乘坐人数": "≤2人"
+    },
+    {
+      "名称": "沙漠驼铃",
+      "图片": "沙漠驼铃.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/smtl_d9fd75f.gif",
+      "乘坐人数": "≤2人"
+    },
+    {
+      "名称": "霓羽锦鹊",
+      "图片": "霓羽锦鹊.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/nyjq_d9d0841.gif",
+      "乘坐人数": "2人"
+    },
+    {
+      "名称": "叠彩仙蜗",
+      "图片": "叠彩仙蜗.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/dcxw_3bbf8a5.gif",
+      "乘坐人数": "≤2人"
+    },
+    {
+      "名称": "玄霜玉兔",
+      "图片": "玄霜玉兔.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/yutu_bc97754.gif",
+      "乘坐人数": "≤2人"
+    },
+    {
+      "名称": "琉璃宝象",
+      "图片": "琉璃宝象.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/llbx_d85dd54.gif",
+      "乘坐人数": "≤2人"
+    },
+    {
+      "名称": "踏雪灵熊",
+      "图片": "踏雪灵熊.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/txlx_2cff54e.gif",
+      "乘坐人数": "≤2人"
+    },
+    {
+      "名称": "甜蜜猪猪",
+      "图片": "甜蜜猪猪.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/tianmi_283f325.gif",
+      "乘坐人数": "2人"
+    },
+    {
+      "名称": "鹤雪锦犀",
+      "图片": "鹤雪锦犀.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/hxjx_93f1fd6.gif",
+      "乘坐人数": "≤2人"
+    },
+    {
+      "名称": "莽林猛犸",
+      "图片": "莽林猛犸.gif",
+      "来源": "https://xyq.163.com/2008/zqtx/zuoqi_xiangrui.html",
+      "图片来源": "https://xyq.res.netease.com/pc/zt/20160129193219/images/pic/mlmm_e443d4f.gif",
+      "乘坐人数": "≤2人"
+    }
+  ]
+}

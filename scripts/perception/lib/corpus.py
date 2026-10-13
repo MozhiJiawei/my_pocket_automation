@@ -4,12 +4,13 @@ import struct
 import itertools
 from pathlib import Path
 from copy import deepcopy
+from functools import lru_cache
 import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3] / 'testdata'
 VERIFIED = {'reviewed', 'device_verified', 'user_verified'}
-TASKS = {'zhuagui':'抓鬼', 'dungeon':'副本'}
+TASKS = {'zhuagui':'抓鬼', 'dungeon':'副本', 'shimen':'师门'}
 PAGES = {'任务列表':'task_list','开始任务消耗三精力':'ready_cost_three','玩法规则':'rules',
          '出发':'depart','战斗':'battle','今日次数已满对话':'quota_dialogue',
          '今日完成任务卡片':'quota_completed_card','进行中未校准页面':'active_uncalibrated',
@@ -48,6 +49,9 @@ def annotation(value, status='reviewed', source='独立审核真值'):
 
 def directory_truth(relative):
     parts=relative.parts
+    if parts[0]=='师门' and parts[1]=='拼图':return {'page':'puzzle'}
+    if parts[0]=='师门' and parts[1]=='寻物':
+        return {'page':'find','question':{'target':parts[2],'text':None},'target_regions':None}
     if parts[0]=='抓鬼':
         if parts[1] in ('寻物','找鬼'):
             target={'上好的兵器':'兵器','未知题目':'unknown'}.get(parts[2],parts[2])
@@ -91,10 +95,20 @@ def load_cases(task=None):
 
 
 def image_path(case):
-    base=ROOT.parent/'.tmp/perception/augmentation' if case.get('augmentation') else ROOT
-    path=(base/case['image']).resolve()
-    if not path.is_relative_to(base.resolve()):raise ValueError('Image path escapes the corpus')
+    return resolved_image(case['image'],bool(case.get('augmentation')))
+
+
+@lru_cache(maxsize=16384)
+def resolved_image(image,augmented):
+    base=resolved_base(ROOT.parent/'.tmp/perception/augmentation' if augmented else ROOT)
+    path=(base/image).resolve()
+    if not path.is_relative_to(base):raise ValueError('Image path escapes the corpus')
     return path
+
+
+@lru_cache(maxsize=4)
+def resolved_base(base):
+    return base.resolve()
 
 
 def validate(case, frame=None):
@@ -121,9 +135,11 @@ def validate_truth(case,width,height):
             if not 0<=x1<x2<=width or not 0<=y1<y2<=height:raise ValueError('Region outside image')
 
 
-def load_rounds():
+def load_rounds(task='zhuagui'):
     rounds=[]
-    for folder in sorted((ROOT/'抓鬼/寻物').glob('*/第*轮')):
+    names=('抓鬼','师门') if task is None else (TASKS.get(task,task),)
+    folders=[p for name in names for p in (ROOT/name/'寻物').glob('*/第*轮')]
+    for folder in sorted(folders):
         doc=read_answers(folder)
         rounds.append({'id':folder.relative_to(ROOT).as_posix(),
             'topic':{'上好的兵器':'兵器'}.get(folder.parent.name,folder.parent.name),
@@ -136,6 +152,11 @@ def crop_sources(cases):
     """One representative per approved answer, not a separate seed registry."""
     available={c['id']:c for c in cases};selected={};visited=set()
     for case in cases:
+        if case['task']=='shimen':
+            for field,positive in [('target_regions',True),('negative_regions',False)]:
+                for box in case['truth'].get(field,{}).get('value') or []:
+                    selected.setdefault(case['id'],[]).append({'label':field,'region':box,'positive':positive})
+            continue
         folder=ROOT/Path(case['image']).parent
         if folder in visited or case.get('augmentation'):continue
         visited.add(folder)
@@ -152,9 +173,32 @@ def transform(tile,mirror,turn):
     return np.rot90(tile[:,::-1] if mirror else tile,-turn)
 
 
-def iter_variants(case,crops,original=None,persist=True):
+def iter_variants(case,crops,original=None,persist=True,canvases=None):
     if original is None:original=cv2.imdecode(np.fromfile(image_path(case),dtype=np.uint8),1)
     validate(case,original)
+    if case['task']=='shimen' and case['truth'].get('page',{}).get('value')=='find':
+        if canvases is not None and (canvases.shape!=(8,*original.shape) or canvases.dtype!=original.dtype):
+            raise ValueError('Eight canvases must have the original shape and dtype')
+        # Transform every approved icon together: eight frames, not eight
+        # full-screen copies per object. Every positive and negative is scored.
+        for mirror in (False,True):
+            for turn in range(4):
+                canvas=original.copy() if canvases is None else canvases[int(mirror)*4+turn]
+                if canvases is not None:canvas[:]=original
+                for crop in crops:
+                    x1,y1,x2,y2=crop['region'];tile=transform(original[y1:y2,x1:x2],mirror,turn)
+                    if tile.shape[:2]!=(y2-y1,x2-x1):raise ValueError('Inventory crop must be square')
+                    canvas[y1:y2,x1:x2]=tile
+                relative=Path(case['id']).with_suffix('')/f'全部物品_{int(mirror)}_{turn*90}度.png'
+                derived={**case,'id':relative.as_posix(),'image':relative.as_posix(),
+                    'capture':{**case['capture'],'origin':'synthetic'},'truth':deepcopy(case['truth']),
+                    'augmentation':{'parent':case['id'],'crop':[63,535,829,1410],
+                                    'mirror':mirror,'turn':turn,'regions':[c['region'] for c in crops]}}
+                if persist:
+                    path=image_path(derived);path.parent.mkdir(parents=True,exist_ok=True)
+                    cv2.imencode('.png',canvas)[1].tofile(path);yield derived
+                else:yield derived,canvas
+        return
     for index,crop in enumerate(crops,1):
         x1,y1,x2,y2=crop['region'];tile=original[y1:y2,x1:x2]
         for mirror in (False,True):
@@ -182,23 +226,25 @@ def iter_variants(case,crops,original=None,persist=True):
                     yield derived
                 else:
                     yield derived,canvas
-    field=case['truth'].get('puzzle_order',{})
+    field_name='puzzle_locations' if case['task']=='shimen' else 'puzzle_order'
+    field=case['truth'].get(field_name,{})
     if field.get('status') not in VERIFIED:return
-    cells=json.loads((ROOT/'抓鬼/拼图/格位.json').read_text(encoding='utf-8'))
+    cells=json.loads((ROOT/TASKS[case['task']]/'拼图/格位.json').read_text(encoding='utf-8'))
     tiles=[original[y1:y2,x1:x2].copy() for x1,y1,x2,y2 in cells]
     for permutation in itertools.permutations(range(4)):
         if permutation==(0,1,2,3):continue  # The original is evaluated once.
         canvas=original.copy()
         for cell,source in zip(cells,permutation):
             x1,y1,x2,y2=cell;canvas[y1:y2,x1:x2]=tiles[source]
-        order=''.join(chr(65+permutation.index(ord(letter)-65)) for letter in field['value'])
+        order=([permutation.index(cell-1)+1 for cell in field['value']] if field_name=='puzzle_locations'
+               else ''.join(chr(65+permutation.index(ord(letter)-65)) for letter in field['value']))
         relative=Path(case['id']).with_suffix('')/('四格_'+''.join(chr(65+i) for i in permutation)+'.png')
         derived={'id':relative.as_posix(),'task':case['task'],'image':relative.as_posix(),
                  'capture':{**case['capture'],'origin':'synthetic'},
                  'truth':deepcopy(case['truth']),'expected':deepcopy(case['expected']),
                  'augmentation':{'parent':case['id'],'crop':[cells[0][0],cells[0][1],cells[-1][2],cells[-1][3]],
                                  'cells':cells,'permutation':list(permutation)}}
-        derived['truth']['puzzle_order']=annotation(order)
+        derived['truth'][field_name]=annotation(order)
         if persist:
             path=image_path(derived);path.parent.mkdir(parents=True,exist_ok=True)
             cv2.imencode('.png',canvas)[1].tofile(path)

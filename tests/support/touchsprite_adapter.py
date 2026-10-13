@@ -35,8 +35,9 @@ class Screen:
         if key not in self.cache:
             self.cache[key] = self._find(*key)
         result = self.cache[key]
-        self.matches.append({'feature': hashlib_id(key), 'degree': degree,
-                             'region': list(key[3:]), 'position': list(result)})
+        if getattr(self,'trace_matches',True):
+            self.matches.append({'feature': hashlib_id(key), 'degree': degree,
+                                 'region': list(key[3:]), 'position': list(result)})
         return result
 
     def _find(self, base, offsets, degree, x1, y1, x2, y2):

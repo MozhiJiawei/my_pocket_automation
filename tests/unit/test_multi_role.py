@@ -48,11 +48,23 @@ class MultiRoleTest(unittest.TestCase):
                          [('first','zhuagui',True),('first','dungeon',True),('second','zhuagui',False),('second','dungeon',False)])
         self.assertIn(('summary','scope=roles roles_expected=2 roles_completed=2 all_roles_done=true selected_done=true daily_done=false'),events)
 
-    def test_one_role_failure_does_not_hide_or_skip_another_role(self):
+    def test_paused_task_stops_run_without_claiming_other_roles_done(self):
         self.lua.execute("failed_role='first'")
         events=self.run_daily()
-        self.assertEqual(list(self.lua.globals().visits.values()),['first','second'])
+        self.assertEqual(list(self.lua.globals().visits.values()),['first'])
         self.assertTrue(any('all_roles_done=false' in detail for event,detail in events if event=='summary'))
+
+    def test_configured_role_subset_and_task_subset_are_respected(self):
+        self.lua.execute("ctx.config.accounts[3]={alias='third'};ctx.config.selected_accounts={'first','third'};ctx.config.tasks={'dungeon'}")
+        events=self.run_daily()
+        self.assertEqual(list(self.lua.globals().visits.values()),['first','third'])
+        self.assertEqual([(c[1],c[2]) for c in self.lua.globals().calls.values()],[('first','dungeon'),('third','dungeon')])
+        self.assertIn(('summary','scope=selected_roles roles_expected=2 roles_completed=2 all_roles_done=false selected_done=true daily_done=false'),events)
+
+    def test_unconfigured_selection_has_no_task_actions(self):
+        self.lua.execute("ctx.config.selected_accounts={'missing'}")
+        with self.assertRaises(Exception):self.run_daily()
+        self.assertEqual(len(self.lua.globals().calls),0)
 
     def test_selected_regression_checks_roster_but_only_runs_requested_role(self):
         self.lua.execute("ctx.config.selected_account='second'")

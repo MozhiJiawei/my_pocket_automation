@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 from rapidocr import RapidOCR
 
-from experiment import Experiment, HERE, ROOT, TAP, read_image, template_match
+from image_models import OCRProbe, HERE, ROOT, TAP, read_image, template_match
 
 
 def colors(image: np.ndarray, config: dict) -> tuple[int, int] | None:
@@ -62,8 +62,7 @@ def main() -> None:
     start = time.perf_counter()
     engine = RapidOCR()
     load_ms = (time.perf_counter() - start) * 1000
-    ocr_probe = Experiment.__new__(Experiment)
-    ocr_probe.ocr_engine = engine
+    ocr_probe = OCRProbe(engine)
     rows = []
     for name, frame, transform, exists in cases:
         scale, dx, dy = transform

@@ -13,7 +13,7 @@ from scripts.perception.lib.evaluation import evaluate_inputs, write_report
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--task',choices=['zhuagui','dungeon','抓鬼','副本'])
+    parser.add_argument('--task',choices=['zhuagui','dungeon','shimen','抓鬼','副本','师门'])
     parser.add_argument('--case',help='Readable relative case directory or image path (including its augmentation)')
     parser.add_argument('--split',choices=['calibration','holdout','regression'])
     parser.add_argument('--origin',choices=['device','synthetic'],help='Separate real evidence from augmented cases')

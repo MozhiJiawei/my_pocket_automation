@@ -27,6 +27,7 @@ class QueueTest(unittest.TestCase):
         self.directory=web.queue.PENDING/self.identity;self.directory.mkdir(parents=True)
         Image.new('RGB',(900,1600),'blue').save(self.directory/'第01页.png')
         self.item=object.__new__(web.Item);self.item.topic='酒';self.item.token='test-token'
+        self.item.task='师门';self.item.kind='寻物'
         self.item.directory=self.directory;self.item.id=self.identity;self.item.stage='pending'
         self.item.images={'第01页.png':{'size':[900,1600],'path':self.directory/'第01页.png'}}
         self.item.strip=self.directory/'第01页.png';self.item.data={'id':self.identity}
@@ -72,7 +73,7 @@ class QueueTest(unittest.TestCase):
         web.validate_document(doc,self.item.images,'酒')
         with self.assertRaises(ValueError):web.validate_document({'正确':doc['反例'],'反例':doc['反例']},self.item.images,'酒')
     def test_unsupported_scene_keeps_original_visible_and_cannot_confirm(self):
-        identity='师门/拼图/香炉/测试输入'
+        identity='师门/其它/香炉/测试输入'
         folder=web.queue.PENDING/identity;folder.mkdir(parents=True)
         Image.new('RGB',(900,1600),'blue').save(folder/'第01页.png')
         item=web.Item('pending',identity,self.root/'output')
@@ -93,6 +94,218 @@ class QueueTest(unittest.TestCase):
         with patch.object(check,'compose_rows',return_value=(original.crop(layer['source']),[],original,[layer])):
             result=check.check(('pending',self.identity,str(self.root/'output')))
         self.assertFalse(result['passed']);self.assertEqual(len(result['suggestions_without_complete_row']),1)
+    def test_reference_catalog_is_scoped_and_rejects_unsafe_sources(self):
+        references=self.root/'references';folder=references/'师门/寻物/酒';folder.mkdir(parents=True)
+        Image.new('RGB',(40,40),'red').save(folder/'酒.png')
+        document={'说明':'酒类参考，尚非真值','图标':[{'名称':'酒','图片':'酒.png','来源':'https://example.com/items'}]}
+        path=folder/'参考.json';path.write_text(json.dumps(document),encoding='utf-8')
+        with patch.object(web,'REFERENCES',references):
+            resolved,catalog=web.reference_catalog(self.identity)
+            self.assertEqual(resolved,folder.resolve());self.assertEqual(catalog,document)
+            _,missing=web.reference_catalog('师门/寻物/其它/输入')
+            self.assertEqual(missing['图标'],[])
+            with self.assertRaises(ValueError):web.reference_catalog('../../outside')
+            for field,value in [('图片','../酒.png'),('来源','javascript:alert(1)')]:
+                invalid=json.loads(json.dumps(document));invalid['图标'][0][field]=value
+                path.write_text(json.dumps(invalid),encoding='utf-8')
+                with self.assertRaises(ValueError):web.reference_catalog(self.identity)
+    def test_reference_http_only_serves_images_listed_for_current_topic(self):
+        from urllib.parse import quote
+        references=self.root/'references';folder=references/'师门/寻物/酒';folder.mkdir(parents=True)
+        Image.new('RGB',(40,40),'red').save(folder/'酒.png')
+        (folder/'参考.json').write_text(json.dumps({'图标':[{'名称':'酒','图片':'酒.png','来源':'https://example.com/items','功效':'示例'}]}),encoding='utf-8')
+        server=ThreadingHTTPServer(('127.0.0.1',0),web.handler(self.review))
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        base=f'http://127.0.0.1:{server.server_port}';query='?id='+quote(self.identity)
+        try:
+            with patch.object(web,'REFERENCES',references):
+                with urlopen(base+'/api/item'+query) as response:
+                    self.assertEqual(json.load(response)['references']['图标'][0]['功效'],'示例')
+                with urlopen(base+'/api/reference'+query+'&name='+quote('酒.png')) as response:
+                    self.assertEqual(response.headers['Content-Type'],'image/png')
+                    self.assertEqual(response.read(),(folder/'酒.png').read_bytes())
+                for name in ('../酒.png','未知.png'):
+                    with self.assertRaises(HTTPError):urlopen(base+'/api/reference'+query+'&name='+quote(name))
+        finally:server.shutdown();server.server_close();thread.join()
+
+    def test_same_name_references_require_distinct_image_files(self):
+        references=self.root/'references';folder=references/'师门/寻物/酒';folder.mkdir(parents=True)
+        Image.new('RGB',(40,40),'red').save(folder/'月光.jpg')
+        entries=[{'名称':'月光','图片':'月光.jpg','来源':'https://example.com/'+kind,'类别':kind}
+                 for kind in ('双短剑','刃环')]
+        path=folder/'参考.json';path.write_text(json.dumps({'图标':entries}),encoding='utf-8')
+        with patch.object(web,'REFERENCES',references):
+            with self.assertRaisesRegex(ValueError,'参考图片名称重复'):web.reference_catalog(self.identity)
+            for entry in entries:
+                entry['图片']='月光-'+entry['类别']+'.jpg'
+                Image.new('RGB',(40,40),'blue').save(folder/entry['图片'])
+            path.write_text(json.dumps({'图标':entries}),encoding='utf-8')
+            self.assertEqual(web.reference_catalog(self.identity)[1]['图标'],entries)
+
+class PuzzleTest(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(dir=web.ROOT/'.tmp');self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+        for name,value in [('PENDING',self.root/'未完成'),('CONFIRMED',self.root/'已完成')]:
+            patcher=patch.object(web.queue,name,value);patcher.start();self.addCleanup(patcher.stop)
+        self.review=web.Review();self.review.output=self.root/'output'
+        self.server=ThreadingHTTPServer(('127.0.0.1',0),web.handler(self.review))
+        self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
+        self.addCleanup(self.close_server)
+        self.base=f'http://127.0.0.1:{self.server.server_port}'
+    def close_server(self):
+        self.server.shutdown();self.server.server_close();self.thread.join()
+    def create(self,task='师门',pages=2,size=(900,1600)):
+        identity=f'{task}/拼图/香炉/测试输入';folder=web.queue.PENDING/identity;folder.mkdir(parents=True)
+        colors=('red','green','blue','yellow')
+        for index in range(1,pages+1):
+            image=Image.new('RGB',size,(index*20,30,40))
+            if task in web.queue.PUZZLE_FIELDS and size==(900,1600):
+                boxes=json.loads((web.ROOT/'testdata'/task/'拼图/格位.json').read_text(encoding='utf-8'))
+                for box,color in zip(boxes,colors):image.paste(color,box)
+            image.save(folder/f'第{index:02d}页.png')
+        return identity,folder
+    def get(self,identity,stage='pending'):
+        from urllib.parse import urlencode
+        with urlopen(self.base+'/api/item?'+urlencode({'id':identity,'stage':stage})) as response:return json.load(response)
+    def post(self,identity,document,token):
+        from urllib.parse import urlencode
+        request=Request(self.base+'/api/confirm?'+urlencode({'id':identity}),
+            data=json.dumps(document).encode(),headers={'X-Annotation-Token':token},method='POST')
+        with urlopen(request) as response:return json.load(response)
+    def test_both_tasks_load_original_geometry_and_pixels_without_item_detection(self):
+        from urllib.parse import urlencode
+        for task,field,order in [('师门','puzzle_locations',[3,2,1,4]),('抓鬼','puzzle_order','CBAD')]:
+            identity,folder=self.create(task)
+            with patch.object(web,'compose_rows',side_effect=AssertionError('拼图不得拼物品长图')),patch.object(web,'item_cells',side_effect=AssertionError('拼图不得识别物品格')):
+                item=self.get(identity)
+            self.assertEqual(item['kind'],'拼图');self.assertTrue(item['annotatable'])
+            self.assertEqual(item['puzzle']['field'],field)
+            boxes=json.loads((web.ROOT/'testdata'/task/'拼图/格位.json').read_text(encoding='utf-8'))
+            self.assertEqual(item['puzzle']['cells'],boxes)
+            self.assertEqual(item['images'],[{'name':f'第{i:02d}页.png','size':[900,1600]} for i in (1,2)])
+            self.assertEqual(item['suggestions'],{'预期':{}});self.assertEqual(item['initial'],{'预期':{}})
+            self.assertEqual(item['cells'],[]);self.assertEqual(item['strip']['layers'],[])
+            self.assertFalse((self.root/'output').exists())
+            for endpoint in ('strip','image'):
+                with urlopen(self.base+'/api/'+endpoint+'?'+urlencode({'id':identity,'name':'第01页.png'})) as response:
+                    self.assertEqual(response.read(),(folder/'第01页.png').read_bytes())
+            # Restored target positions refer to these exact original-image crops.
+            with Image.open(folder/'第01页.png') as source:
+                restored=[source.crop(boxes[i-1]).getpixel((5,5)) for i in ([3,2,1,4] if isinstance(order,list) else [ord(c)-64 for c in order])]
+            self.assertEqual(restored,[(0,0,255),(0,128,0),(255,0,0),(255,255,0)])
+    def test_partial_suggestions_and_drafts_keep_unmarked_pages_unknown(self):
+        identity,folder=self.create()
+        suggestion={'预期':{'第01页.png':{'puzzle_locations':[3,2,1,4]}}}
+        draft={'预期':{'第02页.png':{'puzzle_locations':[1,2,3,4]}}}
+        for name,document in [('建议.json',suggestion),('草稿.json',draft)]:
+            (folder/name).write_text(json.dumps(document),encoding='utf-8')
+        item=self.get(identity)
+        self.assertEqual(item['suggestions'],suggestion);self.assertEqual(item['initial'],draft)
+        self.assertNotIn('第01页.png',item['initial']['预期'])
+        with self.assertRaises(HTTPError) as failure:self.post(identity,draft,item['token'])
+        self.assertEqual(failure.exception.code,400);self.assertTrue(folder.exists())
+    def test_enqueued_suggestion_is_initial_when_no_explicit_draft_exists(self):
+        _,source=self.create()
+        suggestion={'预期':{'第01页.png':{'puzzle_locations':[3,2,1,4]}}}
+        identity=web.queue.enqueue(source,'师门','拼图','香炉','仅建议',suggestions=suggestion)
+        folder=web.queue.resolve('pending',identity)
+        self.assertFalse((folder/'草稿.json').exists())
+        item=self.get(identity)
+        self.assertEqual(item['suggestions'],suggestion);self.assertEqual(item['initial'],suggestion)
+        self.assertNotIn('第02页.png',item['initial']['预期'])
+    def test_invalid_or_missing_page_answers_never_write_or_move_input(self):
+        identity,folder=self.create();token=self.get(identity)['token']
+        valid={'预期':{f'第{i:02d}页.png':{'puzzle_locations':[3,2,1,4]} for i in (1,2)}}
+        invalid=[{}, {'预期':{}}, {'预期':{'第01页.png':valid['预期']['第01页.png']}},
+            {'预期':{**valid['预期'],'未知.png':{'puzzle_locations':[1,2,3,4]}}},
+            {**valid,'正确':{}}]
+        for entry in [{'puzzle_order':'CBAD'}, {'puzzle_locations':[1,1,3,4]}, {'puzzle_locations':[True,2,3,4]},
+                      {'puzzle_locations':[1.0,2,3,4]}, {'puzzle_locations':'1234'}, {'puzzle_locations':[1,2,3]},
+                      {'puzzle_locations':[0,2,3,4]}, {'puzzle_locations':[1,2,3,4],'puzzle_order':'ABCD'}, [], None]:
+            invalid.append({'预期':{**valid['预期'],'第01页.png':entry}})
+        for document in invalid:
+            with self.subTest(document=document):
+                with self.assertRaises(HTTPError) as failure:self.post(identity,document,token)
+                self.assertEqual(failure.exception.code,400)
+                self.assertTrue(folder.exists());self.assertFalse((folder/'答案.json').exists())
+                self.assertFalse((folder/'审核.md').exists())
+        self.assertEqual(web.queue.items('confirmed'),[])
+    def test_confirmed_archive_is_read_only_and_deletion_never_requeues(self):
+        for task,field,order in [('师门','puzzle_locations',[3,2,1,4]),('抓鬼','puzzle_order','CBAD')]:
+            identity,folder=self.create(task);originals={p.name:p.read_bytes() for p in folder.glob('第*页.png')}
+            document={'预期':{name:{field:order} for name in originals}}
+            (folder/'草稿.json').write_text(json.dumps(document),encoding='utf-8')
+            self.assertTrue(self.post(identity,document,self.get(identity)['token'])['confirmed'])
+            target=web.queue.CONFIRMED/identity;self.assertFalse(folder.exists())
+            for name,pixels in originals.items():self.assertEqual((target/name).read_bytes(),pixels)
+            self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
+            self.assertFalse((target/'草稿.json').exists())
+            self.assertIn('四格拖动恢复顺序',(target/'审核.md').read_text(encoding='utf-8'))
+            self.assertEqual(self.get(identity,'confirmed')['initial'],document)
+            with self.assertRaisesRegex(ValueError,'只读'):self.review.get('confirmed',identity).save(document)
+            with self.assertRaises(HTTPError) as failure:self.post(identity,document,'old-token')
+            self.assertEqual(failure.exception.code,404)
+            (target/'答案.json').unlink()
+            self.assertNotIn(identity,{item['id'] for item in web.queue.items('confirmed')})
+            self.assertEqual(web.queue.items('pending'),[])
+            with self.assertRaises(HTTPError):self.get(identity,'confirmed')
+            self.assertTrue(all((target/name).is_file() for name in originals))
+    def test_unsupported_size_task_or_geometry_remains_original_only(self):
+        for task,size in [('师门',(720,1280)),('副本',(900,1600))]:
+            identity,folder=self.create(task,pages=1,size=size);item=self.get(identity)
+            self.assertFalse(item['annotatable']);self.assertEqual(item['images'][0]['size'],list(size))
+            self.assertEqual(item['strip']['size'],list(size));self.assertEqual(item['puzzle']['cells'],[])
+            self.assertIn('仅查看原图',item['limitation'])
+            with self.assertRaises(HTTPError):self.post(identity,{'预期':{}},item['token'])
+            self.assertTrue(folder.exists());self.assertFalse((folder/'答案.json').exists())
+        identity,folder=self.create('抓鬼',pages=1)
+        geometry=self.root/'geometry';path=geometry/'testdata/抓鬼/拼图/格位.json';path.parent.mkdir(parents=True)
+        for cells in [[[0,0,901,20]]*4,[[0,0,20,20]]*4,
+                      [[0,0,20,20],[30,0,50,20],[0,30,20,50],[30,30,51,50]]]:
+            path.write_text(json.dumps(cells),encoding='utf-8')
+            with patch.object(web.queue,'ROOT',geometry):item=web.Item('pending',identity,self.root/'output')
+            self.assertFalse(item.data['annotatable']);self.assertEqual(item.data['puzzle']['cells'],[])
+            self.assertEqual(item.strip,folder/'第01页.png')
+    def test_invalid_suggestion_and_unknown_archive_image_remain_inspectable(self):
+        from urllib.parse import urlencode
+        identity,folder=self.create(pages=1)
+        (folder/'建议.json').write_text(json.dumps({'说明':'无效建议格式，未经网页标注'}),encoding='utf-8')
+        answer={'预期':{'画面.png':{'puzzle_locations':[3,2,1,4]}}}
+        (folder/'答案.json').write_text(json.dumps(answer),encoding='utf-8')
+        target=web.queue.CONFIRMED/identity;target.parent.mkdir(parents=True);folder.rename(target)
+        originals={p.name:p.read_bytes() for p in target.iterdir() if p.is_file()}
+        # Image access must work even before /api/item has read the invalid files.
+        with urlopen(self.base+'/api/image?'+urlencode({'id':identity,'stage':'confirmed','name':'第01页.png'})) as response:
+            self.assertEqual(response.read(),originals['第01页.png'])
+        item=self.get(identity,'confirmed')
+        self.assertFalse(item['annotatable']);self.assertEqual(item['initial'],{'预期':{}})
+        self.assertEqual(item['suggestions'],{'预期':{}})
+        self.assertIn('建议.json',item['limitation']);self.assertIn('答案.json',item['limitation'])
+        self.assertIn('未知原图',item['limitation']);self.assertIn('未加载已核对排列',item['limitation'])
+        self.assertEqual(item['images'],[{'name':'第01页.png','size':[900,1600]}])
+        with self.assertRaisesRegex(ValueError,'只读'):self.review.get('confirmed',identity).save(answer)
+        for name,content in originals.items():self.assertEqual((target/name).read_bytes(),content)
+    def test_invalid_pending_files_disable_server_side_confirmation(self):
+        identity,folder=self.create(pages=1)
+        valid={'预期':{'第01页.png':{'puzzle_locations':[3,2,1,4]}}}
+        item=self.review.get('pending',identity);self.assertTrue(item.data['annotatable'])
+        # A direct POST after external draft corruption must also be refused.
+        (folder/'草稿.json').write_text('{broken json',encoding='utf-8')
+        with self.assertRaises(HTTPError) as failure:self.post(identity,valid,item.token)
+        self.assertEqual(failure.exception.code,400);self.assertFalse(item.data['annotatable'])
+        self.assertFalse((folder/'答案.json').exists());self.assertFalse((folder/'审核.md').exists())
+        result=self.get(identity)
+        self.assertFalse(result['annotatable']);self.assertEqual(result['initial'],{'预期':{}})
+        self.assertIn('草稿.json',result['limitation']);self.assertTrue(folder.exists())
+        # Invalid suggestions at first load must preserve the same read-only fallback.
+        other_identity,other_folder=self.create('抓鬼',pages=1)
+        (other_folder/'建议.json').write_text(json.dumps({'说明':'仅说明'}),encoding='utf-8')
+        other=self.get(other_identity);self.assertFalse(other['annotatable'])
+        self.assertEqual(other['initial'],{'预期':{}});self.assertIn('建议.json',other['limitation'])
+        with self.assertRaises(HTTPError) as failure:
+            self.post(other_identity,{'预期':{'第01页.png':{'puzzle_order':'CBAD'}}},other['token'])
+        self.assertEqual(failure.exception.code,400);self.assertTrue(other_folder.exists())
 
 class ProvenanceTest(unittest.TestCase):
     def test_original_question_prepend_preserves_source_and_click_mapping(self):

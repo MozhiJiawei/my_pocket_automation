@@ -1,0 +1,145 @@
+{
+  "说明": "本题一级药品正例图鉴，共20种。名称、等级及图标来自梦幻西游电脑版新浪官方网站合作专区一级药品页；每项保留原网页与图片来源。口袋版题目采用不同绘制、旋转和镜像，须按药物外形核对。",
+  "图标": [
+    {
+      "名称": "四叶花",
+      "图片": "1级_四叶花.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i3.sinaimg.cn/gm/ol/mhxy/wqdj/0240.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "七叶莲",
+      "图片": "1级_七叶莲.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i2.sinaimg.cn/gm/ol/mhxy/wqdj/0243.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "天青地白",
+      "图片": "1级_天青地白.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i1.sinaimg.cn/gm/ol/mhxy/wqdj/0246.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "草果",
+      "图片": "1级_草果.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i0.sinaimg.cn/gm/ol/mhxy/wqdj/0241.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "九香虫",
+      "图片": "1级_九香虫.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i3.sinaimg.cn/gm/ol/mhxy/wqdj/0244.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "水黄莲",
+      "图片": "1级_水黄莲.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i2.sinaimg.cn/gm/ol/mhxy/wqdj/0247.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "紫丹罗",
+      "图片": "1级_紫丹罗.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i0.sinaimg.cn/gm/ol/mhxy/wqdj/0250.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "佛手",
+      "图片": "1级_佛手.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i3.sinaimg.cn/gm/ol/mhxy/wqdj/0253.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "旋复花",
+      "图片": "1级_旋复花.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i2.sinaimg.cn/gm/ol/mhxy/wqdj/0256.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "百色花",
+      "图片": "1级_百色花.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i1.sinaimg.cn/gm/ol/mhxy/wqdj/0251.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "香叶",
+      "图片": "1级_香叶.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i0.sinaimg.cn/gm/ol/mhxy/wqdj/0254.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "龙须草",
+      "图片": "1级_龙须草.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i0.sinaimg.cn/gm/ol/mhxy/wqdj/0258.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "灵脂",
+      "图片": "1级_灵脂.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i2.sinaimg.cn/gm/ol/mhxy/wqdj/0252.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "白玉骨头",
+      "图片": "1级_白玉骨头.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i1.sinaimg.cn/gm/ol/mhxy/wqdj/0255.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "鬼切草",
+      "图片": "1级_鬼切草.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i1.sinaimg.cn/gm/ol/mhxy/wqdj/0259.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "曼佗罗花",
+      "图片": "1级_曼佗罗花.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i3.sinaimg.cn/gm/ol/mhxy/wqdj/0257.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "山药",
+      "图片": "1级_山药.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i1.sinaimg.cn/gm/ol/mhxy/wqdj/0242.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "八角莲叶",
+      "图片": "1级_八角莲叶.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i0.sinaimg.cn/gm/ol/mhxy/wqdj/0245.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "人参",
+      "图片": "1级_人参.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i3.sinaimg.cn/gm/ol/mhxy/wqdj/0248.jpg",
+      "等级": 1
+    },
+    {
+      "名称": "月见草",
+      "图片": "1级_月见草.gif",
+      "来源": "https://games.sina.com.cn/z/xyq/2004-02-11/104373.shtml",
+      "图片来源": "https://i0.sinaimg.cn/gm/ol/mhxy/wqdj/0249.jpg",
+      "等级": 1
+    }
+  ]
+}

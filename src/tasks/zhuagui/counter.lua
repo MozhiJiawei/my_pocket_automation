@@ -1,5 +1,5 @@
 local M={}
-function M.read()
+function M.read(region)
     if require('common.screen').size()~=900 then return nil end
     local glyphs={}
     for digit=0,9 do
@@ -13,11 +13,12 @@ function M.read()
             for _,glyph in ipairs(items) do glyphs[digit][#glyphs[digit]+1]=glyph end
         end
     end
+    local x1,y1,x2,y2=table.unpack(region or {740,208,806,229})
     local columns,rows={},{}
     keepScreen(true)
-    for y=208,229 do
+    for y=y1,y2 do
         rows[y]={}
-        for x=740,806 do
+        for x=x1,x2 do
             local c=getColor(x,y)
             local r,g,b=math.floor(c/65536)%256,math.floor(c/256)%256,c%256
             local on=g>140 and r<150 and b<120
@@ -27,7 +28,7 @@ function M.read()
     end
     keepScreen(false)
     local digits,left={},nil
-    for x=740,807 do
+    for x=x1,x2+1 do
         if columns[x] and not left then left=x end
         if left and not columns[x] then
             local width=x-left
@@ -36,12 +37,12 @@ function M.read()
             for _,glyph in ipairs(items) do
                 if #glyph[1]==width then
                     local errors=0
-                    for y=208,229 do
+                    for y=y1,y2 do
                         for px=left,x-1 do
-                            if rows[y][px]~=(glyph[y-207]:sub(px-left+1,px-left+1)=='1') then errors=errors+1 end
+                            if rows[y][px]~=(glyph[y-y1+1]:sub(px-left+1,px-left+1)=='1') then errors=errors+1 end
                         end
                     end
-                    local ratio=errors/(22*width)
+                    local ratio=errors/((y2-y1+1)*width)
                     if ratio<best_error then best,best_error=digit,ratio end
                 end
             end
