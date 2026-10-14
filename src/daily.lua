@@ -2,10 +2,20 @@ local navigation=require('common.navigation')
 local log=require('dfx.log')
 local snapshot=require('dfx.snapshot')
 local M={}
+local task_order={'shimen','zhuagui','dungeon','rewards'}
 function M.run(ctx)
     local completed,failed=0,0
     local selected=ctx.config.tasks
     assert(type(selected)=='table' and #selected>0,'selected tasks required')
+    local wanted={}
+    for _,name in ipairs(selected) do
+        assert(not wanted[name],'duplicate selected task');wanted[name]=true
+    end
+    selected={}
+    for _,name in ipairs(task_order) do
+        if wanted[name] then selected[#selected+1]=name;wanted[name]=nil end
+    end
+    assert(next(wanted)==nil,'unsupported selected task')
     if not navigation.verify_roster(ctx) then
         snapshot.capture(ctx,'saved_roster_not_verified')
         log.write(ctx,'task_result','roster status=blocked reason=saved_roster_not_verified')

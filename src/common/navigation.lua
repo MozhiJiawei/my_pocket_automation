@@ -103,7 +103,14 @@ return_home=function(ctx)
     for _=1,4 do
         if detector.present(home) then return true end
         local state=pages.state()
-        if state:match('^switch_') then
+        if detector.present(require('tasks.rewards.assets.discard_confirm')) then
+            if not device.tap(ctx,require('tasks.rewards.assets.discard_cancel'),'cancel_gourd_discard_before_identity_check') then return false end
+        elseif detector.present(require('tasks.rewards.assets.detail_title')) then
+            if not device.tap(ctx,require('tasks.rewards.assets.detail_back'),'close_gourd_detail') or
+                not device.wait(function() return detector.present(require('tasks.rewards.assets.inventory')) end,20) then return false end
+        elseif detector.present(require('tasks.rewards.assets.inventory')) then
+            if not device.tap(ctx,require('common.assets.home_tab'),'return_home_from_inventory') then return false end
+        elseif state:match('^switch_') then
             local feature={}
             for k,v in pairs(pages.features[state]) do feature[k]=v end
             feature.tap_offset={feature.tap_offset[1]-390,feature.tap_offset[2]}

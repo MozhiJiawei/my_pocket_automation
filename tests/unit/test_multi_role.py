@@ -24,7 +24,7 @@ class MultiRoleTest(unittest.TestCase):
                 end,
                 finish_account=function() return home end
             } end
-            for _,name in ipairs({'zhuagui','dungeon'}) do
+            for _,name in ipairs({'shimen','zhuagui','dungeon','rewards'}) do
                 local task=name
                 package.preload['tasks.'..name..'.task']=function() return {run=function(c)
                     assert(c.identity_verified)
@@ -47,6 +47,25 @@ class MultiRoleTest(unittest.TestCase):
         self.assertEqual([(c[1],c[2],c[3]) for c in calls],
                          [('first','zhuagui',True),('first','dungeon',True),('second','zhuagui',False),('second','dungeon',False)])
         self.assertIn(('summary','scope=roles roles_expected=2 roles_completed=2 all_roles_done=true selected_done=true daily_done=false'),events)
+
+    def test_daily_modules_run_in_fixed_order_per_verified_role(self):
+        self.lua.execute("ctx.config.tasks={'rewards','dungeon','zhuagui','shimen'}")
+        events=self.run_daily()
+        self.assertEqual([(c[1],c[2]) for c in self.lua.globals().calls.values()],
+                         [(alias,task) for alias in ('first','second') for task in ('shimen','zhuagui','dungeon','rewards')])
+        self.assertIn(('summary','scope=roles roles_expected=2 roles_completed=2 all_roles_done=true selected_done=true daily_done=true'),events)
+
+    def test_selected_modules_keep_fixed_order_without_adding_missing_tasks(self):
+        self.lua.execute("ctx.config.tasks={'rewards','shimen'};ctx.config.selected_accounts={'second'}")
+        events=self.run_daily()
+        self.assertEqual([(c[1],c[2]) for c in self.lua.globals().calls.values()],[('second','shimen'),('second','rewards')])
+        self.assertIn(('summary','scope=selected_roles roles_expected=1 roles_completed=1 all_roles_done=false selected_done=true daily_done=false'),events)
+
+    def test_prior_task_pause_stops_before_rewards_even_if_requested_first(self):
+        self.lua.execute("ctx.config.tasks={'rewards','shimen','dungeon','zhuagui'};failed_role='first'")
+        events=self.run_daily()
+        self.assertEqual([(c[1],c[2]) for c in self.lua.globals().calls.values()],[('first','shimen')])
+        self.assertIn(('summary','all_roles_done=false selected_done=false daily_done=false reason=shimen_paused'),events)
 
     def test_paused_task_stops_run_without_claiming_other_roles_done(self):
         self.lua.execute("failed_role='first'")

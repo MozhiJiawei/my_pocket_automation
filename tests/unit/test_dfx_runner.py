@@ -134,6 +134,117 @@ class RuntimeResultTest(unittest.TestCase):
         self.assertEqual(result['business_status'], 'observed')
 
 
+    def test_rewards_debug_accepts_only_step_specific_pauses(self):
+        allowed={'enter':{'rewards_inventory_observed'},'browse':{'rewards_inventory_observed'},
+                 'advance':{'opened_one_gourd','discarded_one_special'},'complete':set()}
+        for step,reasons in allowed.items():
+            for reason in ('rewards_inventory_observed','opened_one_gourd','discarded_one_special',
+                           'battle_completed','carousel_observation_only','energy_budget_exhausted'):
+                for status in ('paused','blocked','failed'):
+                    with self.subTest(step=step,reason=reason,status=status):
+                        text=f'[account] current\n[task_result] rewards status={status} reason={reason}\n[summary] scope=rewards daily_done=false\n[finished] script_exited_normally'
+                        result=runner.runtime_result(text,'run',step,'rewards',[{'alias':'current'}])
+                        self.assertEqual(result['expectation_met'],status=='paused' and reason in reasons)
+                        self.assertFalse(result['daily_complete'])
+
+    def test_rewards_complete_requires_one_done_result_for_selected_role(self):
+        text='[account] current\n[task_result] rewards status=done reason=all_gourds_opened\n[summary] scope=rewards daily_done=false\n[finished] script_exited_normally'
+        self.assertTrue(runner.runtime_result(text,'run','complete','rewards',[{'alias':'current'}])['expectation_met'])
+        for changed in (text.replace('current','other'),text.replace('rewards status','dungeon status'),
+                        text.replace('status=done','status=running'),text.replace('script_exited_normally','script_failed'),
+                        text.replace('[summary]','[task_result] rewards status=done reason=duplicate\n[summary]')):
+            with self.subTest(text=changed):
+                self.assertFalse(runner.runtime_result(changed,'run','complete','rewards',[{'alias':'current'}])['expectation_met'])
+
+    def test_rewards_debug_pause_requires_task_evidence_and_normal_exit(self):
+        text='[account] current\n[task_result] rewards status=paused reason=rewards_inventory_observed\n[summary] scope=rewards daily_done=false\n[finished] script_exited_normally'
+        for changed in (text.replace('rewards status','dungeon status'),text.replace('current','other'),
+                        text.replace('[finished] script_exited_normally',''),
+                        text.replace('script_exited_normally','script_failed')):
+            with self.subTest(text=changed):
+                self.assertFalse(runner.runtime_result(changed,'run','enter','rewards',[{'alias':'current'}])['expectation_met'])
+        summary_only='[summary] reason=rewards_inventory_observed\n[finished] script_exited_normally'
+        self.assertFalse(runner.runtime_result(summary_only,'run','browse','rewards')['expectation_met'])
+
+
+class RewardsRunnerOptionsTest(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.accounts=Path(self.temp.name)/'accounts.json'
+        self.accounts.write_text(json.dumps([{'alias':'first'},{'alias':'second'}]),encoding='utf-8')
+        self.base=['run-daily.py','--device','fake','--accounts',str(self.accounts)]
+
+    def parse(self,options):
+        with patch.object(sys,'argv',self.base+options),patch.object(runner,'run_once') as run:
+            runner.main()
+        run.assert_called_once()
+        return run.call_args.args
+
+    def test_default_daily_tasks_include_rewards(self):
+        args,accounts,*_=self.parse(['--mode','run','--step','daily'])
+        self.assertEqual(args.tasks,['shimen','zhuagui','dungeon','rewards'])
+        self.assertFalse(args.rewards_debug_after_shimen)
+        self.assertEqual(args.rewards_inspect_category,'task')
+        self.assertEqual([account['alias'] for account in accounts],['first','second'])
+
+    def test_daily_tasks_follow_fixed_order_including_subsets(self):
+        for tasks,expected in [('rewards,dungeon,zhuagui,shimen',['shimen','zhuagui','dungeon','rewards']),
+                               ('rewards,shimen',['shimen','rewards']),('dungeon,zhuagui',['zhuagui','dungeon'])]:
+            with self.subTest(tasks=tasks):
+                args,*_=self.parse(['--mode','run','--step','daily','--tasks',tasks])
+                self.assertEqual(args.tasks,expected)
+
+    def test_explicit_after_shimen_debug_is_bounded_to_one_role(self):
+        for step in ('enter','complete','advance','browse'):
+            with self.subTest(step=step):
+                args,accounts,*_=self.parse(['--task','rewards','--mode','run','--step',step,'--account','second',
+                                             '--rewards-debug-after-shimen'])
+                self.assertTrue(args.rewards_debug_after_shimen)
+                self.assertEqual([account['alias'] for account in accounts],['second'])
+
+    def test_rewards_debug_rejects_other_scopes_before_launch(self):
+        base=['--task','rewards','--mode','run','--step','enter','--account','first','--rewards-debug-after-shimen']
+        invalid=(['--task','dungeon'],['--task','shimen'],['--mode','observe'],['--step','daily'],
+                 ['--step','start'],['--step','finish'],['--step','switch'],['--step','back'],['--step','observe'],
+                 ['--select-accounts','first','second'])
+        for change in invalid:
+            with self.subTest(change=change),patch.object(sys,'argv',self.base+base+change),patch.object(runner,'run_once') as run:
+                with self.assertRaises(ValueError):runner.main()
+                run.assert_not_called()
+        for options in (['--task','rewards','--mode','run','--step','enter'],
+                        ['--mode','run','--step','enter','--account','first','--rewards-debug-after-shimen']):
+            with self.subTest(options=options),patch.object(sys,'argv',self.base+options),patch.object(runner,'run_once') as run:
+                with self.assertRaises(ValueError):runner.main()
+                run.assert_not_called()
+
+    def test_rewards_category_inspection_accepts_only_authorized_read_only_steps(self):
+        for category in ('dungeon','special'):
+            for step in ('enter','browse'):
+                with self.subTest(category=category,step=step):
+                    args,accounts,*_=self.parse(['--task','rewards','--mode','run','--step',step,'--account','second',
+                                                 '--rewards-debug-after-shimen','--rewards-inspect-category',category])
+                    self.assertEqual(args.rewards_inspect_category,category)
+                    self.assertTrue(args.rewards_debug_after_shimen)
+                    self.assertEqual([account['alias'] for account in accounts],['second'])
+
+    def test_rewards_category_inspection_rejects_other_scopes_before_launch(self):
+        base=['--task','rewards','--mode','run','--step','enter','--account','first','--rewards-debug-after-shimen']
+        for category in ('dungeon','special'):
+            for change in (['--step','advance'],['--step','complete'],['--step','daily'],['--step','observe'],
+                           ['--task','dungeon'],['--mode','observe'],['--select-accounts','first']):
+                with self.subTest(category=category,change=change),patch.object(sys,'argv',self.base+base+['--rewards-inspect-category',category]+change),patch.object(runner,'run_once') as run:
+                    with self.assertRaises(ValueError):runner.main()
+                    run.assert_not_called()
+            options=['--task','rewards','--mode','run','--step','enter','--account','first','--rewards-inspect-category',category]
+            with self.subTest(category=category,debug=False),patch.object(sys,'argv',self.base+options),patch.object(runner,'run_once') as run:
+                with self.assertRaises(ValueError):runner.main()
+                run.assert_not_called()
+        with patch.object(sys,'argv',self.base+base+['--rewards-inspect-category','other']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):runner.main()
+            run.assert_not_called()
+
+
 class RunnerFaultTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -152,6 +263,7 @@ class RunnerFaultTest(unittest.TestCase):
         self.cleanup_error = None
         self.text = log_for()
         self.calls = []
+        self.device_calls = []
         test = self
 
         class FakeDevice:
@@ -171,6 +283,7 @@ class RunnerFaultTest(unittest.TestCase):
                 return item
 
             def adb_call(self, *args):
+                test.device_calls.append(args)
                 if args[0] == 'push':
                     self.files[args[2]] = Path(args[1]).read_bytes()
                 elif args[:2] == ('shell', 'sha256sum'):
@@ -221,6 +334,77 @@ class RunnerFaultTest(unittest.TestCase):
         self.assertEqual(result['script_status'], 'succeeded')
         self.assertFalse(result['daily_complete'])
         self.assertTrue((self.archive / 'run-config.lua').exists())
+        self.assertFalse(result['rewards_debug_after_shimen'])
+        self.assertEqual(result['rewards_inspect_category'],'task')
+        config=(self.archive/'run-config.lua').read_text(encoding='utf-8')
+        self.assertIn('rewards_debug_after_shimen=false',config)
+        self.assertIn('rewards_inspect_category="task"',config)
+
+    def test_rewards_debug_publishes_selected_identity_and_archives_authorization(self):
+        self.args.task='rewards';self.args.account='current';self.args.step='enter'
+        self.args.rewards_debug_after_shimen=True
+        self.args.rewards_inspect_category='dungeon'
+        self.text='[account] current\n[task_result] rewards status=paused reason=rewards_inventory_observed\n[summary] scope=rewards daily_done=false\n[finished] script_exited_normally\n'
+        home=self.root/'fake-home'
+        identities=home/'.my_pocket_automation/accounts/current'
+        identities.mkdir(parents=True)
+        for name in ('role.lua','selector.lua'):(identities/name).write_text('return {}',encoding='utf-8')
+        with patch.object(runner.Path,'home',return_value=home):result=self.invoke()
+        self.assertTrue(result['rewards_debug_after_shimen'])
+        self.assertEqual(result['rewards_inspect_category'],'dungeon')
+        self.assertFalse(result['daily_complete'])
+        config=(self.archive/'run-config.lua').read_text(encoding='utf-8')
+        self.assertIn('verify_role=true',config)
+        self.assertIn('rewards_debug_after_shimen=true',config)
+        self.assertIn('rewards_inspect_category="dungeon"',config)
+        self.assertIn('accounts={{alias="current"',config)
+        published=[call[2] for call in self.device_calls if call[0]=='push']
+        self.assertIn('/storage/emulated/0/TouchSprite/res/daily_identity_current.lua.pending',published)
+        self.assertIn('/storage/emulated/0/TouchSprite/res/daily_selector_current.lua.pending',published)
+
+    def test_rewards_direct_run_also_restricts_accounts_and_publishes_both_resources(self):
+        self.args.task='rewards';self.args.account='current';self.args.step='complete'
+        self.text='[account] current\n[task_result] rewards status=done reason=all_gourds_opened\n[summary] scope=rewards daily_done=false\n[finished] script_exited_normally\n'
+        home=self.root/'fake-home'
+        identities=home/'.my_pocket_automation/accounts/current'
+        identities.mkdir(parents=True)
+        for name in ('role.lua','selector.lua'):(identities/name).write_text('return {}',encoding='utf-8')
+        with patch.object(runner.Path,'home',return_value=home),contextlib.redirect_stdout(io.StringIO()):
+            runner.run_once(self.args,[{'alias':'current'},{'alias':'other'}],1,'20261009_230000',self.archive)
+        config=(self.archive/'run-config.lua').read_text(encoding='utf-8')
+        self.assertIn('verify_role=true',config)
+        self.assertNotIn('alias="other"',config)
+        self.assertFalse(json.loads((self.archive/'result.json').read_text(encoding='utf-8'))['rewards_debug_after_shimen'])
+        published=[call[2] for call in self.device_calls if call[0]=='push']
+        self.assertEqual(published,['/storage/emulated/0/TouchSprite/res/daily_identity_current.lua.pending',
+                                    '/storage/emulated/0/TouchSprite/res/daily_selector_current.lua.pending',
+                                    '/storage/emulated/0/TouchSprite/res/daily_config.lua.pending'])
+
+    def test_rewards_missing_identity_never_launches(self):
+        self.args.task='rewards';self.args.account='current';self.args.step='browse'
+        with patch.object(runner.Path,'home',return_value=self.root/'missing-home'):
+            result=self.invoke(RuntimeError,expected_launches=0)
+        self.assertEqual(result['launch_status'],'not_attempted')
+        self.assertEqual(result['phase'],'publish_config')
+
+    def test_rewards_direct_debug_cannot_be_used_as_daily(self):
+        self.args.task='rewards';self.args.account='current';self.args.step='daily'
+        self.args.rewards_debug_after_shimen=True
+        with self.assertRaises(ValueError):
+            runner.run_once(self.args,[{'alias':'current'}],1,'20261009_230000',self.archive)
+        self.assertFalse(self.archive.exists())
+        self.assertEqual(self.calls,[])
+
+    def test_rewards_direct_category_inspection_rejects_consuming_steps(self):
+        self.args.task='rewards';self.args.account='current';self.args.rewards_debug_after_shimen=True
+        self.args.rewards_inspect_category='special'
+        for step in ('complete','advance','daily'):
+            with self.subTest(step=step):
+                self.args.step=step
+                with self.assertRaises(ValueError):
+                    runner.run_once(self.args,[{'alias':'current'}],1,'20261009_230000',self.archive)
+        self.assertFalse(self.archive.exists())
+        self.assertEqual(self.calls,[])
 
     def test_collection_authorization_is_passed_only_in_environment(self):
         with patch.object(runner, 'command', side_effect=self.command) as execute:

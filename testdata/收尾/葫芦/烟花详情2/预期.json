@@ -1,0 +1,19 @@
+{
+  "source": "debug-runs/20261014_112550/res/daily_20261014_112550_002_rewards_inventory_observed.png",
+  "source_sha256": "d577c29d9e331d9c47deac04329bd73b2ea386b0e096d433f6daae73676b76fe",
+  "review": {
+    "status": "reviewed",
+    "kind": "flow_controls",
+    "reviewer": "主 Agent",
+    "method": "independent_visual_review",
+    "reviewed_at": "2026-10-14",
+    "original_frame": "full_900x1600"
+  },
+  "expected": {
+    "state": "detail",
+    "selected_category": null,
+    "empty_category": false,
+    "card_icon_regions": null,
+    "detail_title_shift_y": -45
+  }
+}

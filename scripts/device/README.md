@@ -25,7 +25,7 @@
 
 `~/.my_pocket_automation/daily-accounts.json` 保存稳定别名与逐角色策略；身份、选择特征由 `calibrate-role.py` 保存到同一外部配置目录。别名不得重新绑定其他角色，既有进度按业务日期和别名隔离。新角色需要先从已登录选择页和主页校准身份资源；工具不输入账号密码。
 
-每个角色可配置 `claim_dungeon_rewards` 和 `dungeon_reward_budget`（0、100、200）。默认禁止领取；只有已授权角色、已完成副本、确认100精力按钮与预算都满足时才发送一次领取请求。请求先保存，未知结果不重复点击。该策略不允许开抓鬼或背包葫芦。
+每个角色可配置 `claim_dungeon_rewards` 和 `dungeon_reward_budget`（0、100、200）。默认禁止领取；只有已授权角色、已完成副本、确认100精力按钮与预算都满足时才发送一次现场破解封印请求。请求先保存，未知结果不重复点击。宝库开葫芦由独立的 `rewards` 收尾模块处理。
 
 `--account <已配置别名>` 用于有界的单角色恢复；与 `--step daily` 组合时，核对全名单后仅运行指定角色，汇总范围为 `selected_roles`，不会报告全部角色完成。副本接管已有战斗只被动等待；抓鬼可推进已记录任务的免费对话、寻物和重试。身份未核对时不新接任务，不记录抓鬼完成；返回待接取页面后先核对主页身份。
 
@@ -36,7 +36,9 @@
 运行器默认开启 Profile。`daily_<轮次>.log` 保存关键状态与结果，`_error.log` 保存错误与截图路径，`_profile.log` 保存调用次数、累计耗时、最大耗时与 CPU 时间。常规截图和逐次点击日志默认关闭；仅在专项采集时显式启用配置中的 `routine_screenshots` 或 `verbose_logs`。
 
 
-`selected_complete` 表示本轮所选范围内的角色都完成所选任务；指定单角色时不能据此称作全部角色完成。`daily_complete` 只有师门、抓鬼、副本、收尾处理四类都实现并完成时才为真。师门仅覆盖已采集页面与已确认题型，收尾仍是占位，不能把部分任务当作全部日常完成。
+`selected_complete` 表示本轮所选范围内的角色都完成所选任务；指定单角色时不能据此称作全部角色完成。`daily_complete` 只有全部配置角色的师门、抓鬼、副本、葫芦收尾四类都完成时才为真。默认任务顺序为 `shimen,zhuagui,dungeon,rewards`，显式选择也按该顺序执行。师门仅覆盖已采集页面与已确认题型，不能把部分任务当作全部日常完成。
+
+葫芦调测使用 `--task rewards --mode run --step complete --account <别名> --rewards-debug-after-shimen`：Lua 核对该角色师门完成卡片后，自动开光宝库任务、副本葫芦并丢光特殊葫芦。`enter/browse` 只看列表或详情，可用 `--rewards-inspect-category task|dungeon|special` 采集；`advance` 只执行一次业务动作。调测不记开启数量，也不会报告 `daily_complete`。
 
 
 

@@ -76,6 +76,12 @@ function M.run(ctx)
     if ctx.config.step=='enter' then return enter(ctx) end
     local record=progress.read(ctx,'shimen')
     local step=ctx.config.step
+    if record and record.status=='done' and ctx.identity_verified and
+        record.attempts==20 and record.completed_count==20 and record.carryover_pending~=1 and
+        ({delivery_verified=true,completion_card_verified=true,one_task_completed=true})[record.stage] and
+        (step=='daily' or step=='complete') then
+        return result('done','daily_done_skip')
+    end
     if not record and (step=='complete' or step=='daily') then
         local state=pages.state()
         if ctx.config.shimen_resume_date then

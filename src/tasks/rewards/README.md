@@ -1,0 +1,16 @@
+# 葫芦收尾
+
+`task.lua` 负责角色核对、每日前置任务检查与宝库入口；`inventory.lua` 负责连续处理；`pages.lua` 与 `assets/` 保存页面识别资源。
+
+正式每日按师门、抓鬼、副本、葫芦收尾顺序执行。只有同角色当天的师门20次、抓鬼25次及所选副本已确认完成，才能进入收尾。
+
+Lua 进入背包的宝库页，依次处理任务、副本、特殊三个分类。任务和副本详情循环点击“开启一个”；最后一个处理后详情关闭、条目删除，自动选择下一项。特殊详情点击“丢弃”，确认框选择“丢弃所有”，再继续下一种。每个分类以“暂无葫芦”为结束条件，最后返回首页。不开数量账本、不识别库存数字；每分类最多200轮，未知页面或动作失败保存截图停止。重新运行从当前库存继续。
+
+```powershell
+# 从当前角色师门已完成的状态批量调测
+python scripts/device/run-daily.py --device <设备> --task rewards --mode run --step complete --account <别名> --rewards-debug-after-shimen
+# 只查看特殊葫芦列表
+python scripts/device/run-daily.py --device <设备> --task rewards --mode run --step enter --account <别名> --rewards-debug-after-shimen --rewards-inspect-category special
+```
+
+师门后调测只检查该角色师门已完成卡片，不补记抓鬼或副本完成，不报告整个每日完成。宝库葫芦与副本现场的“破解封印”分开处理；现场领奖继续受原有逐角色策略控制。副本非空库存开启、未见布局及完整多角色日常仍须设备验收。

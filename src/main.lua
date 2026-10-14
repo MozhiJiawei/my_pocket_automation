@@ -33,8 +33,9 @@ local ok, err = pcall(function()
                 if shimen and not owned and config.shimen_resume_date then
                     owned=require('progress').read(ctx,'shimen',config.shimen_resume_date)
                 end
-                local active=ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true,puzzle=true,puzzle_retry=true})[state]
+                local active=config.task~='rewards' and (ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true,puzzle=true,puzzle_retry=true})[state]
                     or not ghost and (state=='battle' or state=='loading')
+                )
                 if shimen then active=state~='unknown' and state~='home' and state~='task_list' end
                 local recovery=config.step=='complete' or (ghost and config.step=='browse') or (shimen and config.step=='advance')
                 if shimen and recovery and state=='unknown' and owned and owned.status=='running' then

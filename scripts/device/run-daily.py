@@ -17,6 +17,26 @@ class WaitExpired(RuntimeError):
     pass
 
 
+DAILY_TASK_ORDER = ('shimen', 'zhuagui', 'dungeon', 'rewards')
+
+
+def validate_rewards_options(args):
+    if getattr(args, 'rewards_debug_after_shimen', False):
+        if (getattr(args, 'task', None) != 'rewards' or args.mode != 'run'
+                or not getattr(args, 'account', None) or getattr(args, 'select_accounts', None)
+                or args.step not in ('enter', 'complete', 'advance', 'browse')):
+            raise ValueError('After-Shimen debug requires one selected rewards run at enter, complete, advance or browse')
+    if getattr(args, 'task', None) == 'rewards' and args.mode == 'run' and not getattr(args, 'account', None):
+        raise ValueError('Rewards runs require one explicitly selected account')
+    category = getattr(args, 'rewards_inspect_category', 'task')
+    if category not in ('task', 'dungeon', 'special'):
+        raise ValueError('Unsupported rewards inspection category')
+    if category != 'task' and (getattr(args, 'task', None) != 'rewards' or args.mode != 'run'
+            or args.step not in ('enter', 'browse') or not getattr(args, 'account', None)
+            or not getattr(args, 'rewards_debug_after_shimen', False) or getattr(args, 'select_accounts', None)):
+        raise ValueError('Category inspection requires one after-Shimen rewards debug run at enter or browse')
+
+
 def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tasks=None):
     """Interpret device evidence independently of transport/host exit status."""
     tasks = []
@@ -61,15 +81,35 @@ def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tas
         expected_pause=mode=='run'
     if task=='shimen' and step=='advance':
         expected_pause=mode=='run' and reason in ('one_minigame_completed','one_task_completed')
+    if task=='rewards':
+        expected_pause=mode=='run' and reason in {
+            'enter': ('rewards_inventory_observed',),
+            'browse': ('rewards_inventory_observed',),
+            'advance': ('opened_one_gourd', 'discarded_one_special'),
+        }.get(step, ())
     acceptable = script == 'succeeded' and (
         business in ('observed', 'incomplete', 'done', 'running') or
         (business == 'paused' and expected_pause))
-    if mode == 'run' and step in ('daily', 'complete', 'finish', 'start', 'enter'):
+    if mode == 'run' and step in ('daily', 'complete', 'finish', 'start', 'enter') and not (task=='rewards' and step=='enter'):
         expected = 'running' if step in ('start', 'enter') else 'done'
         dungeons = [item for item in tasks if item['task'] == task]
         acceptable = acceptable and bool(dungeons) and all(item['status'] == expected for item in dungeons)
         if step == 'daily' and summary.get('scope')!='roles':
             acceptable = acceptable and summary.get('dungeon_done') == 'true'
+    if mode=='run' and task=='rewards' and step!='daily':
+        rewards=[item for item in tasks if item['task']=='rewards']
+        verified=len(rewards)==1 and len(tasks)==1
+        if accounts is not None:
+            verified=verified and len(accounts)==1 and rewards[0]['account']==accounts[0]['alias']
+        if step in ('enter','browse'):
+            verified=verified and rewards[0]['status']=='paused' and expected_pause
+        elif step=='advance':
+            verified=verified and (rewards[0]['status']=='done' or (rewards[0]['status']=='paused' and expected_pause))
+        elif step=='complete':
+            verified=verified and rewards[0]['status']=='done'
+        else:
+            verified=False
+        acceptable=acceptable and verified
     selected_complete=False
     if step=='daily' and summary.get('scope') in ('roles','selected_roles'):
         expected_aliases=[item['alias'] for item in accounts or []]
@@ -93,10 +133,19 @@ def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tas
 
 def run_once(args, accounts, max_seconds, run_id, archive):
     """A single attempt; never retry a launch, even when its response is lost."""
+    validate_rewards_options(args)
+    if getattr(args, 'task', None)=='rewards' and args.mode=='run':
+        selected=[item for item in accounts if item['alias']==args.account]
+        if len(selected)!=1:
+            raise ValueError('Selected rewards role is not configured')
+        if args.step!='daily':
+            accounts=selected
     archive.mkdir(parents=True)  # A collision must not overwrite previous evidence.
     record = {'run_id': run_id, 'mode': args.mode, 'step': args.step,
               'task': getattr(args, 'task', 'dungeon'),
               'selected_account':getattr(args,'account',None),
+              'rewards_debug_after_shimen':bool(getattr(args,'rewards_debug_after_shimen',False)),
+              'rewards_inspect_category':getattr(args,'rewards_inspect_category','task'),
               'reward_claim_allowed': any(item.get('claim_dungeon_rewards') is True for item in accounts
                                           if not getattr(args,'account',None) or item['alias']==args.account),
               'reward_policies': {item['alias']: {'claim_dungeon_rewards':item.get('claim_dungeon_rewards',False),
@@ -172,6 +221,8 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         extra=',profile=true,zhuagui_target='+str(getattr(args,'zhuagui_target',25))
         extra+=',puzzle_retry_attempt='+str(getattr(args,'puzzle_retry_attempt',0))
         extra+=',shimen_needed='+str(getattr(args,'shimen_needed',2))
+        extra+=',rewards_debug_after_shimen='+str(record['rewards_debug_after_shimen']).lower()
+        extra+=',rewards_inspect_category='+json.dumps(record['rewards_inspect_category'])
         if getattr(args,'shimen_resume_date',None):
             extra+=',shimen_resume_date='+json.dumps(args.shimen_resume_date)
             record['shimen_resume_date']=args.shimen_resume_date
@@ -276,7 +327,9 @@ def main():
     p.add_argument('--mode', choices=['observe', 'run'], default='observe')
     p.add_argument('--max-seconds', type=int)
     p.add_argument('--dungeon', choices=['wuji', 'chechi'], default='wuji')
-    p.add_argument('--task', choices=['dungeon', 'zhuagui','shimen'], default='dungeon')
+    p.add_argument('--task', choices=['dungeon', 'zhuagui','shimen','rewards'], default='dungeon')
+    p.add_argument('--rewards-debug-after-shimen',action='store_true',help='One selected rewards debug run after Lua verifies the Shimen completion card')
+    p.add_argument('--rewards-inspect-category',choices=['task','dungeon','special'],default='task',help='Read-only inventory category for an after-Shimen enter or browse debug run')
     p.add_argument('--shimen-needed',type=int,default=2)
     p.add_argument('--shimen-resume-date',help='Prior YYYYMMDD ledger owning a carried Shimen task; only with a selected role and complete run')
     p.add_argument('--shimen-puzzle-family',help='Explicit family for one owned legacy-puzzle attempt; no new task or automatic retry')
@@ -290,9 +343,10 @@ def main():
     p.add_argument('--accounts', type=Path, help='External JSON list of configured saved-role aliases')
     p.add_argument('--account', help='One configured role for bounded recovery; full daily runs still verify the roster')
     p.add_argument('--select-accounts',nargs='+',help='Configured roles to run in daily mode; verify the full saved roster first')
-    p.add_argument('--tasks', default='zhuagui,dungeon', help='Daily selected task modules, comma-separated')
+    p.add_argument('--tasks', default=','.join(DAILY_TASK_ORDER), help='Daily selected task modules, comma-separated; run in Shimen, ZhuaGui, dungeon, rewards order')
     p.add_argument('--step', choices=['enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
     args = p.parse_args()
+    validate_rewards_options(args)
     if args.shimen_resume_date:
         if args.task!='shimen' or args.mode!='run' or args.step!='complete' or not args.account or not re.fullmatch(r'\d{8}',args.shimen_resume_date):
             raise ValueError('Carryover requires a selected Shimen complete run and YYYYMMDD')
@@ -302,8 +356,9 @@ def main():
     if args.shimen_puzzle_family and (args.task!='shimen' or args.step!='advance' or args.mode!='run' or not re.fullmatch(r'[\w\u4e00-\u9fff]{1,20}',args.shimen_puzzle_family)):
         raise ValueError('Puzzle family requires one Shimen advance run')
     args.tasks=args.tasks.split(',')
-    if len(set(args.tasks))!=len(args.tasks) or not set(args.tasks)<= {'shimen','zhuagui','dungeon','rewards'}:
+    if len(set(args.tasks))!=len(args.tasks) or not set(args.tasks)<=set(DAILY_TASK_ORDER):
         raise ValueError('Tasks must be a unique list of supported modules')
+    args.tasks=[name for name in DAILY_TASK_ORDER if name in args.tasks]
     args.dungeons=args.dungeons.split(',')
     if not 1<=args.zhuagui_target<=25: raise ValueError('Ghost target must be between 1 and 25')
     if not 0<=args.puzzle_retry_attempt<=25: raise ValueError('Invalid owned puzzle retry attempt')

@@ -1,0 +1,18 @@
+{
+  "source": "debug-runs/20261014_114530/res/daily_20261014_114530_002_rewards_dungeon_empty.png",
+  "source_sha256": "bbe03eb1d585ae05d22d727445111be0e24a0ef71a4929f4b3b46e1bf577e8a0",
+  "review": {
+    "status": "reviewed",
+    "kind": "flow_controls",
+    "reviewer": "主 Agent",
+    "method": "independent_visual_review",
+    "reviewed_at": "2026-10-14",
+    "original_frame": "full_900x1600"
+  },
+  "expected": {
+    "state": "inventory",
+    "selected_category": "dungeon",
+    "empty_category": true,
+    "card_icon_regions": []
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "source": "debug-runs/20261014_112454/res/daily_20261014_112454_gourd_dungeon.png",
+  "source_sha256": "f6f72ec4b37de13e851f25719d55bb8d2bf2a0d1fed3d53c057b3bdf3545ced2",
+  "review": {
+    "status": "reviewed",
+    "kind": "flow_controls",
+    "reviewer": "主 Agent",
+    "method": "independent_visual_review",
+    "reviewed_at": "2026-10-14",
+    "original_frame": "full_900x1600"
+  },
+  "expected": {
+    "state": "inventory",
+    "selected_category": "dungeon",
+    "empty_category": true,
+    "card_icon_regions": []
+  }
+}
