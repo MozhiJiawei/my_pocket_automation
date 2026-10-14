@@ -30,6 +30,9 @@ local ok, err = pcall(function()
                 local shimen=config.task=='shimen'
                 local state=require(shimen and 'tasks.shimen.pages' or ghost and 'tasks.zhuagui.pages' or 'tasks.dungeon.pages').state()
                 local owned=require('progress').read(ctx,shimen and 'shimen' or ghost and 'zhuagui' or config.dungeon or 'wuji')
+                if shimen and not owned and config.shimen_resume_date then
+                    owned=require('progress').read(ctx,'shimen',config.shimen_resume_date)
+                end
                 local active=ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true,puzzle=true,puzzle_retry=true})[state]
                     or not ghost and (state=='battle' or state=='loading')
                 if shimen then active=state~='unknown' and state~='home' and state~='task_list' end

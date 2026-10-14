@@ -7,27 +7,50 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class ShimenPuzzleTest(unittest.TestCase):
-    def test_reviewed_tiger_all_tiles_match_in_every_permutation(self):
+    def test_reviewed_completed_card_remains_identifiable_at_scroll_positions(self):
+        import numpy as np
         from scripts.perception.lib.corpus import read_answers
         from tests.support.touchsprite_adapter import Screen
         from tests.support.lua_runtime import Runtime
-        folder=ROOT/'testdata/师门/拼图/老虎'
-        expected=read_answers(folder)['预期']['画面.png']['puzzle_locations']
+        folder=ROOT/'testdata/师门/页面/今日完成任务卡片'
+        expected=read_answers(folder)['预期']['画面.png']['page']
         original=Screen.read(folder/'画面.png').frame
-        runtime=Runtime(Screen(original));assets=runtime.require('tasks.shimen.assets.legacy_puzzles')
-        boxes=[tuple(b.values()) for b in assets.cells.values()];runtime.close()
-        tiles=[original[y1:y2,x1:x2].copy() for x1,y1,x2,y2 in boxes]
-        for slots in itertools.permutations(range(1,5)):
-            frame=original.copy()
-            for piece,cell in enumerate(slots,1):
-                x1,y1,x2,y2=boxes[cell-1]
-                frame[y1:y2,x1:x2]=tiles[expected[piece-1]-1]
-            runtime=Runtime(Screen(frame))
-            try:
-                positions,reason=runtime.require('tasks.shimen.puzzle').read('老虎')
-                self.assertEqual(reason,'all_tiles_matched',slots)
-                self.assertEqual(list(positions.values()),list(slots))
-            finally:runtime.close()
+        for shift in (0,200,400,600):
+            with self.subTest(scroll_pixels=shift):
+                frame=original.copy()
+                frame[304:1420]=np.roll(original[304:1420],-shift,axis=0)
+                runtime=Runtime(Screen(frame))
+                try:self.assertEqual(runtime.require('tasks.shimen.pages').state(),expected)
+                finally:runtime.close()
+
+    def test_reviewed_puzzles_all_tiles_match_in_every_permutation(self):
+        from scripts.perception.lib.corpus import read_answers
+        from tests.support.touchsprite_adapter import Screen
+        from tests.support.lua_runtime import Runtime
+        for folder in sorted((ROOT/'testdata/师门/拼图').iterdir()):
+            if not folder.is_dir():continue
+            for filename,answer in read_answers(folder)['预期'].items():
+                expected=answer['puzzle_locations']
+                original=Screen.read(folder/filename).frame
+                runtime=Runtime(Screen(original))
+                try:
+                    self.assertEqual(runtime.require('tasks.shimen.puzzle').identify(),folder.name)
+                    assets=runtime.require('tasks.shimen.assets.legacy_puzzles')
+                    boxes=[tuple(b.values()) for b in assets.cells.values()]
+                finally:runtime.close()
+                tiles=[original[y1:y2,x1:x2].copy() for x1,y1,x2,y2 in boxes]
+                for slots in itertools.permutations(range(1,5)):
+                    with self.subTest(family=folder.name,image=filename,slots=slots):
+                        frame=original.copy()
+                        for piece,cell in enumerate(slots,1):
+                            x1,y1,x2,y2=boxes[cell-1]
+                            frame[y1:y2,x1:x2]=tiles[expected[piece-1]-1]
+                        runtime=Runtime(Screen(frame))
+                        try:
+                            positions,reason=runtime.require('tasks.shimen.puzzle').read(folder.name)
+                            self.assertEqual(reason,'all_tiles_matched',slots)
+                            self.assertEqual(list(positions.values()),list(slots))
+                        finally:runtime.close()
 
     def runtime(self,slots,missing=1):
         lua=LuaRuntime(unpack_returned_tuples=True)

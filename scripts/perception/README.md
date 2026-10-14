@@ -26,7 +26,7 @@ python scripts/perception/render_task_review.py --topic 兵器
 python scripts/perception/import_frame.py --case '抓鬼/寻物/黄纸/新界面' --source 'D:/截图/第01页.png' 'D:/截图/第02页.png' --retain 15,174,887,1435
 ```
 
-AI 先查看全部输入，在 `.tmp/` 按 `答案.json` 格式准备提案。获得明确批准后应用：
+识别题先入标注器，由 AI 查看全部输入并完成建议标注，提交人类确认后再固化、校准与回归；拼图也可保留会话中的明确确认依据。寻物失败后，Lua 在持久化免费重试预算内先重试绕过，等待人类完成标注。流程页面、按钮及状态变化由 AGENT 独立核对原图和业务状态并直接固化，保留审核依据，不进入待标注队列。使用命令行应用识别题的已确认提案时：
 
 ```powershell
 python scripts/perception/annotate.py --case '抓鬼/寻物/黄纸/新界面' --proposal 'D:/提案/答案.json' --reviewer user --evidence '用户明确确认的消息或审核依据'

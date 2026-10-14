@@ -1,0 +1,2 @@
+-- Inspected free retry control; workflow evidence is independent of item answers.
+return {width=900,height=1600,base=0xfcf4f5,offsets="107|37|0xf9e7e9,-58|38|0xf8e2e4,54|17|0xfefefe,-41|1|0xfefefe,18|36|0xf9e7e9,89|4|0xfefefe,-19|35|0xfefdfd,76|38|0xfdf7f8,30|16|0xfefefe,-39|25|0xfbf3f3,0|23|0xfefefe,-58|15|0xfefefe,92|24|0xfefefe,70|6|0xfbeff0,-27|12|0xfefefe,106|8|0xf9e8e9,16|6|0xfcf7f7,76|21|0xfefefe,1|38|0xf8e1e3,-11|10|0xfdfafb,-61|1|0xfbeff0,14|20|0xfefefe,-33|37|0xfefefe",degree=95,region={568,1346,574,1352},tap_offset={27,16}}

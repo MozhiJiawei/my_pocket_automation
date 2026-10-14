@@ -41,24 +41,129 @@ if (-not $Device) {
     $Device = $devices[0]
 }
 
+function Get-DeviceHash {
+    param([string]$Path)
+    $output = (Invoke-Adb -Arguments @('-s', $Device, 'shell', 'sha256sum', $Path)) -join "`n"
+    if ($output -notmatch '^([0-9a-fA-F]{64})\s') { throw "Invalid device hash: $Path" }
+    return $Matches[1].ToLowerInvariant()
+}
+
+function Test-DeviceIdle {
+    if (-not $env:TOUCHSPRITE_AUTH) { return $false }
+    try {
+        $state = & (Join-Path $PSScriptRoot 'ts-cli.ps1') -Action status -AdbPath $AdbPath -Device $Device
+        return (($state -join "`n") -match '^TouchSprite status: f00 ')
+    } catch {
+        Write-Warning 'Device idle status unavailable; unfinished device artifacts retained.'
+        return $false
+    }
+}
+
 function Collect-Runs {
     $count = 0
+    $removed = 0
+    $groups = @{}
     foreach ($kind in @('log', 'res')) {
         $remoteDir = "$deviceRoot/$kind"
         $files = Invoke-Adb -Arguments @('-s', $Device, 'shell', 'ls', '-1', $remoteDir)
         foreach ($entry in $files) {
             $name = "$entry".Trim()
             # Only collect our experiment/daily artifacts, never unrelated account files.
-            if ($name -notmatch '^(?:hello_world|daily)_(\d{8}_\d{6})(?:_[A-Za-z0-9_-]+)?\.(log|png)$') { continue }
-            $artifactRun = $Matches[1]
+            if ($name -notmatch '^(hello_world|daily)_(\d{8}_\d{6})(?:_[A-Za-z0-9_-]+)?\.(log|png)$') { continue }
+            $prefix, $artifactRun, $extension = $Matches[1], $Matches[2], $Matches[3]
             if ($RunId -and $artifactRun -ne $RunId) { continue }
+            if (($kind -eq 'log' -and $extension -ne 'log') -or ($kind -eq 'res' -and $extension -ne 'png')) { continue }
             $destination = Join-Path (Join-Path $archiveRoot $artifactRun) $kind
-            New-Item -ItemType Directory -Path $destination -Force | Out-Null
-            Invoke-Adb -Arguments @('-s', $Device, 'pull', "$remoteDir/$name", (Join-Path $destination $name)) | Out-Null
-            $count++
+            $groupId = "${prefix}_$artifactRun"
+            if (-not $groups.ContainsKey($groupId)) { $groups[$groupId] = @() }
+            $groups[$groupId] += [pscustomobject]@{
+                Name = $name; Kind = $kind; Remote = "$remoteDir/$name"
+                Local = Join-Path $destination $name; Hash = $null
+                Prefix = $prefix; Run = $artifactRun
+            }
         }
     }
-    Write-Output "Collected $count artifact(s) into $archiveRoot"
+    foreach ($groupId in @($groups.Keys | Sort-Object)) {
+        $artifacts = @($groups[$groupId])
+        $removedBefore = $removed
+        $stable = $true
+        foreach ($artifact in $artifacts) {
+            $destination = Split-Path -Parent $artifact.Local
+            New-Item -ItemType Directory -Path $destination -Force | Out-Null
+            $pending = Join-Path $destination ('.' + $artifact.Name + '.' + [guid]::NewGuid().ToString('N') + '.pending')
+            try {
+                $before = Get-DeviceHash -Path $artifact.Remote
+                Invoke-Adb -Arguments @('-s', $Device, 'pull', $artifact.Remote, $pending) | Out-Null
+                $localHash = (Get-FileHash -LiteralPath $pending -Algorithm SHA256).Hash.ToLowerInvariant()
+                $after = Get-DeviceHash -Path $artifact.Remote
+                if ($before -ne $after -or $localHash -ne $after) {
+                    if ($Watch -and $before -ne $after) {
+                        Write-Warning "Artifact still changing; retrying next watch cycle: $($artifact.Remote)"
+                        $stable = $false
+                        break
+                    }
+                    throw "Artifact changed or copy hash mismatch; device copy retained: $($artifact.Remote)"
+                }
+                Move-Item -LiteralPath $pending -Destination $artifact.Local -Force
+                $artifact.Hash = $localHash
+                $count++
+            } finally {
+                if (Test-Path -LiteralPath $pending) { Remove-Item -LiteralPath $pending -Force }
+            }
+        }
+        if (-not $stable) { continue }
+
+        $main = $artifacts | Where-Object { $_.Kind -eq 'log' -and $_.Name -eq "$groupId.log" } | Select-Object -First 1
+        $finished = $false
+        if ($main) {
+            $lastLine = Get-Content -LiteralPath $main.Local | Where-Object { $_.Trim() } | Select-Object -Last 1
+            $escapedRun = [regex]::Escape($main.Run)
+            $finished = if ($main.Prefix -eq 'daily') {
+                $lastLine -cmatch "^\[daily\]\[$escapedRun\]\[finished\] script_(exited_normally|failed)$"
+            } else {
+                $lastLine -cmatch "^\[hello_world\]\[run=$escapedRun\] script_finished$"
+            }
+        }
+        if (-not $finished -and -not (Test-DeviceIdle)) { continue }
+
+        # A run may finish after enumeration and create additional artifacts.
+        $currentNames = @()
+        foreach ($kind in @('log', 'res')) {
+            $extension = if ($kind -eq 'log') { 'log' } else { 'png' }
+            $pattern = '^' + [regex]::Escape($groupId) + '(?:_[A-Za-z0-9_-]+)?\.' + $extension + '$'
+            foreach ($entry in @(Invoke-Adb -Arguments @('-s', $Device, 'shell', 'ls', '-1', "$deviceRoot/$kind"))) {
+                $name = "$entry".Trim()
+                if ($name -cmatch $pattern) { $currentNames += "$kind/$name" }
+            }
+        }
+        $archivedNames = @($artifacts | ForEach-Object { "$($_.Kind)/$($_.Name)" })
+        if (Compare-Object -ReferenceObject $archivedNames -DifferenceObject $currentNames) {
+            Write-Warning "Run file list changed during collection; device copies retained: $groupId"
+            continue
+        }
+
+        # Leave the completion evidence until last so interrupted cleanup can resume.
+        $cleanup = @($artifacts | Where-Object { $_ -ne $main })
+        if ($main) { $cleanup += $main }
+        foreach ($artifact in $cleanup) {
+            if (-not $finished -and -not (Test-DeviceIdle)) {
+                Write-Warning "Device is no longer idle; remaining device copies retained: $groupId"
+                break
+            }
+            if (($main -and (Get-DeviceHash -Path $main.Remote) -ne $main.Hash) -or
+                (Get-DeviceHash -Path $artifact.Remote) -ne $artifact.Hash) {
+                Write-Warning "Run changed during collection; remaining device copies retained: $groupId"
+                break
+            }
+            if ((Get-FileHash -LiteralPath $artifact.Local -Algorithm SHA256).Hash.ToLowerInvariant() -ne $artifact.Hash) {
+                throw "Local archive changed; device copy retained: $($artifact.Remote)"
+            }
+            Invoke-Adb -Arguments @('-s', $Device, 'shell', 'rm', '--', $artifact.Remote) | Out-Null
+            $removed++
+        }
+        Write-Output "Archived ${groupId}: $($artifacts.Count) file(s), removed $($removed - $removedBefore) device copy/copies."
+    }
+    Write-Output "Collected $count verified artifact(s) into $archiveRoot; removed $removed device copy/copies; retained $($count - $removed) unfinished or changed artifact(s)."
     if ($count -eq 0 -and -not $Watch) { throw 'No matching artifacts found.' }
 }
 

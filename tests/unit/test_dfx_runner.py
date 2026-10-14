@@ -29,6 +29,16 @@ def log_for(status='done', reason='completed', summary='dungeon_done=true daily_
 
 
 class RuntimeResultTest(unittest.TestCase):
+    def test_carryover_cli_rejects_wrong_scope_and_date_before_launch(self):
+        base=['run-daily.py','--device','fake','--task','shimen','--mode','run','--step','complete',
+              '--account','current','--shimen-resume-date','20261010']
+        for change in (['--task','dungeon'],['--mode','observe'],['--step','advance'],
+                       ['--shimen-resume-date','29990101'],['--shimen-resume-date','20260230'],
+                       ['--shimen-resume-date','../../20261010']):
+            with self.subTest(change=change),patch.object(sys,'argv',base+change),patch.object(runner,'run_once') as run:
+                with self.assertRaises(ValueError):runner.main()
+                run.assert_not_called()
+
     def test_host_transport_rejects_ui_commands_before_adb_runs(self):
         from dfx_device import Device
         device=Device('offline')
@@ -211,6 +221,28 @@ class RunnerFaultTest(unittest.TestCase):
         self.assertEqual(result['script_status'], 'succeeded')
         self.assertFalse(result['daily_complete'])
         self.assertTrue((self.archive / 'run-config.lua').exists())
+
+    def test_collection_authorization_is_passed_only_in_environment(self):
+        with patch.object(runner, 'command', side_effect=self.command) as execute:
+            self.invoke()
+        calls = [call for call in execute.call_args_list
+                 if any('collect-debug.ps1' in str(arg) for arg in call.args[0])]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].kwargs['env']['TOUCHSPRITE_AUTH'], 'fake-secret-not-for-archive')
+        self.assertNotIn('fake-secret-not-for-archive', str(calls[0].args))
+
+    def test_carryover_source_date_is_archived_separately_from_current_day(self):
+        self.args.task='shimen';self.args.account='current';self.args.shimen_resume_date='20261010'
+        self.text='[account] current\n[task_result] shimen status=done reason=all_twenty_tasks_completed\n[summary] scope=shimen daily_done=false\n[finished] script_exited_normally\n'
+        home=self.root/'fake-home'
+        identities=home/'.my_pocket_automation/accounts/current'
+        identities.mkdir(parents=True)
+        for name in ('role.lua','selector.lua'):(identities/name).write_text('return {}',encoding='utf-8')
+        with patch.object(runner.Path,'home',return_value=home):result=self.invoke()
+        self.assertEqual(result['shimen_resume_date'],'20261010')
+        config=(self.archive/'run-config.lua').read_text(encoding='utf-8')
+        self.assertIn('shimen_resume_date="20261010"',config)
+        self.assertIn('business_date="'+runner.datetime.now().strftime('%Y%m%d')+'"',config)
 
     def test_launch_response_lost_still_collects_and_never_relaunches(self):
         self.start_error = subprocess.TimeoutExpired(['fake-command'], 45)

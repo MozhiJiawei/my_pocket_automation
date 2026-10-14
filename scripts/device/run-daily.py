@@ -127,8 +127,11 @@ def run_once(args, accounts, max_seconds, run_id, archive):
     def collect():
         record['collection_status'] = 'attempted'
         try:
+            env = os.environ.copy()
+            if device.auth:
+                env['TOUCHSPRITE_AUTH'] = device.auth
             print(command([shell, '-NoProfile', '-File', str(ROOT / 'scripts/device/collect-debug.ps1'),
-                           '-AdbPath', device.adb, '-Device', args.device, '-RunId', run_id], timeout=600), flush=True)
+                           '-AdbPath', device.adb, '-Device', args.device, '-RunId', run_id], timeout=600, env=env), flush=True)
             record['collection_status'] = 'complete'
         except Exception as exc:
             record['collection_status'] = 'failed'
@@ -169,6 +172,9 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         extra=',profile=true,zhuagui_target='+str(getattr(args,'zhuagui_target',25))
         extra+=',puzzle_retry_attempt='+str(getattr(args,'puzzle_retry_attempt',0))
         extra+=',shimen_needed='+str(getattr(args,'shimen_needed',2))
+        if getattr(args,'shimen_resume_date',None):
+            extra+=',shimen_resume_date='+json.dumps(args.shimen_resume_date)
+            record['shimen_resume_date']=args.shimen_resume_date
         if getattr(args,'shimen_puzzle_family',None):
             extra+=',shimen_puzzle_family='+json.dumps(args.shimen_puzzle_family,ensure_ascii=False)
         extra+=',routine_screenshots='+str(getattr(args,'routine_screenshots',False)).lower()
@@ -272,6 +278,7 @@ def main():
     p.add_argument('--dungeon', choices=['wuji', 'chechi'], default='wuji')
     p.add_argument('--task', choices=['dungeon', 'zhuagui','shimen'], default='dungeon')
     p.add_argument('--shimen-needed',type=int,default=2)
+    p.add_argument('--shimen-resume-date',help='Prior YYYYMMDD ledger owning a carried Shimen task; only with a selected role and complete run')
     p.add_argument('--shimen-puzzle-family',help='Explicit family for one owned legacy-puzzle attempt; no new task or automatic retry')
     p.add_argument('--routine-screenshots',action='store_true',help='Archive before/after frames for device debugging')
     p.add_argument('--verbose-logs',action='store_true',help='Record individual guarded taps and swipes')
@@ -286,6 +293,11 @@ def main():
     p.add_argument('--tasks', default='zhuagui,dungeon', help='Daily selected task modules, comma-separated')
     p.add_argument('--step', choices=['enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
     args = p.parse_args()
+    if args.shimen_resume_date:
+        if args.task!='shimen' or args.mode!='run' or args.step!='complete' or not args.account or not re.fullmatch(r'\d{8}',args.shimen_resume_date):
+            raise ValueError('Carryover requires a selected Shimen complete run and YYYYMMDD')
+        if datetime.strptime(args.shimen_resume_date,'%Y%m%d').date()>=datetime.now().date():
+            raise ValueError('Carryover source must precede the current business date')
     if not 1<=args.shimen_needed<=10:raise ValueError('Invalid Shimen item count')
     if args.shimen_puzzle_family and (args.task!='shimen' or args.step!='advance' or args.mode!='run' or not re.fullmatch(r'[\w\u4e00-\u9fff]{1,20}',args.shimen_puzzle_family)):
         raise ValueError('Puzzle family requires one Shimen advance run')

@@ -35,6 +35,22 @@ class RoleProgressTest(unittest.TestCase):
         self.assertEqual(progress.read(second,'zhuagui')['completed_count'],0)
         first.config.business_date='20261011'
         self.assertIsNone(progress.read(first,'zhuagui'))
+        self.assertEqual(progress.read(first,'zhuagui','20261010')['completed_count'],25)
+        self.assertEqual(first.config.business_date,'20261011')
+        progress.write(first,'shimen','running','carryover_owned_task',lua.table_from({
+            'attempts':0,'completed_count':0,'carryover_pending':1,
+            'carryover_source_date':20261010,'carryover_source_attempt':6,'find_attempts':3}))
+        carried=progress.read(first,'shimen')
+        self.assertEqual(carried['carryover_source_date'],20261010)
+        self.assertEqual(carried['carryover_source_attempt'],6)
+        self.assertEqual(carried['carryover_pending'],1)
+        self.assertEqual(carried['find_attempts'],3)
+        self.assertEqual(progress.read(first,'zhuagui','20261010')['completed_count'],25)
+        progress.write(first,'zhuagui','carried_over','carryover_delivery_verified',
+                       progress.read(first,'zhuagui','20261010'),'20261010')
+        self.assertEqual(progress.read(first,'zhuagui','20261010')['status'],'carried_over')
+        self.assertIsNone(progress.read(first,'zhuagui'))
+        with self.assertRaises(Exception):progress.read(first,'shimen','../../20261010')
 
 
 if __name__=='__main__':unittest.main()

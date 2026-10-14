@@ -75,7 +75,9 @@ def items(stage):
     return sorted(result,key=lambda item:(item['topic']!='酒',item['task'],item['kind'],item['topic'],item['name']))
 
 def enqueue(source,task,kind,topic,name,suggestions=None,draft=None):
-    """Called once by a producer after a complete capture, never by the website."""
+    """Handoff recognition answers; agents review workflow captures directly."""
+    if kind not in ('寻物','找鬼','拼图'):
+        raise ValueError('流程页面不进入标注队列，由 AGENT 自主核对并固化')
     identity=Path(task)/kind/topic/name
     for component in identity.parts:
         if component in ('.','..') or '/' in component or '\\' in component:raise ValueError('无效分类')
@@ -103,7 +105,9 @@ def enqueue(source,task,kind,topic,name,suggestions=None,draft=None):
         target.parent.mkdir(parents=True,exist_ok=True);folder.rename(target)
     return identity.as_posix()
 
-def confirm(identity,document):
+def confirm(identity,document,*,evidence=None):
+    if evidence is not None and (not isinstance(evidence,str) or not evidence.strip()):
+        raise ValueError('会话确认须提供用户明确确认的审核依据')
     source=resolve('pending',identity)
     target=(CONFIRMED/identity).resolve()
     if not target.is_relative_to(CONFIRMED.resolve()) or target.exists():raise ValueError('项目已确认，不能覆盖归档')
@@ -119,6 +123,8 @@ def confirm(identity,document):
         '预期排列按恢复图左上、右上、左下、右下记录所使用的原图格；'
         '师门以1至4表示原图格，抓鬼以A至D表示原图格，原图格均按行优先排列。\n' if puzzle else
         '用户在本地标注网页点击“确认并下一项”，确认本项目的“是／否”选择。\n')
+    if evidence is not None:
+        approval='用户在会话中明确确认答案。审核依据：'+evidence.strip()+'\n'
     (source/'审核.md').write_text(approval+
         f'确认时间：{datetime.now().isoformat(timespec="seconds")}。坐标以原图为准；尚未写入正式测试真值。\n',encoding='utf-8')
     (source/'草稿.json').unlink(missing_ok=True)

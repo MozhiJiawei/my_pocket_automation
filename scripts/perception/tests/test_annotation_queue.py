@@ -37,6 +37,26 @@ class AnnotationQueueTest(unittest.TestCase):
         working=queue.PENDING/'.入队_test/item';working.mkdir(parents=True)
         Image.new('RGB',(900,1600)).save(working/'第01页.png')
         self.assertEqual(queue.items('pending'),[])
+    def test_workflow_inputs_never_enter_human_confirmation_queue(self):
+        for kind in ('页面','流程','未知类型'):
+            with self.subTest(kind=kind):
+                with self.assertRaisesRegex(ValueError,'流程页面不进入标注队列'):
+                    queue.enqueue(self.source,'师门',kind,'测试','输入')
+                self.assertEqual(queue.items('pending'),[])
+                self.assertTrue((self.source/'第01页.png').is_file())
+    def test_conversation_confirmation_preserves_user_evidence(self):
+        identity=queue.enqueue(self.source,'师门','拼图','香炉','输入')
+        document={'预期':{'第01页.png':{'puzzle_locations':[3,2,1,4]}}}
+        folder=queue.resolve('pending',identity)
+        for evidence in ('', '  ', 123):
+            with self.assertRaisesRegex(ValueError,'用户明确确认'):
+                queue.confirm(identity,document,evidence=evidence)
+            self.assertFalse((folder/'答案.json').exists())
+        target=queue.confirm(identity,document,evidence='用户确认：本张顺序为3、2、1、4。')
+        note=(target/'审核.md').read_text(encoding='utf-8')
+        self.assertIn('用户确认：本张顺序为3、2、1、4。',note)
+        self.assertNotIn('点击',note)
+        self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
     def test_confirmation_deletion_does_not_replay_source(self):
         identity=queue.enqueue(self.source,'师门','寻物','酒','输入')
         target=queue.confirm(identity,{'正确':{'酒':{}}})
