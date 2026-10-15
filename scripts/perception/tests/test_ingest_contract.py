@@ -30,6 +30,12 @@ class IngestTest(unittest.TestCase):
         import_frames([self.source],self.case,[[0,0,900,1600]])
         with self.assertRaises(ValueError):import_frames([self.source],self.case,[[0,0,900,1600]])
 
+    def test_image_only_recognition_folder_cannot_masquerade_as_a_case(self):
+        folder=self.root/'testdata'/self.case
+        folder.mkdir(parents=True)
+        (folder/'画面.png').write_bytes(self.source.read_bytes())
+        with self.assertRaisesRegex(ValueError,'no approved answer file'):corpus.load_cases()
+
     def test_explicit_correction_replaces_stale_answer_and_preserves_history(self):
         folder=import_frames([self.source],self.case,[[0,0,900,1600]])
         approve(self.case,{'正确':{'金锭':{'画面.png':[10,10,40,40]}}},'user','confirmed first answer')

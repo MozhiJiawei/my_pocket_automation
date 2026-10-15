@@ -7,6 +7,14 @@ M.features = {
     enter = require('tasks.dungeon.assets.enter'),
     wuji_title = require('tasks.dungeon.wuji.assets.title'),
     start = require('tasks.dungeon.assets.start'),
+    continue_battle = require('tasks.dungeon.assets.continue_battle'),
+    claim_confirm_wuji = require('tasks.dungeon.assets.claim_confirm_wuji'),
+    claim_confirm_chechi = require('tasks.dungeon.assets.claim_confirm_chechi'),
+    claim_confirm_button = require('tasks.dungeon.assets.claim_confirm_button'),
+    claim_cancel = require('tasks.dungeon.assets.claim_cancel'),
+    claim_receipt_wuji = require('tasks.dungeon.assets.claim_receipt_wuji'),
+    claim_receipt_chechi = require('tasks.dungeon.assets.claim_receipt_chechi'),
+    claim_receipt_close = require('tasks.dungeon.assets.claim_receipt_close'),
     battle = require('common.assets.battle_title'),
     speed_one = require('tasks.dungeon.assets.speed_one'),
     loading = require('tasks.dungeon.assets.loading'),
@@ -33,7 +41,19 @@ local function all_done(definition)
     end
     return true
 end
+function M.reward_claimed(id)
+    local def=assert(M.definitions[id])
+    if not detector.present(M.features.list) then return false end
+    if def.claimed_card and detector.present(def.claimed_card) then return true end
+    return def.treasure_entry and detector.present(def.list_name) and detector.present(def.treasure_entry) or false
+end
 function M.state()
+    for id in pairs(M.definitions) do
+        for _,kind in ipairs({'claim_receipt','claim_confirm'}) do
+            local feature=M.features[kind..'_'..id]
+            if feature and detector.present(feature) then return id..'_'..kind end
+        end
+    end
     if detector.present(M.features.switch_chechi_wuji) then return 'switch_chechi_wuji' end
     if detector.present(M.features.switch_wuji_chechi) then return 'switch_wuji_chechi' end
     if detector.present(M.features.sealed_reward) then

@@ -15,6 +15,7 @@ from urllib.parse import urlsplit,parse_qs
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from scripts.perception.lib import annotation_queue as queue
+from scripts.perception.lib import capture_feedback
 from scripts.perception.lib.corpus import validate_truth
 from scripts.perception.lib.task_review import item_cells,compose_rows
 
@@ -73,6 +74,7 @@ def validate_document(document,images,topic):
 class Item:
     def __init__(self,stage,identity,output):
         self.directory=queue.resolve(stage,identity);self.stage=stage;self.id=identity
+        self.source_manifest=capture_feedback.manifest(self.directory)
         self.task,self.kind,self.topic=Path(identity).parts[:3];self.token=secrets.token_urlsafe(24)
         files=sorted(self.directory.glob('第*页.png'))
         self.images={}
@@ -148,11 +150,15 @@ class Review:
         self.cache={};self.lock=threading.Lock()
         self.output=ROOT/'debug-runs'/datetime.now().strftime('%Y%m%d_%H%M%S')/'annotation-web'
     def get(self,stage,identity):
-        queue.resolve(stage,identity)  # Deleted files invalidate even cached items.
+        folder=queue.resolve(stage,identity)  # Deleted files invalidate even cached items.
         key=(stage,identity)
         with self.lock:
-            if key not in self.cache:self.cache[key]=Item(stage,identity,self.output)
-            return self.cache[key]
+            cached=self.cache.get(key)
+            if cached is None or (hasattr(cached,'source_manifest') and cached.source_manifest!=capture_feedback.manifest(folder)):
+                self.cache[key]=Item(stage,identity,self.output)
+            item=self.cache[key]
+            item.data['capture_feedback']=capture_feedback.verify(folder,item.task,item.kind)
+            return item
 
 def handler(review):
     class Handler(BaseHTTPRequestHandler):
@@ -179,7 +185,8 @@ def handler(review):
                 except (ValueError,KeyError):references={'说明':'参考资料格式无效，请检查该题目的参考.json。','图标':[]}
                 note=item.directory/'建议说明.md'
                 return self.respond(200,{**item.data,'suggestions':suggestions,'initial':initial,
-                    'references':references,'proposal_note':note.read_text(encoding='utf-8') if note.is_file() else ''})
+                    'references':references,'proposal_note':note.read_text(encoding='utf-8').split('\n采集反馈：',1)[0] if note.is_file() else '',
+                    'capture_feedback':item.data['capture_feedback']})
             if url.path=='/api/reference':
                 try:folder,catalog=reference_catalog(item.id)
                 except (ValueError,KeyError) as exc:return self.respond(404,{'error':str(exc)})

@@ -1,6 +1,6 @@
 """A round may accept several answers, while unlabelled objects remain unknown."""
 import unittest
-from scripts.perception.lib.corpus import load_rounds
+from scripts.perception.lib.corpus import load_rounds,read_answers,ROOT
 from scripts.perception.lib.round_truth import evaluate_rounds
 
 
@@ -37,8 +37,19 @@ class RoundTruthTest(unittest.TestCase):
     def test_empty_answer_set_is_unscored(self):
         self.round['answers']={};self.assertEqual(self.score()['status'],'unscored')
 
+    def test_empty_positive_group_is_unknown_and_explicit_negative_still_fails(self):
+        self.round['answers']={'长剑':{}}
+        result=self.score()
+        self.assertEqual(result['expected_answers'],[])
+        self.assertEqual(result['status'],'unscored')
+        self.assertEqual(self.score([100,100],[[90,90,110,110]])['status'],'failed')
+
     def test_all_existing_rounds_keep_multi_answer_truth(self):
-        rounds=load_rounds();self.assertEqual(len(rounds),82)
+        rounds=load_rounds();self.assertEqual(len(rounds),97)
+        for item in rounds:
+            document=read_answers(ROOT/item['id'])
+            self.assertTrue(any(locations for section in ('正确','反例') for locations in document.get(section,{}).values()),
+                '没有批准正反例的采集轮次不能留在正式测试集：'+item['id'])
         self.assertTrue(any(len(r['answers'])>1 for r in rounds))
 
     def test_shimen_requires_every_positive_and_keeps_negative_failures(self):

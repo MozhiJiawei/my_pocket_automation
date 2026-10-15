@@ -1,0 +1,50 @@
+{
+  "status": "complete",
+  "can_use_as_complete": true,
+  "pages": 7,
+  "reasons": [],
+  "recoverable": false,
+  "verification_method": "image_height_v1",
+  "image_height": 2760,
+  "minimum_height": 2760,
+  "evidence": "图片高度2760像素，完整阈值2760像素。",
+  "previous_feedback": {
+    "status": "unverified",
+    "can_use_as_complete": false,
+    "pages": 7,
+    "unique_rows": 20,
+    "reasons": [
+      "未核验同一题目从起点到触底的连续覆盖；页数足够或答案已确认都不能证明采集完整。",
+      "当前题目已结束，无法补采该轮；固定七页不证明起点到触底的完整覆盖。"
+    ],
+    "recoverable": false,
+    "scope": "只使用现存原图中经人类确认的区域；未采集部分保持未知，不能用于整题完成率。",
+    "rows_added_per_page": [
+      5,
+      5,
+      5,
+      5,
+      0,
+      0,
+      0
+    ],
+    "images": {
+      "第01页.png": "8aa5a73dc8959af2b51d8fa7330b46a4ce84c1f4deddbd8f1b15a7d29d2d4a7a",
+      "第02页.png": "187e4fce524a09f0499015bc94777e3a1950d87c38f3dbfa59d3cb88463ffe7a",
+      "第03页.png": "4f345a1ef29c2b6cc350c93060c8f4447b64bee4c09018a3c10b86c48e52db69",
+      "第04页.png": "ec3d03c293d013cfa98564f27f929bdbe803854ad47ed547b06effa3e9968bbe",
+      "第05页.png": "c815000623e1dec0ed7d34c03f35901720796c22a9fa8baaf5761f3f83fedd10",
+      "第06页.png": "1011384d479c6841f423c5c6d1a5b132ec1e5f28d7659cd446245663f116dd10",
+      "第07页.png": "e3c03b1c285644def1eaf2adacb332ede2b0c1e57653daa00f1a87f1dc471727"
+    }
+  },
+  "images": {
+    "第01页.png": "8aa5a73dc8959af2b51d8fa7330b46a4ce84c1f4deddbd8f1b15a7d29d2d4a7a",
+    "第02页.png": "187e4fce524a09f0499015bc94777e3a1950d87c38f3dbfa59d3cb88463ffe7a",
+    "第03页.png": "4f345a1ef29c2b6cc350c93060c8f4447b64bee4c09018a3c10b86c48e52db69",
+    "第04页.png": "ec3d03c293d013cfa98564f27f929bdbe803854ad47ed547b06effa3e9968bbe",
+    "第05页.png": "c815000623e1dec0ed7d34c03f35901720796c22a9fa8baaf5761f3f83fedd10",
+    "第06页.png": "1011384d479c6841f423c5c6d1a5b132ec1e5f28d7659cd446245663f116dd10",
+    "第07页.png": "e3c03b1c285644def1eaf2adacb332ede2b0c1e57653daa00f1a87f1dc471727"
+  }
+}

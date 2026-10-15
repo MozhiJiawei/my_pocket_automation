@@ -8,7 +8,7 @@
       516,
       1144
     ],
-    "source": "20261010_003325: successful native tap (444,1092); visually boxed icon"
+    "source": "抓鬼/找鬼/马面/场景01"
   },
   {
     "name": "wild",
@@ -19,7 +19,7 @@
       357,
       1174
     ],
-    "source": "20261010_002748: successful native tap (263,1129); visually boxed icon"
+    "source": "抓鬼/找鬼/野鬼/场景01"
   },
   {
     "name": "bull",
@@ -30,7 +30,7 @@
       826,
       1144
     ],
-    "source": "user 2026-10-11: 第四行第五格; rejected 第三行第五格"
+    "source": "抓鬼/找鬼/牛头/场景01"
   },
   {
     "name": "paper",
@@ -41,7 +41,7 @@
       672,
       678
     ],
-    "source": "user 2026-10-11: 这个是黄纸; attachment codex-clipboard-f9c0c7a1-5a5a-4807-a29b-c7a0ece680ce.png"
+    "source": "抓鬼/寻物/黄纸/场景01"
   },
   {
     "name": "incense",
@@ -52,7 +52,7 @@
       202,
       996
     ],
-    "source": "user: 2026-10-11 用户明确批准三张答案图：黄纸、三支紫香的金色香炉、红色燃烧蜡烛；坐标由 AI 独立查看去重长图标注，未使用识别算法输出。"
+    "source": "抓鬼/寻物/香/第01轮"
   },
   {
     "name": "incense",
@@ -63,7 +63,7 @@
       358,
       1152
     ],
-    "source": "user: 2026-10-11 用户明确批准三张答案图：黄纸、三支紫香的金色香炉、红色燃烧蜡烛；坐标由 AI 独立查看去重长图标注，未使用识别算法输出。"
+    "source": "抓鬼/寻物/香/第01轮"
   },
   {
     "name": "candle",
@@ -74,7 +74,7 @@
       358,
       833
     ],
-    "source": "user: 2026-10-11 用户明确批准三张答案图：黄纸、三支紫香的金色香炉、红色燃烧蜡烛；坐标由 AI 独立查看去重长图标注，未使用识别算法输出。"
+    "source": "抓鬼/寻物/蜡烛/第01轮"
   },
   {
     "name": "zombie",
@@ -85,7 +85,7 @@
       203,
       1300
     ],
-    "source": "20261010_004011: successful native tap (90,1282); visually boxed icon"
+    "source": "抓鬼/找鬼/僵尸/场景01"
   },
   {
     "name": "snake_wine",
@@ -96,6 +96,17 @@
       671,
       677
     ],
-    "source": "20261010_093606: successful native tap (602,606); visually boxed icon"
+    "source": "抓鬼/寻物/蛇胆酒/场景01"
+  },
+  {
+    "name": "skeleton",
+    "case_id": "抓鬼/找鬼/骷髅怪/第01轮/第01页.png",
+    "region": [
+      226,
+      855,
+      358,
+      987
+    ],
+    "source": "抓鬼/找鬼/骷髅怪/第01轮"
   }
 ]

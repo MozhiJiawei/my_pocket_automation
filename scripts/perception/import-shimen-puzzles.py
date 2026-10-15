@@ -15,19 +15,23 @@ def extract():
     data=lua.execute(text[text.index('local tt = {}'):text.index('    local mm = {')]+'\nreturn tt')
     reviewed=json.loads((ROOT/'src/tasks/shimen/assets/reviewed_puzzles.json').read_text(encoding='utf-8'))
     families={}
-    for name,rows in data.items():
+    for name in sorted(set(data.keys()) | set(reviewed)):
+        rows=data[name]
         features=[]
         for piece in range(1,5):
-            row=rows[piece]
-            points=[(0,0,int(row[1]))]
-            points.extend((math.floor(int(x)*SCALE+.5),math.floor(int(y)*SCALE+.5),int(c,16))
-                for x,y,c in (point.split('|') for point in row[2].split(',')))
+            row=rows[piece] if rows else None
             override=reviewed.get(name,{}).get(str(piece))
             if override:
                 if not (ROOT/override['source']).is_file():raise ValueError('Reviewed puzzle evidence missing')
                 points=[(0,0,int(override['base'],16))]+[(x,y,int(c,16)) for x,y,c in override['points']]
+            elif row:
+                points=[(0,0,int(row[1]))]
+                points.extend((math.floor(int(x)*SCALE+.5),math.floor(int(y)*SCALE+.5),int(c,16))
+                    for x,y,c in (point.split('|') for point in row[2].split(',')))
+            else:
+                raise ValueError('Reviewed-only puzzle needs all four confirmed pieces')
             features.append('{width=900,height=1600,base=0x%06x,offsets=%s,degree=%d,region={146,556,740,1308},tap_offset={0,0},bounds={%d,%d,%d,%d}}'%
-                (points[0][2],json.dumps(','.join(f'{x}|{y}|0x{c:06x}' for x,y,c in points[1:])),row[3],
+                (points[0][2],json.dumps(','.join(f'{x}|{y}|0x{c:06x}' for x,y,c in points[1:])),row[3] if row else 90,
                  min(p[0] for p in points),min(p[1] for p in points),max(p[0] for p in points),max(p[1] for p in points)))
         families[name]='{'+','.join(features)+'}'
     header=('-- Historical signatures, Apache-2.0; see 参考代码/LICENSE.\n'

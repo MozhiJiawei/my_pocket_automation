@@ -18,7 +18,9 @@ class ProfileTest(unittest.TestCase):
             events={};ctx={config={profile=true},account={alias='fake'}}
             package.preload['dfx.log']=function() return {write=function(c,e,d) events[#events+1]=d end} end
             for _,name in ipairs({'common.detector','tasks.zhuagui.pages','tasks.dungeon.pages',
-                'tasks.zhuagui.find','common.device','common.navigation','tasks.zhuagui.task','tasks.dungeon.task'}) do
+                'tasks.zhuagui.find','common.device','common.navigation','tasks.zhuagui.task','tasks.dungeon.task',
+                'tasks.shimen.pages','tasks.rewards.pages','tasks.shimen.find','tasks.shimen.puzzle',
+                'tasks.shimen.task','tasks.rewards.task'}) do
                 package.preload[name]=function() return {
                     find=function() return nil,'reason',false end,state=function() return 'page' end,
                     solve=function() error('recognition_fault') end,tap=function() return true end,
@@ -39,8 +41,9 @@ class ProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             base=Path(folder).as_posix()
             lua.execute(f"ctx={{run_id='fake',config={{}},log_path='{base}/debug.log',error_path='{base}/error.log',profile_path='{base}/profile.log'}};nLog=function() end")
-            lua.execute("local l=require('dfx.log');l.write(ctx,'state','battle');l.write(ctx,'tap','noise');l.write(ctx,'error','fault');l.write(ctx,'profile','timing');require('dfx.snapshot').capture(ctx,'before','debug')")
+            lua.execute("ctx.profile={started=100,clock=function() return 350 end};local l=require('dfx.log');l.write(ctx,'state','battle');l.write(ctx,'tap','noise');l.write(ctx,'error','fault');l.write(ctx,'profile','timing');require('dfx.snapshot').capture(ctx,'before','debug')")
             self.assertIn('battle',Path(folder,'debug.log').read_text())
+            self.assertIn('[elapsed_ms=250][state] battle',Path(folder,'debug.log').read_text())
             self.assertNotIn('noise',Path(folder,'debug.log').read_text())
             self.assertIn('fault',Path(folder,'error.log').read_text())
             self.assertIn('timing',Path(folder,'profile.log').read_text())

@@ -49,7 +49,7 @@ def sample(crop):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--task',choices=['zhuagui','shimen'],default='zhuagui');args=parser.parse_args()
     cv2.setNumThreads(1)
-    cases={c['id']:c for c in load_cases(args.task)}
+    cases={c['id']:c for c in load_cases(args.task) if c['truth'].get('page',{}).get('value')=='find'}
     frames={}
     groups={}; provenance=[]; seen=set()
     # Newer approved appearances get first chance within the time-limited list.

@@ -45,6 +45,15 @@ function showReferences(){
     figure.append(link);list.append(figure);}
   $('proposal-note').textContent=data.proposal_note||'';
 }
+function showCaptureFeedback(){
+  const feedback=data.capture_feedback;
+  $('capture-feedback').hidden=!feedback||feedback.status==='complete';
+  const title=feedback?.status==='incomplete'?'采集不完整':'采集核验失败';
+  $('capture-feedback').dataset.status=feedback?.status||'verification_failed';
+  $('capture-feedback').textContent=feedback?[title,...(feedback.reasons||[]),
+    feedback.recoverable===false?'这次输入已无法补采。':'',
+    '答案确认仅覆盖现有原图；采集核验未通过，不能作为完整题目归档。'].filter(Boolean).join('\n'):'';
+}
 function element(tag,attrs){const e=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);return e;}
 function toggle(index){if(!ready||stage!=='pending')return;history.push(editorSnapshot());cells[index].yes=!cells[index].yes;sessionEdits.set(currentId,editorSnapshot());render();message('尚未完成 · 确认后自动下一项');}
 function render(){if(!ready)return;const svg=$('overlay');svg.replaceChildren();
@@ -66,7 +75,7 @@ function switchView(){if(!ready)return;const view=$('view').value;
 }
 $('undo').onclick=()=>{if(ready&&stage==='pending'&&history.length){const previous=history.pop();if(isPuzzle())puzzle.restore(previous);else cells.forEach((c,i)=>c.yes=previous[i]);sessionEdits.set(currentId,editorSnapshot());render();message('已撤销上一步 · 尚未确认');}};
 $('view').onchange=switchView;$('zoom').oninput=()=>{$(isPuzzle()?'puzzle-board':'stage').style.width=$('zoom').value+'px';};
-function empty(messageText){loadVersion++;ready=false;puzzle.clear();data=null;currentId='';$('puzzle-workspace').hidden=true;$('stage').hidden=false;$('puzzle-reset').hidden=true;$('heading').textContent=messageText;$('overlay').replaceChildren();$('picture').removeAttribute('src');$('reference-icons').replaceChildren();$('reference-note').textContent='';$('proposal-note').textContent='';$('save').disabled=true;$('undo').disabled=true;$('count').textContent='0';message(messageText);}
+function empty(messageText){loadVersion++;ready=false;puzzle.clear();data=null;currentId='';$('capture-feedback').hidden=true;$('puzzle-workspace').hidden=true;$('stage').hidden=false;$('puzzle-reset').hidden=true;$('heading').textContent=messageText;$('overlay').replaceChildren();$('picture').removeAttribute('src');$('reference-icons').replaceChildren();$('reference-note').textContent='';$('proposal-note').textContent='';$('save').disabled=true;$('undo').disabled=true;$('count').textContent='0';message(messageText);}
 function paintQueue(){
   $('pending-count').textContent=queues.pending.length;$('confirmed-count').textContent=queues.confirmed.length;
   $('pending').classList.toggle('chosen',stage==='pending');$('confirmed').classList.toggle('chosen',stage==='confirmed');
@@ -78,7 +87,9 @@ function paintQueue(){
     option.textContent=key+'（'+queues[stage].filter(item=>categoryKey(item)===key).length+' 项）';$('category').append(option);}
   $('category').value=category;
   $('round').replaceChildren();
-  for(const item of categoryItems()){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;$('round').append(option);}
+  for(const item of categoryItems()){const option=document.createElement('option');option.value=item.id;
+    const quality=item.capture_feedback?.status;
+    option.textContent=item.name+(quality?' · '+({complete:'完整',incomplete:'不完整',verification_failed:'核验失败',unverified:'待打开检查'}[quality]||'待打开检查'):'');$('round').append(option);}
   $('round').disabled=!categoryItems().length||confirming;
   if(categoryItems().some(item=>item.id===currentId))$('round').value=currentId;
 }
@@ -99,9 +110,12 @@ async function load(identity){
   try{const response=await fetch(api('/api/item'));const result=await response.json();if(!response.ok)throw Error(result.error);
     if(version!==loadVersion||requestedStage!==stage)return;
     data=result;cells=[];history=[];puzzle.clear();$('heading').textContent=data.topic+' · '+(data.kind||'寻物')+' · '+(stage==='pending'?'待确认':'已完成');
-    showReferences();
+    const queueItem=queues[stage].find(item=>item.id===identity);
+    if(queueItem)queueItem.capture_feedback=data.capture_feedback;
+    paintQueue();
+    showReferences();showCaptureFeedback();
     $('puzzle-workspace').hidden=!isPuzzle();$('stage').hidden=isPuzzle();$('item-legend').hidden=isPuzzle();$('puzzle-reset').hidden=!isPuzzle()||stage==='confirmed';
-    $('instructions').textContent=!data.annotatable?'这项仅供查看原图，不能确认。具体原因见状态说明。':stage==='confirmed'?'已完成归档只读，可切换原图核对确认结果。':isPuzzle()?'拖动图块，恢复正确图案。每张原图核对后勾选“本张已还原”，再确认整项。':'请选出整轮所有正确物品。确认成功后自动进入当前类别下一项。';
+    $('instructions').textContent=!data.annotatable?'这项仅供查看原图，不能确认。具体原因见状态说明。':stage==='confirmed'?'已确认答案只读，可切换原图核对；采集完整性另见上方反馈。':isPuzzle()?'拖动图块，恢复正确图案。每张原图核对后勾选“本张已还原”，再确认整项。':data.capture_feedback?.status==='complete'?'请选出整轮所有正确物品。确认成功后自动进入当前类别下一项。':'请核对现有原图中的物品；这次确认只覆盖可见区域，不代表题目已采全。';
     $('count-label').textContent=isPuzzle()?'张已还原 / 共 '+data.images.length+' 张':'个“是”';
     $('view-label').textContent=isPuzzle()?'待还原原图':'画面';
     $('reference-heading').textContent=isPuzzle()?'当前题目的参考资料':'当前题目的图标参考';

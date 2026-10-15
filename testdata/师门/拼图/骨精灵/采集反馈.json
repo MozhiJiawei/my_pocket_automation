@@ -1,0 +1,14 @@
+{
+  "status": "complete",
+  "can_use_as_complete": true,
+  "pages": 1,
+  "reasons": [],
+  "recoverable": null,
+  "verification_method": "image_height_v1",
+  "image_height": 1600,
+  "minimum_height": 1600,
+  "evidence": "图片高度1600像素，完整阈值1600像素。",
+  "images": {
+    "第01页.png": "1de05560198ba3197fd21c16e087819089c1904ac2c0781ac52544d560459301"
+  }
+}

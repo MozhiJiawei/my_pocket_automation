@@ -38,15 +38,20 @@ python scripts/perception/annotate.py --case '抓鬼/寻物/黄纸/新界面' --
 
 拼图审核使用 `review-puzzles.py <采集目录...> --output <审核目录>`，按四块图内容归组并展示原始 A/B/C/D；对应关系暂存 `.tmp/`。用户批准的排列与原图保存在 `testdata/抓鬼/拼图/`，`calibrate-puzzles.py` 重建生产多点找色资源。测试执行时遍历每种图案的24种格位排列，不另存增强图片或用例索引。
 
-## 师门标注固化与复用
+## 标注固化与复用
 
 ```powershell
 python scripts/perception/freeze-annotations.py
+python scripts/perception/freeze-annotations.py --wine-cases 3 --allow-partial
 python scripts/perception/calibrate-reviewed-items.py --task shimen
 python scripts/perception/compile-find-catalog.py --task shimen
 python scripts/perception/evaluate.py --task shimen
 ```
 
-固化只读取标注器已完成归档，保留审核依据并将重叠页标注投回原图；不处理未完成建议、不删除归档、不维护索引。已有来源保持轮次，新来源追加轮次。经用户明确重新确认的更正使用 `freeze-annotations.py --update`，旧证据留在 `debug-runs/`。
+固化处理师门、抓鬼的寻物、找鬼及拼图，只读取已完成归档，保留审核依据并将物品重叠页标注投回原图。`--wine-cases 3` 对虎骨酒、蛇胆酒、梅花酒、珍露酒各选3轮，优先选择去重长图较高的输入，其它题目全部处理；未选酒类不写正式用例。拼图按题型合并原图并保留每张图的独立确认排列，不覆盖已有答案。
+
+核对正式用例的全部原图及已确认答案后，删除标注器中的对应归档，正式用例保留唯一答案、来源及采集反馈；未固化或内容不一致的归档继续保留。不处理未完成建议、不维护索引。已有来源保持轮次，新来源追加轮次。经用户明确重新确认的更正使用 `freeze-annotations.py --update`，旧证据留在 `debug-runs/`。
+
+固化前使用与标注网页相同的高度校验：去重物品长图达到2760像素为完整。旧规则或缺少记录时自动重算，结果写在原图旁的 `采集反馈.json`；高度不足或图片无法读取默认报错。可使用 `annotation-web/check_capture.py` 查看高度及阈值。只固化已确认可见区域时使用 `freeze-annotations.py --allow-partial`，反馈复制到正式用例，核对报告保留 `capture_status` 和 `can_use_as_complete: false`；未标区域仍为未知。
 
 校准与编译共用抓鬼工具，默认参数仍为抓鬼；师门校准中间文件在 `.tmp/`，构建统计在 `debug-runs/`。师门每张图同时变换所有批准正反例，执行八种方向而不逐物品复制整屏；全部正例逐区域检查，反例不得误识别，未知区域不算通过。GPU按原图及增强批量计算，Lua状态与每帧结果独立。全量用于校准的结果不称为未见验证。

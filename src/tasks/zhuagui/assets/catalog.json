@@ -1,8 +1,44 @@
 {
   "counts": {
+    "黄纸": {
+      "expanded": 64,
+      "retained": 8
+    },
+    "酒": {
+      "expanded": 256,
+      "retained": 56
+    },
+    "tiger_wine": {
+      "expanded": 24,
+      "retained": 8
+    },
     "黄金": {
-      "expanded": 160,
+      "expanded": 168,
       "retained": 24
+    },
+    "香": {
+      "expanded": 64,
+      "retained": 8
+    },
+    "兵器": {
+      "expanded": 224,
+      "retained": 176
+    },
+    "snake_wine": {
+      "expanded": 32,
+      "retained": 8
+    },
+    "dew_wine": {
+      "expanded": 24,
+      "retained": 8
+    },
+    "plum_wine": {
+      "expanded": 24,
+      "retained": 8
+    },
+    "书籍": {
+      "expanded": 272,
+      "retained": 72
     },
     "书画": {
       "expanded": 128,
@@ -12,31 +48,15 @@
       "expanded": 32,
       "retained": 8
     },
-    "黄纸": {
-      "expanded": 64,
-      "retained": 8
-    },
-    "香": {
-      "expanded": 64,
-      "retained": 8
-    },
-    "酒": {
-      "expanded": 256,
-      "retained": 56
-    },
-    "书籍": {
-      "expanded": 272,
-      "retained": 72
-    },
-    "兵器": {
-      "expanded": 224,
-      "retained": 176
-    },
-    "bull": {
+    "牛头": {
       "expanded": 8,
       "retained": 8
     },
-    "snake_wine": {
+    "horse": {
+      "expanded": 8,
+      "retained": 8
+    },
+    "bull": {
       "expanded": 8,
       "retained": 8
     },
@@ -48,11 +68,7 @@
       "expanded": 8,
       "retained": 8
     },
-    "incense": {
-      "expanded": 16,
-      "retained": 8
-    },
-    "candle": {
+    "skeleton": {
       "expanded": 8,
       "retained": 8
     },
@@ -60,10 +76,21 @@
       "expanded": 8,
       "retained": 8
     },
-    "horse": {
+    "candle": {
       "expanded": 8,
+      "retained": 8
+    },
+    "incense": {
+      "expanded": 16,
       "retained": 8
     }
   },
+  "sources": [
+    "reviewed_items.lua",
+    "reviewed_items.json",
+    "reviewed_ghosts.lua",
+    "reviewed_ghosts.json",
+    "icon_skeleton.lua"
+  ],
   "deduplication": "host color approximation on approved calibration crops; requires full regression and native verification"
 }

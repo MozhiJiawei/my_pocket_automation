@@ -266,6 +266,27 @@ tests.queue_refresh_cannot_unlock_confirmation = async () => {
   assert.equal(app.document.getElementById('save').disabled, true);
 };
 
+tests.incomplete_capture_feedback_stays_visible_after_answer_confirmation = async () => {
+  const app = await createApp();
+  app.run("data.capture_feedback={status:'incomplete',recoverable:false,reasons:['只有一页，缺少后续物品']};showCaptureFeedback()");
+  assert.equal(app.document.getElementById('capture-feedback').hidden, false);
+  assert.match(app.document.getElementById('capture-feedback').textContent, /无法补采/);
+  app.run("stage='confirmed';showCaptureFeedback()");
+  assert.match(app.document.getElementById('capture-feedback').textContent, /不能作为完整题目归档/);
+  app.run("data.capture_feedback={status:'complete',reasons:[]};showCaptureFeedback()");
+  assert.equal(app.document.getElementById('capture-feedback').hidden, true);
+};
+
+tests.open_feedback_has_a_verification_result_instead_of_an_unknown_warning = async () => {
+  const app = await createApp();
+  app.run("data.capture_feedback={status:'verification_failed',reasons:['缺少触底原图']};showCaptureFeedback()");
+  const banner=app.document.getElementById('capture-feedback');
+  assert.match(banner.textContent,/采集核验失败/);
+  assert.match(banner.textContent,/缺少触底原图/);
+  assert.doesNotMatch(banner.textContent,/未核验/);
+  assert.equal(banner.dataset.status,'verification_failed');
+};
+
 (async () => {
   const selected = process.argv.slice(2);
   for (const name of selected.length ? selected : Object.keys(tests)) {

@@ -35,6 +35,11 @@ class ActionRevalidationTest(unittest.TestCase):
         self.assertTrue(self.device.tap(self.lua.table(),self.lua.globals().feature,'test'))
         self.assertEqual(list(self.lua.globals().clicked.values()),[42,23])
 
+    def test_business_precondition_changes_during_capture_no_tap(self):
+        guard=self.lua.eval('function() return captures==0 end')
+        self.assertFalse(self.device.tap(self.lua.table(),self.lua.globals().feature,'test',guard))
+        self.assertEqual(self.lua.globals().actions,0)
+
     def test_page_changes_during_screenshot_no_swipe(self):
         self.lua.execute('vanished=true')
         self.assertFalse(self.device.swipe(self.lua.table(),self.lua.globals().feature,'test',self.lua.table_from([1,2]),self.lua.table_from([3,4])))

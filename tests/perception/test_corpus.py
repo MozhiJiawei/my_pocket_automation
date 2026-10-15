@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 from datetime import datetime
-from scripts.perception.lib.corpus import load_cases, validate_truth
+from scripts.perception.lib.corpus import load_cases, validate_truth, read_answers
 from scripts.perception.lib.evaluation import evaluate_inputs, write_report
 
 
@@ -17,11 +17,20 @@ class CorpusTest(unittest.TestCase):
         return super().id()+(f'[{self.task}]' if self.task else '')
 
     def test_annotations_and_evidence_are_consistent(self):
-        seen=set()
+        seen=set();reviewed_folders=set()
         for case in load_cases(self.task):
             self.assertNotIn(case['id'],seen)
             seen.add(case['id'])
             with self.subTest(case=case['id']): validate_truth(case,*case['capture']['size'])
+            parts=Path(case['image']).parts
+            folder=Path(__file__).resolve().parents[2]/'testdata'/Path(case['image']).parent
+            if parts[1] in ('寻物','找鬼','拼图') and folder not in reviewed_folders:
+                reviewed_folders.add(folder)
+                document=read_answers(folder)
+                has_regions=any(locations for section in ('正确','反例') for locations in document.get(section,{}).values())
+                has_assertion=any(entry.get(field) is not None for entry in document.get('预期',{}).values()
+                                  for field in ('puzzle_order','puzzle_locations','target_regions','negative_regions','forbidden_actions'))
+                self.assertTrue(has_regions or has_assertion,f'识别题没有批准答案：{folder}')
 
     def test_reviewed_recognition_and_planned_coordinates(self):
         started=time.perf_counter()
@@ -42,15 +51,23 @@ class CorpusTest(unittest.TestCase):
 
     def test_shimen_frozen_scope_and_all_positive_scoring(self):
         cases=[c for c in load_cases('shimen') if c['truth'].get('page',{}).get('value')=='find']
-        self.assertEqual(len(cases),749)
-        self.assertEqual(len({c['capture']['group'] for c in cases}),107)
+        self.assertEqual(len(cases),752)
+        self.assertEqual(len({c['capture']['group'] for c in cases}),109)
         self.assertEqual(len({c['truth']['question']['value']['target'] for c in cases}),22)
         self.assertTrue(all((Path(__file__).resolve().parents[2]/'testdata'/c['capture']['group']/'审核.md').is_file() for c in cases))
 
     def test_required_topics_are_not_filled_with_unreviewed_objects(self):
-        required={'梅花酒','虎骨酒','蛇胆酒','珍露酒','黄金','黄纸','书籍','书画','香','蜡烛','野鬼','牛头','马面','僵尸'}
+        required={'蛇胆酒','黄金','黄纸','书籍','书画','香','蜡烛','野鬼','牛头','马面','僵尸'}
         present={c['truth']['question']['value']['target'] for c in load_cases('zhuagui')
-                 if c['truth'].get('question',{}).get('status') in {'reviewed','user_verified','device_verified'}}
+                 if c['truth'].get('question',{}).get('status') in {'reviewed','user_verified','device_verified'}
+                 and c['truth'].get('target_regions',{}).get('value')}
         self.assertFalse(required-present, required-present)
+        checked=set()
+        for case in load_cases('zhuagui'):
+            if any(topic in case['id'] for topic in ('/虎骨酒/','/梅花酒/','/珍露酒/','/骷髅怪/')):
+                folder=Path(__file__).resolve().parents[2]/'testdata'/case['capture']['group']
+                if folder in checked:continue
+                checked.add(folder)
+                self.assertTrue(any(locations for locations in read_answers(folder).get('正确',{}).values()),str(folder))
 
 if __name__=='__main__': unittest.main()

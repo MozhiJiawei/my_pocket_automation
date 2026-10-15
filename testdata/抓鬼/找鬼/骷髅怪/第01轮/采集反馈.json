@@ -1,0 +1,34 @@
+{
+  "status": "incomplete",
+  "can_use_as_complete": false,
+  "pages": 1,
+  "reasons": [
+    "图片高度690像素，低于完整阈值2760像素。"
+  ],
+  "recoverable": false,
+  "verification_method": "image_height_v1",
+  "image_height": 690,
+  "minimum_height": 2760,
+  "evidence": "图片高度690像素，完整阈值2760像素。",
+  "previous_feedback": {
+    "status": "unverified",
+    "can_use_as_complete": false,
+    "pages": 1,
+    "unique_rows": 5,
+    "reasons": [
+      "未核验同一题目从起点到触底的连续覆盖；页数足够或答案已确认都不能证明采集完整。",
+      "从正式测试集移出：无批准答案，原始来源及旧元数据保留在 corpus-cleanup/removed；不能作为已验证用例。"
+    ],
+    "recoverable": false,
+    "scope": "只使用现存原图中经人类确认的区域；未采集部分保持未知，不能用于整题完成率。",
+    "rows_added_per_page": [
+      5
+    ],
+    "images": {
+      "第01页.png": "2eadfaf05ae93f8227de1b99a366c42c114c9846fcb095c54f046927b07593f5"
+    }
+  },
+  "images": {
+    "第01页.png": "2eadfaf05ae93f8227de1b99a366c42c114c9846fcb095c54f046927b07593f5"
+  }
+}

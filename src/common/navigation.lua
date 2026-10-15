@@ -98,11 +98,25 @@ function M.verify_roster(ctx)
     end
     return false
 end
+function M.dismiss_overlays(ctx)
+    for _,spec in ipairs({{'incident_notice','close_incident_notice'},{'chat_expanded','collapse_chat'}}) do
+        local feature=require('common.assets.'..spec[1])
+        if detector.present(feature) then
+            if not device.tap(ctx,feature,spec[2]) or
+                not device.wait(function() return not detector.present(feature) end,10) then
+                log.write(ctx,'account_blocked',spec[1]..'_not_closed');return false
+            end
+        end
+    end
+    return true
+end
 return_home=function(ctx)
     local pages = require('tasks.dungeon.pages')
     for _=1,4 do
+        if not M.dismiss_overlays(ctx) then return false end
         if detector.present(home) then return true end
         local state=pages.state()
+        log.write(ctx,'navigation_state','return_home dungeon='..state)
         if detector.present(require('tasks.rewards.assets.discard_confirm')) then
             if not device.tap(ctx,require('tasks.rewards.assets.discard_cancel'),'cancel_gourd_discard_before_identity_check') then return false end
         elseif detector.present(require('tasks.rewards.assets.detail_title')) then
@@ -110,6 +124,17 @@ return_home=function(ctx)
                 not device.wait(function() return detector.present(require('tasks.rewards.assets.inventory')) end,20) then return false end
         elseif detector.present(require('tasks.rewards.assets.inventory')) then
             if not device.tap(ctx,require('common.assets.home_tab'),'return_home_from_inventory') then return false end
+        elseif state:match('_claim_receipt$') then
+            if not device.wait(function()
+                return detector.present(pages.features.claim_receipt_close) or not pages.state():match('_claim_receipt$')
+            end,20,300) then return false end
+            if pages.state():match('_claim_receipt$') and
+                not device.tap(ctx,pages.features.claim_receipt_close,'close_claim_receipt_before_identity_check') and
+                pages.state():match('_claim_receipt$') then return false end
+            if not device.wait(function() return not pages.state():match('_claim_receipt$') end,20) then return false end
+        elseif state:match('_claim_confirm$') then
+            if not device.tap(ctx,pages.features.claim_cancel,'cancel_claim_before_identity_check') or
+                not device.wait(function() return pages.state():match('_reward_sealed$') end,20) then return false end
         elseif state:match('^switch_') then
             local feature={}
             for k,v in pairs(pages.features[state]) do feature[k]=v end
@@ -123,11 +148,14 @@ return_home=function(ctx)
         else
             local ghost=require('tasks.zhuagui.pages')
             local gs=ghost.state()
+            log.write(ctx,'navigation_state','return_home ghost='..gs)
             if gs=='quota_dialogue' then
                 if not device.tap(ctx,ghost.features.quota_dialogue,'close_completed_ghost_dialogue') or
                     not device.wait(function() return ghost.state()=='task_list' or ghost.state()=='quota_completed_card' end,20) then return false end
             elseif gs=='task_list' or gs=='quota_completed_card' then
-                if not device.tap(ctx,require('common.assets.home_tab'),'return_home_from_tasks') then return false end
+                if not device.tap(ctx,require('common.assets.home_tab'),'return_home_from_tasks') then
+                    log.write(ctx,'account_blocked','home_tab_not_verified');return false
+                end
             elseif gs=='ready_cost_three' or gs=='quota_idle' then
                 if not device.tap(ctx,ghost.features.cancel,'close_idle_ghost_detail') then return false end
             else return false end

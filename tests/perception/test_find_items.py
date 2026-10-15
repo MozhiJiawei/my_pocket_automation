@@ -71,12 +71,12 @@ class FindItemsTest(unittest.TestCase):
         self.assertEqual(reason,'find_incomplete_exit')
         runtime.close()
 
-    def test_shimen_device_step_refuses_unowned_opportunity(self):
+    def test_shimen_device_step_refuses_unrecognized_page(self):
         runtime=Runtime(Screen(np.zeros((1600,900,3),dtype=np.uint8)),planning=True)
         runtime.lua.execute("package.preload['progress']=function() return {read=function() return nil end} end")
         outcome=runtime.require('tasks.shimen.task').run(runtime.lua.eval('{config={step="advance"},account={alias="current"}}'))
         self.assertEqual(outcome['status'],'blocked')
-        self.assertEqual(outcome['reason'],'shimen_active_task_ownership_missing')
+        self.assertEqual(outcome['reason'],'shimen_task_page_not_verified')
         self.assertEqual(runtime.actions,[])
         runtime.close()
     def test_closed_runtime_releases_its_frame(self):

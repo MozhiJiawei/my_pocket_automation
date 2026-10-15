@@ -15,8 +15,11 @@ class RewardsRunTest(unittest.TestCase):
             os.date=function() return '20261014' end
             ctx={config={business_date='20261014',step='daily',task='rewards',
                 dungeons={'wuji','chechi'}},identity_verified=true}
-            records={}; writes={}; calls={}; clears={}; captures={}; outcomes={}
+            completed_pages={};records={}; writes={}; calls={}; clears={}; captures={}; outcomes={}
             page_state='home'; swipes=0; card_checks=0; prepare_calls=0
+            keepScreen=function() end
+            getColor=function() return swipes*0x001010 end
+            mSleep=function() end
             package.preload['progress']=function() return {
                 read=function(c,task)
                     assert(c==ctx);calls[#calls+1]='read:'..task
@@ -37,6 +40,12 @@ class RewardsRunTest(unittest.TestCase):
             package.preload['tasks.shimen.pages']=function() return {
                 features={task_list='shimen_task_list',completed_card='shimen_completed_card'}
             } end
+            package.preload['tasks.zhuagui.pages']=function() return {
+                features={task_list_title='shimen_task_list',completed_card='zhuagui_completed_card'}
+            } end
+            package.preload['tasks.dungeon.task']=function() return {verify_completed=function(c,id)
+                calls[#calls+1]='audit:'..id;return completed_pages[id]==true
+            end} end
             package.preload['tasks.zhuagui.assets.home_tasks']=function() return 'home_tasks' end
             package.preload['common.assets.home_dungeon']=function() return {
                 tap_offset={10,20}
@@ -49,6 +58,7 @@ class RewardsRunTest(unittest.TestCase):
                         return page_state=='shimen_list' and shimen_card_present and
                             swipes>=(card_after_swipes or 0)
                     end
+                    if feature=='zhuagui_completed_card' then return page_state=='shimen_list' and completed_pages.zhuagui==true end
                     if feature=='task_tab' then return page_state=='inventory' end
                     error('unexpected feature: '..tostring(feature))
                 end
@@ -57,7 +67,7 @@ class RewardsRunTest(unittest.TestCase):
                 tap=function(c,feature,label)
                     assert(c==ctx);calls[#calls+1]='tap:'..label
                     assert(page_state=='home', 'entry requires the home page')
-                    if label=='rewards_verify_shimen' then
+                    if label=='rewards_verify_shimen' or label=='rewards_verify_zhuagui' then
                         assert(feature=='home_tasks');page_state='shimen_list'
                     elseif label=='rewards_open_inventory' then
                         assert(feature.tap_offset[1]==126 and feature.tap_offset[2]==837)
@@ -71,7 +81,7 @@ class RewardsRunTest(unittest.TestCase):
                 end,
                 swipe=function(c,feature,label)
                     assert(c==ctx and page_state=='shimen_list')
-                    assert(feature=='shimen_task_list' and label=='rewards_find_shimen_completed')
+                    assert(feature=='shimen_task_list' and label:match('^list_rewards_%w+_completed_'))
                     swipes=swipes+1;calls[#calls+1]='swipe:shimen'
                     return true
                 end
@@ -86,8 +96,10 @@ class RewardsRunTest(unittest.TestCase):
                     page_state='home';return true
                 end,
                 return_home=function(c)
-                    assert(c==ctx and page_state=='shimen_list')
-                    calls[#calls+1]='return_home';page_state='home';return true
+                    assert(c==ctx and (page_state=='shimen_list' or page_state=='inventory'))
+                    calls[#calls+1]='return_home'
+                    if page_state=='inventory' and return_home_failed then return false end
+                    page_state='home';return true
                 end
             } end
             package.preload['tasks.rewards.inventory']=function() return {
@@ -108,14 +120,16 @@ class RewardsRunTest(unittest.TestCase):
 
     def valid_records(self):
         self.lua.execute('''
+            shimen_card_present=true;completed_pages={shimen=true,zhuagui=true,wuji=true,chechi=true}
             records={
-                shimen={status='done',stage='delivery_verified',attempts=20,completed_count=20},
-                zhuagui={status='done',stage='all_25_completed_gourds_unopened',
+                shimen={status='done',stage='completion_card_verified'},
+                zhuagui={status='done',stage='completion_card_verified',
                     attempts=25,completed_count=25},
                 wuji={status='done',stage='reward_intentionally_unclaimed'},
                 chechi={status='done',stage='reward_claimed'}
             }
         ''')
+        self.lua.execute('records={}')
 
     def run_task(self):
         return self.task.run(self.ctx)
@@ -125,11 +139,12 @@ class RewardsRunTest(unittest.TestCase):
 
     def assert_no_clear_or_write(self):
         self.assertEqual(list(self.globals.clears.values()), [])
-        self.assertEqual(list(self.globals.writes.values()), [])
+        self.assertFalse(any(w.task=='rewards' for w in self.globals.writes.values()))
 
     def assert_completion_write(self, stage):
-        self.assertEqual(len(self.globals.writes), 1)
-        self.assertEqual(dict(self.globals.writes[1]), {
+        reward_writes=[w for w in self.globals.writes.values() if w.task=='rewards']
+        self.assertEqual(len(reward_writes),1)
+        self.assertEqual(dict(reward_writes[0]), {
             'task': 'rewards', 'status': 'done', 'stage': stage, 'extra_arguments': 0,
         })
         self.assertEqual(self.globals.page_state, 'home')
@@ -139,23 +154,37 @@ class RewardsRunTest(unittest.TestCase):
         result = self.run_task()
         self.assert_result(result, 'done', 'daily_inventory_empty')
         self.assertEqual(list(self.globals.calls.values()), [
-            'prepare_home', 'read:shimen', 'read:zhuagui', 'read:wuji', 'read:chechi',
+            'read:shimen', 'tap:rewards_verify_shimen', 'return_home', 'write:shimen', 'read:zhuagui', 'tap:rewards_verify_zhuagui', 'return_home', 'write:zhuagui', 'read:wuji', 'audit:wuji', 'read:chechi', 'audit:chechi',
             'tap:rewards_open_inventory', 'clear:task', 'clear:dungeon', 'clear:special',
-            'prepare_home', 'write:rewards',
+            'return_home', 'write:rewards',
         ])
         self.assert_completion_write('daily_inventory_empty')
-        self.assertEqual(set(self.globals.records), {'shimen', 'zhuagui', 'wuji', 'chechi', 'rewards'})
+        self.assertEqual(set(self.globals.records), {'shimen','zhuagui','rewards'})
 
     def test_each_missing_prerequisite_blocks_before_inventory_entry(self):
         for task in ('shimen', 'zhuagui', 'wuji', 'chechi'):
             with self.subTest(task=task):
                 self.setUp()
                 self.valid_records()
-                self.globals.records[task] = None
+                self.globals.completed_pages[task] = False
+                if task=='shimen':self.globals.shimen_card_present=False
                 self.assert_result(self.run_task(), 'blocked', f'{task}_not_verified_complete')
                 self.assert_no_clear_or_write()
-                self.assertEqual(self.globals.page_state, 'home')
-                self.assertFalse(any(call.startswith('tap:') for call in self.globals.calls.values()))
+                self.assertNotIn('tap:rewards_open_inventory',self.globals.calls.values())
+
+    def test_verified_runtime_prerequisites_do_not_repeat_game_or_identity_audits(self):
+        self.lua.execute('''
+            records={shimen={status='done',stage='completion_card_verified'},
+                zhuagui={status='done',stage='completion_card_verified'},
+                wuji={status='done',stage='reward_intentionally_unclaimed'},
+                chechi={status='done',stage='reward_claimed'}}
+        ''')
+        self.assert_result(self.run_task(),'done','daily_inventory_empty')
+        self.assertEqual(self.globals.prepare_calls,0)
+        self.assertEqual(self.globals.card_checks,0)
+        self.assertEqual(self.globals.swipes,0)
+        self.assertFalse(any(call.startswith(('audit:','tap:rewards_verify_')) for call in self.globals.calls.values()))
+        self.assertEqual(list(self.globals.clears.values()),['task','dungeon','special'])
 
     def test_unverified_identity_blocks_before_any_category(self):
         self.valid_records()
@@ -175,21 +204,21 @@ class RewardsRunTest(unittest.TestCase):
         self.assertIn('rewards_shimen_completed', self.globals.captures.values())
         self.assertEqual(list(self.globals.clears.values()), ['task', 'dungeon', 'special'])
         self.assertEqual(list(self.globals.calls.values()), [
-            'prepare_home', 'tap:rewards_verify_shimen', 'swipe:shimen', 'swipe:shimen',
+            'tap:rewards_verify_shimen', 'swipe:shimen', 'swipe:shimen',
             'return_home', 'tap:rewards_open_inventory', 'clear:task', 'clear:dungeon',
-            'clear:special', 'prepare_home', 'write:rewards',
+            'clear:special', 'return_home', 'write:rewards',
         ])
         self.assert_completion_write('debug_inventory_empty')
         self.assertEqual(set(self.globals.records), {'rewards'})
 
-    def test_debug_missing_completed_card_stops_after_four_swipes_without_clearing(self):
+    def test_debug_missing_completed_card_stops_after_shared_limit_without_clearing(self):
         self.valid_records()
         self.ctx.config.step = 'complete'
         self.ctx.config.rewards_debug_after_shimen = True
         self.globals.shimen_card_present = False
         self.assert_result(self.run_task(), 'blocked', 'rewards_shimen_completed_card_not_verified')
-        self.assertEqual(self.globals.swipes, 4)
-        self.assertEqual(self.globals.card_checks, 5)
+        self.assertEqual(self.globals.swipes, 24)
+        self.assertEqual(self.globals.card_checks, 25)
         self.assert_no_clear_or_write()
         self.assertNotIn('tap:rewards_open_inventory', self.globals.calls.values())
 
@@ -198,7 +227,7 @@ class RewardsRunTest(unittest.TestCase):
         self.globals.shimen_card_present = True
         self.assert_result(self.run_task(), 'blocked', 'rewards_debug_scope_invalid')
         self.assert_no_clear_or_write()
-        self.assertEqual(list(self.globals.calls.values()), ['prepare_home'])
+        self.assertEqual(list(self.globals.calls.values()), [])
         self.assertEqual(self.globals.card_checks, 0)
 
     def test_paused_category_stops_later_categories_and_completion(self):
@@ -212,8 +241,8 @@ class RewardsRunTest(unittest.TestCase):
                 })
                 self.assert_result(self.run_task(), 'paused', 'rewards_action_result_not_verified')
                 self.assertEqual(list(self.globals.clears.values()), categories[:index + 1])
-                self.assertEqual(len(self.globals.writes), 0)
-                self.assertEqual(self.globals.prepare_calls, 1)
+                self.assertFalse(any(w.task=='rewards' for w in self.globals.writes.values()))
+                self.assertEqual(self.globals.prepare_calls, 0)
                 self.assertNotIn('rewards', self.globals.records)
 
     def test_return_home_failure_after_all_categories_does_not_write_done(self):
@@ -221,8 +250,8 @@ class RewardsRunTest(unittest.TestCase):
         self.globals.return_home_failed = True
         self.assert_result(self.run_task(), 'paused', 'rewards_return_home_not_verified')
         self.assertEqual(list(self.globals.clears.values()), ['task', 'dungeon', 'special'])
-        self.assertEqual(self.globals.prepare_calls, 2)
-        self.assertEqual(len(self.globals.writes), 0)
+        self.assertEqual(self.globals.prepare_calls, 0)
+        self.assertFalse(any(w.task=='rewards' for w in self.globals.writes.values()))
         self.assertNotIn('rewards', self.globals.records)
 
 

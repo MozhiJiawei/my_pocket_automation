@@ -62,7 +62,7 @@ METHOD_GROUPS={
     'scripts.perception.tests.test_round_truth.RoundTruthTest.test_shimen_requires_every_positive_and_keeps_negative_failures':'shimen',
     **{'tests.unit.test_dfx_device_failures.DeviceDiagnosticsTest.'+method:'zhuagui' for method in (
         'test_owned_ghost_recovery_allows_existing_dialogue_only','test_owned_sampling_can_resume_free_dialogue_without_identity',
-        'test_unowned_sampling_cannot_adopt_active_dialogue','test_unowned_ghost_dialogue_cannot_be_adopted')},
+        'test_sampling_recovers_visible_dialogue_without_old_state','test_ghost_recovers_visible_dialogue_without_old_state')},
     **{'tests.unit.test_role_navigation.RoleNavigationTest.'+method:'zhuagui' for method in (
         'test_quota_dialogue_closes_before_returning_home','test_quota_dialogue_with_unverified_close_cannot_reach_home')},
     **{'tests.unit.test_role_navigation.RoleNavigationTest.'+method:'dungeon' for method in (
@@ -121,6 +121,10 @@ def run_captured(suite):
 
 
 def tooling_tests(groups):
+    import cv2
+    # Match the annotation server and avoid oversubscribing the recognition
+    # worker while image-geometry tooling tests run alongside it.
+    cv2.setNumThreads(1)
     return run_captured(select_tests(tooling_suite(),groups))
 
 
@@ -131,6 +135,8 @@ def recognition_tests(groups):
 
 
 def main():
+    import cv2
+    cv2.setNumThreads(1)
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--group','--task',nargs='+',choices=tuple(ALIASES),default=['all'],help='抓鬼/zhuagui 副本/dungeon 师门/shimen 其他/other; default: all')
     parser.add_argument('--list',action='store_true',help='List selected tests without running them')

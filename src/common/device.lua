@@ -2,13 +2,18 @@ local log = require('dfx.log')
 local detector = require('common.detector')
 local snapshot = require('dfx.snapshot')
 local M = {}
-function M.tap(ctx, feature, label)
+function M.tap(ctx, feature, label, guard)
+    if guard and not guard() then return false end
     local found = detector.find(feature)
     if not found then return false end
     snapshot.capture(ctx, label .. '_before', 'debug')
     found = detector.find(feature)
     if not found then
         log.write(ctx,'tap_skipped',label .. ' target_changed_during_capture')
+        return false
+    end
+    if guard and not guard() then
+        log.write(ctx,'tap_skipped',label .. ' precondition_changed_during_capture')
         return false
     end
     local offset=found.tap_offset or feature.tap_offset

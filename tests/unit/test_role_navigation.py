@@ -20,7 +20,7 @@ class RoleNavigationTest(unittest.TestCase):
                 alias=path:match('daily_identity_(%w+)')
                 if alias then return function() return {kind='identity',alias=alias} end end
             end
-            for module,kind in pairs({home_dungeon='home',pocket_entry='entry',pocket_confirm='confirm',saved_account_picker='picker',saved_account_switch='switch',current_role_marker='marker',saved_role_tile='tile'}) do
+            for module,kind in pairs({home_dungeon='home',pocket_entry='entry',pocket_confirm='confirm',saved_account_picker='picker',saved_account_switch='switch',current_role_marker='marker',saved_role_tile='tile',incident_notice='incident'}) do
                 local k=kind
                 package.preload['common.assets.'..module]=function() return {kind=k} end
             end
@@ -28,6 +28,7 @@ class RoleNavigationTest(unittest.TestCase):
             package.preload['dfx.log']=function() return {write=function(c,e,d) logs[#logs+1]={e,d} end} end
             package.preload['common.detector']=function() return {
                 present=function(f)
+                    if f.kind=='incident' then return incident_visible==true end
                     if f.kind=='home' then return scene=='home' end
                     if f.kind=='picker' then return scene=='picker' end
                     if f.kind=='identity' then return scene=='home' and f.alias==selected and not identity_mismatch end
@@ -60,7 +61,8 @@ class RoleNavigationTest(unittest.TestCase):
                 end,
                 tap=function(c,f,label)
                     taps[#taps+1]=label
-                    if f.kind=='switch' then scene='picker'
+                    if f.kind=='incident' then incident_visible=false
+                    elseif f.kind=='switch' then scene='picker'
                     elseif f.kind=='back' then scene='home'
                     elseif f.kind=='selector' then selected=f.alias;scene='home' end
                     return true
@@ -74,6 +76,22 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertTrue(self.module.verify_roster(self.lua.globals().ctx))
         self.assertEqual(self.lua.globals().scene,'home')
         self.assertEqual(self.lua.globals().swipes,2)
+
+    def test_incident_overlay_is_closed_before_home_is_accepted(self):
+        self.lua.execute("scene='home';incident_visible=true")
+        self.assertTrue(self.module.return_home(self.lua.globals().ctx))
+        self.assertEqual(list(self.lua.globals().taps.values()),['close_incident_notice'])
+        self.assertFalse(self.lua.globals().incident_visible)
+
+    def test_incident_close_requires_verified_disappearance(self):
+        self.lua.execute("""
+            scene='home';incident_visible=true
+            require('common.device').tap=function(c,f,label)
+                taps[#taps+1]=label;return true
+            end
+        """)
+        self.assertFalse(self.module.return_home(self.lua.globals().ctx))
+        self.assertEqual(list(self.lua.globals().taps.values()),['close_incident_notice'])
 
     def test_unknown_tile_cannot_be_silently_omitted(self):
         self.lua.execute('unknown_role=true')

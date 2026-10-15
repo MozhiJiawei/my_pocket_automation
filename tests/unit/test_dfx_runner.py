@@ -29,15 +29,16 @@ def log_for(status='done', reason='completed', summary='dungeon_done=true daily_
 
 
 class RuntimeResultTest(unittest.TestCase):
-    def test_carryover_cli_rejects_wrong_scope_and_date_before_launch(self):
-        base=['run-daily.py','--device','fake','--task','shimen','--mode','run','--step','complete',
-              '--account','current','--shimen-resume-date','20261010']
-        for change in (['--task','dungeon'],['--mode','observe'],['--step','advance'],
-                       ['--shimen-resume-date','29990101'],['--shimen-resume-date','20260230'],
-                       ['--shimen-resume-date','../../20261010']):
-            with self.subTest(change=change),patch.object(sys,'argv',base+change),patch.object(runner,'run_once') as run:
-                with self.assertRaises(ValueError):runner.main()
+    def test_ledger_retry_cli_options_are_removed(self):
+        for option in ('--find-retry-attempt','--puzzle-retry-attempt'):
+            with self.subTest(option=option),patch.object(sys,'argv',['run-daily.py','--device','fake',option,'14']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):runner.main()
                 run.assert_not_called()
+
+    def test_prior_ledger_date_is_not_a_runtime_option(self):
+        with patch.object(sys,'argv',['run-daily.py','--device','fake','--shimen-resume-date','20261010']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):runner.main()
+            run.assert_not_called()
 
     def test_host_transport_rejects_ui_commands_before_adb_runs(self):
         from dfx_device import Device
@@ -415,17 +416,18 @@ class RunnerFaultTest(unittest.TestCase):
         self.assertEqual(calls[0].kwargs['env']['TOUCHSPRITE_AUTH'], 'fake-secret-not-for-archive')
         self.assertNotIn('fake-secret-not-for-archive', str(calls[0].args))
 
-    def test_carryover_source_date_is_archived_separately_from_current_day(self):
-        self.args.task='shimen';self.args.account='current';self.args.shimen_resume_date='20261010'
-        self.text='[account] current\n[task_result] shimen status=done reason=all_twenty_tasks_completed\n[summary] scope=shimen daily_done=false\n[finished] script_exited_normally\n'
+    def test_run_config_does_not_include_prior_game_state(self):
+        self.args.task='shimen';self.args.account='current'
+        self.text='[account] current\n[task_result] shimen status=done reason=completion_card_verified\n[summary] scope=shimen daily_done=false\n[finished] script_exited_normally\n'
         home=self.root/'fake-home'
         identities=home/'.my_pocket_automation/accounts/current'
         identities.mkdir(parents=True)
         for name in ('role.lua','selector.lua'):(identities/name).write_text('return {}',encoding='utf-8')
         with patch.object(runner.Path,'home',return_value=home):result=self.invoke()
-        self.assertEqual(result['shimen_resume_date'],'20261010')
         config=(self.archive/'run-config.lua').read_text(encoding='utf-8')
-        self.assertIn('shimen_resume_date="20261010"',config)
+        for name in ('shimen_resume_date','find_retry_attempt','puzzle_retry_attempt'):
+            self.assertNotIn(name,config)
+            self.assertNotIn(name,result)
         self.assertIn('business_date="'+runner.datetime.now().strftime('%Y%m%d')+'"',config)
 
     def test_launch_response_lost_still_collects_and_never_relaunches(self):

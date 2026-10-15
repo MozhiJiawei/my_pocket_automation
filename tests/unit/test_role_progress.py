@@ -1,4 +1,4 @@
-"""Production progress storage is isolated by stable role and business date."""
+"""Production runtime state is role-isolated and never accesses files."""
 from pathlib import Path
 import unittest
 from lupa import LuaRuntime
@@ -7,50 +7,24 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class RoleProgressTest(unittest.TestCase):
-    def test_same_task_and_date_cannot_overwrite_another_role(self):
+    def test_runtime_state_is_role_isolated_and_never_touches_files(self):
         lua=LuaRuntime(unpack_returned_tuples=True)
         lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
-        lua.execute('''
-            files={}
-            io.open=function(path,mode)
-                if mode=='r' and not files[path] then return nil end
-                return {
-                    write=function(self,text) files[path]=text;return true end,
-                    close=function() return true end
-                }
-            end
-            os.rename=function(source,target) files[target]=files[source];files[source]=nil;return true end
-            loadfile=function(path) return load(files[path]) end
-            first={config={business_date='20261010'},account={alias='first'},run_id='first_run'}
-            second={config={business_date='20261010'},account={alias='second'},run_id='second_run'}
-        ''')
+        lua.execute("io.open=function() error('no state file IO') end;loadfile=function() error('no saved state') end;os.rename=function() error('no state file rename') end")
         progress=lua.eval("require('progress')")[0]
-        first,second=lua.globals().first,lua.globals().second
-        progress.write(first,'zhuagui','done','complete',lua.table_from({'attempts':25,'completed_count':25,'reserved_energy':75,'find_retries':3}))
+        first=lua.table_from({'account':lua.table_from({'alias':'first'})})
+        second=lua.table_from({'account':lua.table_from({'alias':'second'})})
+        progress.write(first,'zhuagui','running','retry',lua.table_from({'find_retries':3}))
         self.assertIsNone(progress.read(second,'zhuagui'))
-        progress.write(second,'zhuagui','running','start_requested',lua.table_from({'attempts':1,'completed_count':0,'reserved_energy':3}))
-        self.assertEqual(progress.read(first,'zhuagui')['completed_count'],25)
+        progress.write(second,'zhuagui','done','completion_card_verified')
         self.assertEqual(progress.read(first,'zhuagui')['find_retries'],3)
-        self.assertIsNone(progress.read(second,'zhuagui')['find_retries'])
-        self.assertEqual(progress.read(second,'zhuagui')['completed_count'],0)
-        first.config.business_date='20261011'
+        first.account.alias='second'
         self.assertIsNone(progress.read(first,'zhuagui'))
-        self.assertEqual(progress.read(first,'zhuagui','20261010')['completed_count'],25)
-        self.assertEqual(first.config.business_date,'20261011')
-        progress.write(first,'shimen','running','carryover_owned_task',lua.table_from({
-            'attempts':0,'completed_count':0,'carryover_pending':1,
-            'carryover_source_date':20261010,'carryover_source_attempt':6,'find_attempts':3}))
-        carried=progress.read(first,'shimen')
-        self.assertEqual(carried['carryover_source_date'],20261010)
-        self.assertEqual(carried['carryover_source_attempt'],6)
-        self.assertEqual(carried['carryover_pending'],1)
-        self.assertEqual(carried['find_attempts'],3)
-        self.assertEqual(progress.read(first,'zhuagui','20261010')['completed_count'],25)
-        progress.write(first,'zhuagui','carried_over','carryover_delivery_verified',
-                       progress.read(first,'zhuagui','20261010'),'20261010')
-        self.assertEqual(progress.read(first,'zhuagui','20261010')['status'],'carried_over')
-        self.assertIsNone(progress.read(first,'zhuagui'))
-        with self.assertRaises(Exception):progress.read(first,'shimen','../../20261010')
+        first.account.alias='first'
+        self.assertEqual(progress.read(first,'zhuagui')['find_retries'],3)
+        restarted=lua.table_from({'account':lua.table_from({'alias':'first'})})
+        self.assertIsNone(progress.read(restarted,'zhuagui'))
+        self.assertIsNone(progress.read(first,'shimen'))
 
 
 if __name__=='__main__':unittest.main()

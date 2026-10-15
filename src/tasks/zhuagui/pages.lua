@@ -35,15 +35,16 @@ function M.state()
     if detector.present(M.features.task_tutorial) then return 'task_tutorial' end
     if detector.present(M.features.calendar_tutorial) then return 'calendar_tutorial' end
     if detector.present(M.features.title) then
-        if detector.present(M.features.puzzle.retry_prompt) and detector.present(M.features.puzzle.retry_button) then return 'puzzle_retry' end
-        if detector.present(M.features.retry) then return 'retry' end
-        if detector.present(M.features.idle) and not detector.present(M.features.accept)
-            and require('tasks.zhuagui.counter').read()==25 then return 'quota_idle' end
-        if detector.present(M.features.depart) then return 'depart' end
-        if detector.present(M.features.go) then return 'go' end
+        -- The paid button can also match a weaker free-action signature on
+        -- device. The explicit idle/cost/accept combination takes precedence.
         if detector.present(M.features.idle) and detector.present(M.features.cost_three) and detector.present(M.features.accept) then
             return 'ready_cost_three'
         end
+        if detector.present(M.features.puzzle.retry_prompt) and detector.present(M.features.puzzle.retry_button) then return 'puzzle_retry' end
+        if detector.present(M.features.retry) then return 'retry' end
+        if detector.present(M.features.idle) and not detector.present(M.features.accept) then return 'quota_idle' end
+        if detector.present(M.features.depart) then return 'depart' end
+        if detector.present(M.features.go) then return 'go' end
         return 'active_uncalibrated'
     end
     if detector.present(M.features.task_list_title) then

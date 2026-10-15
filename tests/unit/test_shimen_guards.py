@@ -1,4 +1,4 @@
-"""Exercise task ownership, bounded retries and completion through real Lua."""
+"""Exercise page recovery, runtime retry bounds and game completion through real Lua."""
 from pathlib import Path
 import unittest
 from lupa import LuaRuntime
@@ -13,20 +13,26 @@ class ShimenGuardTest(unittest.TestCase):
         self.lua.execute('''
             state='find'; saved={status='running',attempts=1,completed_count=0,reserved_energy=2}
             captures={}; solves=0; taps=0
-            ctx={config={step='advance'},identity_verified=true}
+            keepScreen=function() end
+            getColor=function() return (swipes or 0)*0x001010 end
+            ctx={config={step='advance',business_date=os.date('%Y%m%d')},identity_verified=true}
             package.preload['tasks.shimen.pages']=function() return {
-                features={back='back',accept='accept'},
+                features={back='back',accept='accept',task_list='task_list',task_card='task_card'},
                 actions={retry='retry',dialogue='dialogue'},state=function() return state end,
                 count=function() return count end} end
             package.preload['common.device']=function() return {
                 tap=function() taps=taps+1;return true end,
                 wait=function(predicate) return predicate() end} end
+            package.preload['common.detector']=function() return {
+                present=function(feature) return feature=='task_card' and state=='task_list' end
+            } end
             package.preload['dfx.log']=function() return {write=function() end} end
             package.preload['dfx.snapshot']=function() return {capture=function(c,label)
                 table.insert(captures,label) end} end
             package.preload['progress']=function() return {
                 read=function(c,task,date) return date and previous or saved end,
                 write=function(c,task,status,stage,record,date)
+                    record=record or {}
                     if date then previous=record;previous.status=status;previous.stage=stage
                     else saved=record;saved.status=status;saved.stage=stage end
                 end} end
@@ -38,12 +44,29 @@ class ShimenGuardTest(unittest.TestCase):
             package.preload['tasks.shimen.puzzle']=function() return {solve=function(c,family)
                 puzzle_family=family;return false,'puzzle_family_unrecognized'
             end} end
-            mSleep=function() end
+            test_clock=0;os.time=function() return test_clock end
+            mSleep=function(ms) test_clock=test_clock+ms/1000 end
         ''')
         self.task=self.lua.eval("require('tasks.shimen.task')")[0]
 
     def run_task(self):
         return self.task.run(self.lua.globals().ctx)
+
+    def test_story_dialogue_advances_through_changed_text(self):
+        self.lua.execute("""
+            state='story_dialogue'
+            getColor=function() return taps*0x101010 end
+            package.loaded['common.device'].tap=function()
+                taps=taps+1;if taps==2 then state='ready' end;return true
+            end
+        """)
+        self.assertEqual(self.run_task()['reason'],'one_task_completed')
+        self.assertEqual(self.lua.globals().taps,2)
+
+    def test_story_dialogue_stops_if_text_does_not_change(self):
+        self.lua.execute("state='story_dialogue'")
+        self.assertEqual(self.run_task()['reason'],'shimen_story_dialogue_not_changed')
+        self.assertEqual(self.lua.globals().taps,1)
 
     def test_unknown_transition_waits_for_verified_page(self):
         self.lua.execute("""
@@ -56,7 +79,7 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(self.run_task()['reason'],'one_task_completed')
         self.assertEqual(self.lua.globals().wait_attempts,10)
         self.assertEqual(self.lua.globals().wait_interval,500)
-        self.assertEqual(self.lua.globals().saved.completed_count,1)
+        self.assertEqual(self.lua.globals().saved.stage,'delivery_verified')
         self.assertEqual(self.lua.globals().taps,0)
 
     def test_persistent_unknown_page_stops_after_bounded_observation(self):
@@ -84,23 +107,63 @@ class ShimenGuardTest(unittest.TestCase):
             end
         """)
         self.assertEqual(self.run_task()['reason'],'shimen_completed_card_not_found')
-        self.assertEqual(self.lua.globals().swipes,4)
+        self.assertEqual(self.lua.globals().swipes,24)
         self.assertEqual(self.lua.globals().taps,0)
         self.assertEqual(self.lua.globals().saved.completed_count,19)
         self.assertEqual(self.lua.globals().saved.status,'running')
 
-    def test_completed_card_verifies_the_twentieth_delivery_without_new_actions(self):
+    def test_completed_card_verifies_completion_without_new_actions(self):
         self.lua.execute("state='completed_card';saved.attempts=20;saved.completed_count=19")
-        self.assertEqual(self.run_task()['reason'],'all_twenty_tasks_completed')
+        self.assertEqual(self.run_task()['reason'],'completion_card_verified')
         self.assertEqual(self.lua.globals().saved.status,'done')
-        self.assertEqual(self.lua.globals().saved.completed_count,20)
+        self.assertEqual(self.lua.globals().saved.stage,'completion_card_verified')
         self.assertEqual(self.lua.globals().taps,0)
 
-    def test_completed_card_cannot_complete_an_earlier_owned_attempt(self):
+    def test_completed_card_is_authoritative_regardless_of_old_counts(self):
         self.lua.execute("state='completed_card';saved.attempts=19;saved.completed_count=18")
-        self.assertEqual(self.run_task()['reason'],'shimen_completed_card_ledger_mismatch')
-        self.assertEqual(self.lua.globals().saved.completed_count,18)
+        self.assertEqual(self.run_task()['reason'],'completion_card_verified')
+        self.assertEqual(self.lua.globals().saved.status,'done')
         self.assertEqual(self.lua.globals().taps,0)
+
+    def test_unrecorded_completed_card_is_audited_without_inventing_accepts(self):
+        self.lua.execute("saved=nil;state='completed_card';ctx.config.step='complete';ctx.config.business_date=os.date('%Y%m%d')")
+        self.assertEqual(self.run_task()['reason'],'completion_card_verified')
+        self.assertEqual(self.lua.globals().saved.stage,'completion_card_verified')
+        self.assertIsNone(self.lua.globals().saved.attempts)
+        self.assertIsNone(self.lua.globals().saved.completed_count)
+        self.assertIsNone(self.lua.globals().saved.reserved_energy)
+        self.assertEqual(self.lua.globals().taps,0)
+
+    def test_unrecorded_completed_card_requires_current_date_and_verified_identity(self):
+        for current_date,identity in [(False,True),(True,False)]:
+            self.lua.execute("saved=nil;state='completed_card';ctx.config.step='complete';ctx.config.business_date=os.date('%Y%m%d')")
+            if not current_date:self.lua.execute("ctx.config.business_date='19000101'")
+            self.lua.globals().ctx.identity_verified=identity
+            self.assertEqual(self.run_task()['status'],'blocked')
+            self.assertIsNone(self.lua.globals().saved)
+            self.assertEqual(self.lua.globals().taps,0)
+
+    def test_completed_card_reached_from_home_can_be_audited_without_accepting(self):
+        self.lua.execute("""
+            saved=nil;state='home';ctx.config.step='complete';ctx.config.business_date=os.date('%Y%m%d')
+            package.loaded['common.device'].tap=function(c,feature,label)
+                assert(label=='shimen_open_tasks');taps=taps+1;state='completed_card';return true
+            end
+        """)
+        self.assertEqual(self.run_task()['reason'],'completion_card_verified')
+        self.assertIsNone(self.lua.globals().saved.attempts)
+        self.assertEqual(self.lua.globals().taps,1)
+
+    def test_completion_card_after_new_accept_finishes_without_count_checks(self):
+        self.lua.execute("""
+            saved=nil;state='ready';count=0;ctx.config.step='complete';ctx.config.business_date=os.date('%Y%m%d')
+            package.loaded['common.device'].tap=function(c,feature,label)
+                assert(label=='shimen_accept');taps=taps+1;count=1;state='completed_card';return true
+            end
+        """)
+        self.assertEqual(self.run_task()['reason'],'completion_card_verified')
+        self.assertEqual(self.lua.globals().saved.status,'done')
+        self.assertEqual(self.lua.globals().taps,1)
 
     def test_completed_card_requires_reobservation_after_identity_verification(self):
         self.lua.execute("""
@@ -144,10 +207,11 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().taps,1)
         self.assertEqual(self.lua.globals().solves,1)
 
-    def test_missing_ownership_does_not_solve(self):
+    def test_visible_find_resumes_without_an_old_record(self):
         self.lua.execute('saved=nil')
-        self.assertEqual(self.run_task()['status'],'blocked')
-        self.assertEqual(self.lua.globals().solves,0)
+        self.assertEqual(self.run_task()['reason'],'find_icon_not_found')
+        self.assertEqual(self.lua.globals().solves,1)
+        self.assertEqual(self.lua.globals().saved.find_attempts,1)
 
     def test_entry_inspects_existing_card_without_ownership_or_new_accept(self):
         self.lua.execute("saved=nil;state='ready';count=0;ctx.config.step='enter'")
@@ -186,102 +250,63 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().taps,1)
         self.assertIsNone(self.lua.globals().saved)
 
-    def carryover(self,find_attempts=0):
-        self.lua.execute(f"""
-            saved=nil;count=0;state='dialogue';ctx.config.step='complete'
-            ctx.config.business_date='20261014';ctx.config.shimen_resume_date='20261013'
-            previous={{status='running',attempts=6,completed_count=5,reserved_energy=12,find_attempts={find_attempts}}}
-        """)
-
-    def test_carryover_does_not_copy_prior_day_completed_count_or_energy(self):
-        self.carryover(2)
+    def test_fresh_active_dialogue_has_no_previous_game_state(self):
+        self.lua.execute("saved=nil;state='dialogue';ctx.config.step='complete'")
         self.assertEqual(self.run_task()['reason'],'shimen_action_postcondition_not_verified')
-        saved=self.lua.globals().saved
-        self.assertEqual(saved.attempts,0)
-        self.assertEqual(saved.completed_count,0)
-        self.assertEqual(saved.reserved_energy,0)
-        self.assertEqual(saved.find_attempts,2)
-        self.assertEqual(saved.carryover_pending,1)
-        self.assertEqual(saved.carryover_source_attempt,6)
-        self.assertEqual(self.lua.globals().previous.completed_count,5)
+        self.assertEqual(self.lua.globals().saved.attempts,0)
+        self.assertEqual(self.lua.globals().saved.find_attempts,0)
+        self.assertIsNone(self.lua.globals().saved.completed_count)
+        self.assertIsNone(self.lua.globals().saved.reserved_energy)
 
-    def test_carryover_requires_old_ownership_zero_count_and_earlier_date(self):
-        for change in ('previous=nil','count=1',"previous.status='done'",'previous.attempts=0',
-                       "ctx.config.shimen_resume_date='20261015'","state='ready'"):
-            with self.subTest(change=change):
-                self.carryover()
-                self.lua.execute(change)
-                self.assertEqual(self.run_task()['reason'],'shimen_carryover_not_verified')
-                self.assertIsNone(self.lua.globals().saved)
+    def test_unrecognized_fresh_page_cannot_create_an_active_task(self):
+        for state in ('unknown','idle'):
+            self.lua.execute(f"saved=nil;state='{state}';ctx.config.step='complete'")
+            self.assertEqual(self.run_task()['reason'],'shimen_task_page_not_verified')
+            self.assertIsNone(self.lua.globals().saved)
+            self.assertEqual(self.lua.globals().taps,0)
 
-    def test_carryover_cannot_reset_exhausted_find_attempts(self):
-        self.carryover(4)
-        self.lua.execute("state='find'")
-        self.assertEqual(self.run_task()['reason'],'find_retry_limit_reached')
-        self.assertEqual(self.lua.globals().solves,0)
+    def test_fresh_run_builds_retry_count_from_zero(self):
+        self.lua.execute("saved=nil;state='find';ctx.config.step='complete'")
+        self.assertEqual(self.run_task()['reason'],'find_icon_not_found')
+        self.assertEqual(self.lua.globals().saved.find_attempts,1)
+        self.assertEqual(self.lua.globals().solves,1)
 
-    def test_carried_delivery_keeps_today_zero_then_accepts_first_new_task(self):
-        self.carryover(3)
-        self.lua.execute("""
-            state='ready';saved={status='running',attempts=0,completed_count=0,reserved_energy=0,
-                find_attempts=3,carryover_pending=1,carryover_source_date=20261013,carryover_source_attempt=6}
-            package.loaded['common.device'].tap=function(c,feature)
-                assert(feature=='accept');taps=taps+1;count=1;state='unknown';return true
-            end
-        """)
+    def test_ready_page_resets_retry_count_before_the_next_task(self):
+        self.lua.execute("state='ready';saved={status='running',attempts=0,find_attempts=3};ctx.config.step='complete'")
+        self.lua.execute("package.loaded['common.device'].tap=function(c,feature) assert(feature=='accept');taps=taps+1;state='unknown';return true end")
         self.assertEqual(self.run_task()['reason'],'shimen_page_requires_calibration')
-        saved=self.lua.globals().saved
-        self.assertEqual(saved.carryover_pending,0)
-        self.assertEqual(saved.completed_count,0)
-        self.assertEqual(saved.attempts,1)
-        self.assertEqual(saved.reserved_energy,2)
-        self.assertEqual(saved.find_attempts,0)
+        self.assertEqual(self.lua.globals().saved.attempts,1)
+        self.assertEqual(self.lua.globals().saved.find_attempts,0)
         self.assertEqual(self.lua.globals().taps,1)
-        self.assertEqual(self.lua.globals().previous.status,'carried_over')
-        self.assertEqual(self.lua.globals().previous.completed_count,5)
 
-    def test_completed_carryover_retires_old_owner_after_restart(self):
-        self.carryover()
-        self.lua.execute("""
-            state='unknown';saved={status='running',attempts=5,completed_count=4,
-                carryover_pending=0,carryover_source_date=20261013,carryover_source_attempt=6}
-        """)
-        self.assertEqual(self.run_task()['reason'],'shimen_page_requires_calibration')
-        self.assertEqual(self.lua.globals().previous.status,'carried_over')
-        self.assertEqual(self.lua.globals().previous.completed_count,5)
-        self.assertEqual(self.lua.globals().saved.attempts,5)
-        self.assertEqual(self.lua.globals().saved.completed_count,4)
+    def test_saved_done_cannot_hide_a_changed_active_page(self):
+        self.lua.execute("state='find';saved={status='done',stage='completion_card_verified'}")
+        self.assertEqual(self.run_task()['reason'],'find_icon_not_found')
+        self.assertEqual(self.lua.globals().saved.status,'running')
+        self.assertEqual(self.lua.globals().solves,1)
 
-    def test_carryover_cannot_retire_a_different_old_attempt(self):
-        self.carryover()
-        self.lua.execute("""
-            state='unknown';previous.attempts=7
-            saved={status='running',attempts=5,completed_count=4,
-                carryover_pending=0,carryover_source_date=20261013,carryover_source_attempt=6}
-        """)
-        self.run_task()
-        self.assertEqual(self.lua.globals().previous.status,'running')
+    def test_saved_done_cannot_hide_an_unknown_page(self):
+        self.lua.execute("state='unknown';saved={status='done',stage='completion_card_verified'}")
+        self.assertEqual(self.run_task()['reason'],'shimen_task_page_not_verified')
+        self.assertEqual(self.lua.globals().taps,0)
 
-    def test_carried_delivery_cannot_accept_before_identity_verification(self):
-        self.carryover()
-        self.lua.execute("""
-            state='ready';ctx.identity_verified=false
-            saved={status='running',attempts=0,completed_count=0,carryover_pending=1}
-        """)
+    def test_recovered_delivery_cannot_accept_before_identity_verification(self):
+        self.lua.execute("state='ready';ctx.identity_verified=false;saved={status='running',attempts=0}")
         self.assertEqual(self.run_task()['reason'],'shimen_return_postcondition_not_verified')
         self.assertEqual(self.lua.globals().saved.attempts,0)
 
-    def test_first_new_day_task_requires_verified_zero_idle_count(self):
-        self.lua.execute("saved=nil;state='ready';count=0;ctx.config.step='complete'")
+    def test_first_task_uses_idle_page_without_reading_task_numbers(self):
+        self.lua.execute("saved=nil;state='ready';ctx.config.step='complete';require('tasks.shimen.pages').count=function() error('task count read') end")
         self.assertEqual(self.run_task()['reason'],'shimen_accept_postcondition_not_verified')
         self.assertEqual(self.lua.globals().saved.attempts,1)
-        self.assertEqual(self.lua.globals().saved.completed_count,0)
-        self.assertEqual(self.lua.globals().saved.reserved_energy,2)
+        self.assertIsNone(self.lua.globals().saved.completed_count)
+        self.assertIsNone(self.lua.globals().saved.reserved_energy)
 
-    def test_zero_ledger_cannot_adopt_unrecorded_active_task(self):
-        self.lua.execute("saved=nil;state='find';count=0;ctx.config.step='complete'")
-        self.assertEqual(self.run_task()['reason'],'shimen_active_task_ownership_missing')
-        self.assertEqual(self.lua.globals().solves,0)
+    def test_complete_uses_the_visible_active_task(self):
+        self.lua.execute("saved=nil;state='find';ctx.config.step='complete'")
+        self.assertEqual(self.run_task()['reason'],'find_icon_not_found')
+        self.assertEqual(self.lua.globals().solves,1)
+        self.assertEqual(self.lua.globals().taps,0)
 
     def test_successful_minigame_does_not_complete_task(self):
         self.lua.execute('success=true')
@@ -301,14 +326,14 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(self.run_task()['reason'],'shimen_puzzle_page_not_verified')
         self.assertEqual(self.lua.globals().solves,0)
 
-    def test_idle_requires_matching_count_and_identity(self):
+    def test_idle_uses_page_state_and_requires_identity(self):
         self.lua.execute("state='idle';count=2")
-        self.assertEqual(self.run_task()['status'],'blocked')
-        self.lua.execute('count=1;ctx.identity_verified=false')
-        self.assertEqual(self.run_task()['status'],'blocked')
-        self.lua.execute('ctx.identity_verified=true')
         self.assertEqual(self.run_task()['reason'],'one_task_completed')
-        self.assertEqual(self.lua.globals().saved.completed_count,1)
+        self.lua.execute("saved.status='running';ctx.identity_verified=false")
+        self.assertEqual(self.run_task()['status'],'blocked')
+        self.lua.execute("saved.status='running';ctx.identity_verified=true")
+        self.assertEqual(self.run_task()['reason'],'one_task_completed')
+        self.assertEqual(self.lua.globals().saved.stage,'one_task_completed')
 
     def test_unknown_page_does_not_tap(self):
         self.lua.execute("state='unknown'")
@@ -334,7 +359,7 @@ class ShimenGuardTest(unittest.TestCase):
         """)
         self.assertEqual(self.run_task()['reason'],'one_task_completed')
         self.assertEqual(self.lua.globals().taps,0)
-        self.assertEqual(self.lua.globals().saved.completed_count,1)
+        self.assertEqual(self.lua.globals().saved.stage,'delivery_verified')
 
     def test_unchanged_dialogue_stops_after_one_action(self):
         self.lua.execute("state='dialogue'")
@@ -352,30 +377,30 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().taps,0)
         self.assertEqual(self.lua.globals().saved.completed_count,0)
 
-    def test_ready_completes_only_verified_owned_count(self):
+    def test_ready_verifies_delivery_without_finishing_daily_task(self):
         self.lua.execute("state='ready';count=1")
         self.assertEqual(self.run_task()['reason'],'one_task_completed')
-        self.assertEqual(self.lua.globals().saved.completed_count,1)
+        self.assertNotEqual(self.lua.globals().saved.status,'done')
         self.assertEqual(self.lua.globals().taps,0)
 
-    def test_ready_count_mismatch_cannot_accept(self):
+    def test_ready_accepts_next_task_without_a_numeric_count_gate(self):
         self.lua.execute("state='ready';count=2;ctx.config.step='complete'")
-        self.assertEqual(self.run_task()['reason'],'shimen_completion_count_mismatch')
-        self.assertEqual(self.lua.globals().taps,0)
+        self.assertEqual(self.run_task()['reason'],'shimen_accept_postcondition_not_verified')
+        self.assertEqual(self.lua.globals().taps,1)
 
     def test_accept_reserves_next_task_and_resets_only_its_find_attempts(self):
         self.lua.execute("state='ready';count=1;ctx.config.step='complete';saved.find_attempts=4")
         self.assertEqual(self.run_task()['reason'],'shimen_accept_postcondition_not_verified')
-        self.assertEqual(self.lua.globals().saved.completed_count,1)
+        self.assertEqual(self.lua.globals().saved.stage,'accept_reserved')
         self.assertEqual(self.lua.globals().saved.attempts,2)
         self.assertEqual(self.lua.globals().saved.find_attempts,0)
-        self.assertEqual(self.lua.globals().saved.reserved_energy,4)
+        self.assertEqual(self.lua.globals().saved.reserved_energy,2)
         self.assertEqual(self.lua.globals().taps,1)
 
-    def test_twentieth_delivery_completes_without_accepting_more(self):
-        self.lua.execute("state='ready';count=20;saved.attempts=20;saved.completed_count=19;ctx.config.step='complete'")
+    def test_terminal_card_finishes_without_accepting_more(self):
+        self.lua.execute("state='completed_card';ctx.config.step='complete';require('tasks.shimen.pages').count=function() error('task count read') end")
         self.assertEqual(self.run_task()['status'],'done')
-        self.assertEqual(self.lua.globals().saved.completed_count,20)
+        self.assertEqual(self.lua.globals().saved.stage,'completion_card_verified')
         self.assertEqual(self.lua.globals().saved.status,'done')
         self.assertEqual(self.lua.globals().taps,0)
 
@@ -385,13 +410,13 @@ class ShimenGuardTest(unittest.TestCase):
             package.loaded['common.device'].tap=function(c,feature)
                 taps=taps+1
                 if feature=='accept' then count=count+1;state='dialogue'
-                elseif feature=='dialogue' then state='ready' end
+                elseif feature=='dialogue' then state=count>=20 and 'completed_card' or 'ready' end
                 return true
             end
         """)
         self.assertEqual(self.run_task()['status'],'done')
-        self.assertEqual(self.lua.globals().saved.completed_count,20)
-        self.assertEqual(self.lua.globals().saved.reserved_energy,40)
+        self.assertEqual(self.lua.globals().saved.stage,'completion_card_verified')
+        self.assertIsNone(self.lua.globals().saved.reserved_energy)
         self.assertEqual(self.lua.globals().taps,38)
 
     def test_action_limit_still_stops_one_task_after_twelve_flow_actions(self):

@@ -90,22 +90,22 @@ class DeviceDiagnosticsTest(unittest.TestCase):
     def test_owned_ghost_recovery_allows_existing_dialogue_only(self):
         self.configure_owned_ghost_recovery(True)
         events=self.execute()
-        self.assertTrue(any(event=='owned_resume' for event,_ in events))
+        self.assertTrue(any(event=='screen_resume' for event,_ in events))
         self.assertFalse(any('account status=blocked' in detail for _,detail in events))
 
     def test_owned_sampling_can_resume_free_dialogue_without_identity(self):
         self.configure_owned_ghost_recovery(True)
         self.lua.execute("config.step='browse'")
-        self.assertTrue(any(event=='owned_resume' for event,_ in self.execute()))
+        self.assertTrue(any(event=='screen_resume' for event,_ in self.execute()))
 
-    def test_unowned_sampling_cannot_adopt_active_dialogue(self):
+    def test_sampling_recovers_visible_dialogue_without_old_state(self):
         self.configure_owned_ghost_recovery(False)
         self.lua.execute("config.step='browse'")
-        self.assertIn(('task_result','account status=blocked reason=saved_role_not_ready'),self.execute())
+        self.assertTrue(any(event=='screen_resume' for event,_ in self.execute()))
 
-    def test_unowned_ghost_dialogue_cannot_be_adopted(self):
+    def test_ghost_recovers_visible_dialogue_without_old_state(self):
         self.configure_owned_ghost_recovery(False)
-        self.assertIn(('task_result','account status=blocked reason=saved_role_not_ready'),self.execute())
+        self.assertTrue(any(event=='screen_resume' for event,_ in self.execute()))
 
     def test_owned_shimen_puzzle_reaches_collection_without_navigation(self):
         self.lua.execute('''
@@ -116,7 +116,7 @@ class DeviceDiagnosticsTest(unittest.TestCase):
             package.preload['progress']=function() return {read=function() return {status='running'} end} end
         ''')
         events=self.execute()
-        self.assertTrue(any(event=='owned_resume' for event,_ in events))
+        self.assertTrue(any(event=='screen_resume' for event,_ in events))
         self.assertFalse(any(event=='failed' for event,_ in events))
 
 

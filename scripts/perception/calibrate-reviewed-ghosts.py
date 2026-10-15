@@ -17,7 +17,8 @@ def main():
     seeds={'horse':'抓鬼/找鬼/马面/场景01/画面.png','wild':'抓鬼/找鬼/野鬼/场景01/画面.png',
            'bull':'抓鬼/找鬼/牛头/场景01/画面.png','paper':'抓鬼/寻物/黄纸/场景01/画面.png',
            'incense':'抓鬼/寻物/香/第01轮/第03页.png','candle':'抓鬼/寻物/蜡烛/第01轮/第01页.png',
-           'zombie':'抓鬼/找鬼/僵尸/场景01/画面.png','snake_wine':'抓鬼/寻物/蛇胆酒/场景01/画面.png'}
+           'zombie':'抓鬼/找鬼/僵尸/场景01/画面.png','snake_wine':'抓鬼/寻物/蛇胆酒/场景01/画面.png',
+           'skeleton':'抓鬼/找鬼/骷髅怪/第01轮/第01页.png'}
     lines=['-- Generated from verified answers; see calibrate-reviewed-ghosts.py.','return {']
     evidence=[]
     for name,cid in seeds.items():
@@ -28,7 +29,7 @@ def main():
         for box in truth['value']:
             x1,y1,x2,y2=box;points=sampler.sample(frame[y1:y2,x1:x2]);ax,ay,base=points[0]
             offsets=','.join(f'{x-ax}|{y-ay}|0x{color:06x}' for x,y,color in points[1:])
-            lines.append('{width=900,height=1600,base=0x%06x,offsets=%s,degree=90,region={65,540,825,1405},tap_offset={%d,%d},calibration_id=%s},'%(base,json.dumps(offsets),(x2-x1)//2-ax,(y2-y1)//2-ay,json.dumps(cid)))
+            lines.append('{width=900,height=1600,base=0x%06x,offsets=%s,degree=90,region={65,540,825,1405},tap_offset={%d,%d},calibration_id=%s},'%(base,json.dumps(offsets),(x2-x1)//2-ax,(y2-y1)//2-ay,json.dumps(cid,ensure_ascii=False)))
             evidence.append({'name':name,'case_id':cid,'region':box,'source':truth['source']})
         lines.append('},')
     lines.append('}')

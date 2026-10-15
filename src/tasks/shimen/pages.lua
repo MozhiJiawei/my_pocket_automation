@@ -9,7 +9,11 @@ M.features.go=require('tasks.shimen.assets.go')
 M.features.deliver=require('tasks.shimen.assets.deliver')
 M.features.idle=require('tasks.shimen.assets.idle')
 M.features.dialogue_next=require('tasks.shimen.assets.dialogue_next')
+M.features.notice=require('tasks.shimen.assets.notice_ack')
+M.features.story_dialogue=require('tasks.shimen.assets.story_dialogue')
+M.features.encounter_offer=require('tasks.shimen.assets.encounter_decline')
 M.features.completion_dialogue=require('tasks.shimen.assets.completion_dialogue')
+M.features.completion_list_dialogue=require('tasks.shimen.assets.completion_list_dialogue')
 M.features.accept=require('tasks.shimen.assets.accept')
 M.features.back=require('tasks.shimen.assets.back')
 M.features.home=require('common.assets.home_dungeon')
@@ -22,7 +26,13 @@ M.features.intimidate=require('tasks.shimen.assets.intimidate')
 M.features.duel=require('tasks.shimen.assets.duel')
 M.features.choose_city=require('tasks.shimen.assets.choose_city')
 M.features.choose_city.variants={require('tasks.shimen.assets.choose_jianye'),
-    require('tasks.shimen.assets.choose_zhuzi'),require('tasks.shimen.assets.choose_xiliang')}
+    require('tasks.shimen.assets.choose_zhuzi'),require('tasks.shimen.assets.choose_xiliang'),
+    require('tasks.shimen.assets.choose_aolai'),(require('tasks.shimen.assets.choose_changshou'))}
+-- Reviewed city names can occupy either of the two bottom choice buttons.
+M.features.choose_city.region={330,1336,800,1370}
+for _,feature in ipairs(M.features.choose_city.variants) do
+    feature.region={330,1336,800,1370}
+end
 M.features.prepare_find=require('tasks.shimen.assets.prepare_find')
 M.features.retry=require('tasks.shimen.assets.find_retry')
 M.features.gourd_notice=require('tasks.shimen.assets.gourd_notice')
@@ -34,16 +44,23 @@ M.actions={go=M.features.go,catch=M.features.catch,intimidate=M.features.intimid
     deliver=M.features.deliver,dialogue=M.features.dialogue_next,
     prepare_find=M.features.prepare_find,retry=M.features.retry,
     completion_dialogue=M.features.dialogue_next,
+    completion_list_dialogue=M.features.completion_list_dialogue,
     delivery_dialogue=M.features.dialogue_next,
+    notice=M.features.notice,
+    story_dialogue=M.features.story_dialogue,
+    encounter_offer=M.features.encounter_offer,
     puzzle_retry=M.features.prepare_puzzle,prepare_puzzle=M.features.prepare_puzzle}
-function M.count() return require('tasks.zhuagui.counter').read({750,208,805,229}) end
 function M.state()
+    if detector.present(M.features.encounter_offer) then return 'encounter_offer' end
+    if detector.present(M.features.story_dialogue) then return 'story_dialogue' end
+    if detector.present(M.features.completion_list_dialogue) then return 'completion_list_dialogue' end
     if detector.present(M.features.gourd_notice) then return 'gourd_notice' end
     if detector.present(M.features.loading) then return 'loading' end
     if detector.present(M.features.puzzle) then return 'puzzle' end
     if detector.present(M.features.find) then return 'find' end
     if detector.present(M.features.battle) then return 'battle' end
     if detector.present(M.features.title) and detector.present(M.features.retry) then return 'retry' end
+    if detector.present(M.features.title) and detector.present(M.features.notice) then return 'notice' end
     if detector.present(M.features.title) and detector.present(M.features.completion_dialogue) and detector.present(M.features.dialogue_next) then return 'completion_dialogue' end
     if detector.present(M.features.title) and detector.present(M.features.idle) and detector.present(M.features.accept) then return 'ready' end
     if detector.present(M.features.title) and detector.present(M.features.idle) and detector.present(M.features.dialogue_next) then return 'delivery_dialogue' end

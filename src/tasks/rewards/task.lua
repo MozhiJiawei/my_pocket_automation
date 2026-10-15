@@ -5,6 +5,7 @@ local navigation=require('common.navigation')
 local progress=require('progress')
 local log=require('dfx.log')
 local snapshot=require('dfx.snapshot')
+local list=require('common.list_navigation')
 local M={}
 local function result(status,reason) return {status=status,reason=reason} end
 local function stop(ctx,reason,status)
@@ -14,39 +15,44 @@ end
 function M.observe(ctx)
     log.write(ctx,'rewards_observe','state='..pages.state()..' no_actions=true')
 end
-local function verify_shimen_card(ctx)
-    local shimen=require('tasks.shimen.pages')
-    if not device.tap(ctx,require('tasks.zhuagui.assets.home_tasks'),'rewards_verify_shimen') or
-        not device.wait(function() return detector.present(shimen.features.task_list) end,20) then return false end
-    for i=0,4 do
-        if detector.present(shimen.features.completed_card) then
-            log.write(ctx,'rewards_debug_gate','shimen_completed_card=true')
-            snapshot.capture(ctx,'rewards_shimen_completed','debug')
-            return navigation.return_home(ctx)
-        end
-        if i<4 and not device.swipe(ctx,shimen.features.task_list,'rewards_find_shimen_completed',{800,1260},{800,600}) then return false end
-    end
-    return false
+local function verify_task_card(ctx,task)
+    local task_pages=require('tasks.'..task..'.pages')
+    local title=task_pages.features.task_list or task_pages.features.task_list_title
+    if not device.tap(ctx,require('tasks.zhuagui.assets.home_tasks'),'rewards_verify_'..task) or
+        not device.wait(function() return detector.present(title) end,20) then return false end
+    local match=list.find(ctx,{name='rewards_'..task..'_completed',page=title,
+        valid=function() return detector.present(title) end,
+        inspect=function() if detector.present(task_pages.features.completed_card) then return {kind='completed'} end end})
+    if not match then return false end
+    log.write(ctx,'rewards_completion_audit',task..'_completed_card=true')
+    snapshot.capture(ctx,'rewards_'..task..'_completed','debug')
+    return navigation.return_home(ctx)
 end
 function M.prerequisites(ctx)
-    local s=progress.read(ctx,'shimen')
-    if not s or s.status~='done' or s.attempts~=20 or s.completed_count~=20 or s.carryover_pending==1 or
-        not ({delivery_verified=true,completion_card_verified=true,one_task_completed=true})[s.stage] then return false,'shimen_not_verified_complete' end
-    local z=progress.read(ctx,'zhuagui')
-    if not z or z.status~='done' or z.attempts~=25 or z.completed_count~=25 or z.stage~='all_25_completed_gourds_unopened' then return false,'zhuagui_not_verified_complete' end
+    if not ctx.identity_verified then return false,'rewards_identity_not_verified' end
+    if ctx.config.business_date~=os.date('%Y%m%d') then return false,'rewards_business_date_not_verified' end
+    for _,task in ipairs({'shimen','zhuagui'}) do
+        local record=progress.read(ctx,task)
+        if not (record and record.status=='done' and record.stage=='completion_card_verified') then
+            if not verify_task_card(ctx,task) then return false,task..'_not_verified_complete' end
+            progress.write(ctx,task,'done','completion_card_verified')
+        end
+    end
     for _,id in ipairs(ctx.config.dungeons or {'wuji','chechi'}) do
-        local d=progress.read(ctx,id)
-        if not d or d.status~='done' or not ({reward_intentionally_unclaimed=true,reward_claimed=true})[d.stage] then return false,id..'_not_verified_complete' end
+        local record=progress.read(ctx,id)
+        if not (record and record.status=='done' and ({completion_card_verified=true,reward_claimed=true,reward_intentionally_unclaimed=true})[record.stage]) then
+            if not require('tasks.dungeon.task').verify_completed(ctx,id) then return false,id..'_not_verified_complete' end
+        end
     end
     return true
 end
 function M.run(ctx)
     if ctx.config.step=='observe' then M.observe(ctx);return result('paused','observation_only') end
     if not ctx.config.business_date or ctx.config.business_date~=os.date('%Y%m%d') then return stop(ctx,'rewards_business_date_not_verified','blocked') end
-    if not navigation.prepare_recorded(ctx) then return stop(ctx,'rewards_identity_not_verified','blocked') end
+    if not ctx.identity_verified and not navigation.prepare_recorded(ctx) then return stop(ctx,'rewards_identity_not_verified','blocked') end
     if ctx.config.rewards_debug_after_shimen then
         if ctx.config.step=='daily' or ctx.config.task~='rewards' then return stop(ctx,'rewards_debug_scope_invalid','blocked') end
-        if not verify_shimen_card(ctx) then return stop(ctx,'rewards_shimen_completed_card_not_verified','blocked') end
+        if not verify_task_card(ctx,'shimen') then return stop(ctx,'rewards_shimen_completed_card_not_verified','blocked') end
     else
         local ok,reason=M.prerequisites(ctx)
         if not ok then return stop(ctx,reason,'blocked') end
@@ -78,7 +84,7 @@ function M.run(ctx)
         local outcome=require('tasks.rewards.inventory').clear(ctx,name)
         if outcome.status~='done' then return outcome end
     end
-    if not navigation.prepare_recorded(ctx) then return stop(ctx,'rewards_return_home_not_verified') end
+    if not navigation.return_home(ctx) then return stop(ctx,'rewards_return_home_not_verified') end
     local stage=ctx.config.rewards_debug_after_shimen and 'debug_inventory_empty' or 'daily_inventory_empty'
     progress.write(ctx,'rewards','done',stage)
     log.write(ctx,'rewards_complete','task_empty=true dungeon_empty=true special_empty=true')

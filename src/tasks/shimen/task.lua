@@ -4,21 +4,39 @@ local device=require('common.device')
 local progress=require('progress')
 local log=require('dfx.log')
 local snapshot=require('dfx.snapshot')
+local list=require('common.list_navigation')
 local FIND_ATTEMPT_LIMIT=4 -- First attempt plus at most three free retries.
 local function result(status,reason) return {status=status,reason=reason} end
 local function stop(ctx,reason,status)
     snapshot.capture(ctx,reason)
     return result(status or 'paused',reason)
 end
-local function retire_carryover(ctx,record)
-    if record.carryover_pending~=0 or not record.carryover_source_date then return end
-    local date=string.format('%08d',record.carryover_source_date)
-    if not ctx.config.business_date or date>=ctx.config.business_date then return end
-    local previous=progress.read(ctx,'shimen',date)
-    if previous and previous.status=='running' and previous.attempts==record.carryover_source_attempt then
-        progress.write(ctx,'shimen','carried_over','delivery_carried_to_'..ctx.config.business_date,previous,date)
-        log.write(ctx,'shimen_carryover_retired','source_date='..date..' source_attempt='..previous.attempts)
+local function open_list_card(ctx)
+    local spec={name='shimen_entry_or_completed',page=pages.features.task_list,
+        valid=function() local s=pages.state();return s=='task_list' or s=='completed_card' end,
+        inspect=function()
+            if pages.state()=='completed_card' then return {kind='completed'} end
+            if pages.features.task_card and require('common.detector').present(pages.features.task_card) then
+                return {kind='entry',feature=pages.features.task_card}
+            end
+        end}
+    local match,reason=list.find(ctx,spec)
+    if not match then return false,reason=='target_not_found' and 'shimen_completed_card_not_found' or 'shimen_completion_list_changed' end
+    if not list.activate(ctx,spec,match,'shimen_open_card') then return false,'shimen_card_postcondition_not_verified' end
+    if match.kind=='entry' and not device.wait(function() return pages.state()~='task_list' end,20) then
+        return false,'shimen_card_postcondition_not_verified'
     end
+    return true
+end
+local function audit_existing_completion(ctx)
+    if not ctx.identity_verified or not ctx.config.business_date or
+        ctx.config.business_date~=os.date('%Y%m%d') or pages.state()~='completed_card' then
+        return stop(ctx,'shimen_existing_completion_not_verified','blocked')
+    end
+    snapshot.capture(ctx,'shimen_existing_completion_card')
+    progress.write(ctx,'shimen','done','completion_card_verified')
+    log.write(ctx,'shimen_completed','completion_card=true business_date='..ctx.config.business_date)
+    return result('done','completion_card_verified')
 end
 function M.observe(ctx)
     log.write(ctx,'shimen_observe','state='..pages.state()..' no_actions=true')
@@ -37,16 +55,14 @@ local function enter(ctx)
         state=pages.state()
     end
     if state=='task_list' then
-        if not device.tap(ctx,pages.features.task_card,'shimen_open_card') or
-            not device.wait(function() return pages.state()~='task_list' end,20) then
-            return stop(ctx,'shimen_card_postcondition_not_verified')
-        end
+        local ok,reason=open_list_card(ctx)
+        if not ok then return stop(ctx,reason) end
         state=pages.state()
     end
     if state=='unknown' or state=='home' or state=='task_list' then
         return stop(ctx,'shimen_page_requires_calibration')
     end
-    log.write(ctx,'shimen_entry','state='..state..' count='..tostring(pages.count()))
+    log.write(ctx,'shimen_entry','state='..state)
     snapshot.capture(ctx,'shimen_entry_evidence','debug')
     return result('running','shimen_task_entry_verified')
 end
@@ -76,37 +92,15 @@ function M.run(ctx)
     if ctx.config.step=='enter' then return enter(ctx) end
     local record=progress.read(ctx,'shimen')
     local step=ctx.config.step
-    if record and record.status=='done' and ctx.identity_verified and
-        record.attempts==20 and record.completed_count==20 and record.carryover_pending~=1 and
-        ({delivery_verified=true,completion_card_verified=true,one_task_completed=true})[record.stage] and
-        (step=='daily' or step=='complete') then
-        return result('done','daily_done_skip')
-    end
-    if not record and (step=='complete' or step=='daily') then
-        local state=pages.state()
-        if ctx.config.shimen_resume_date then
-            local previous=progress.read(ctx,'shimen',ctx.config.shimen_resume_date)
-            local active=pages.actions[state] or ({find=true,puzzle=true,battle=true,loading=true})[state]
-            if not previous or previous.status~='running' or not previous.attempts or previous.attempts<1 or
-                not ctx.config.business_date or ctx.config.shimen_resume_date>=ctx.config.business_date or
-                not active or pages.count()~=0 then
-                return stop(ctx,'shimen_carryover_not_verified','blocked')
-            end
-            record={status='running',attempts=0,completed_count=0,reserved_energy=0,
-                find_attempts=previous.find_attempts or 0,find_retry_pending=previous.find_retry_pending or 0,
-                carryover_pending=1,carryover_source_date=tonumber(ctx.config.shimen_resume_date),
-                carryover_source_attempt=previous.attempts}
-            progress.write(ctx,'shimen','running','carryover_owned_task',record)
-            log.write(ctx,'shimen_carryover','source_date='..ctx.config.shimen_resume_date..
-                ' source_attempt='..previous.attempts..' current_count=0')
-        elseif ctx.identity_verified and (state=='home' or state=='task_list' or state=='ready') then
-            record={status='running',attempts=0,completed_count=0,reserved_energy=0}
-        end
-    end
+    local initial=pages.state()
+    if initial=='completed_card' and (ctx.identity_verified or not record) then return audit_existing_completion(ctx) end
     if not record or record.status~='running' then
-        return stop(ctx,'shimen_active_task_ownership_missing','blocked')
+        local active=pages.actions[initial] or ({find=true,puzzle=true,battle=true,loading=true})[initial]
+        local entry=ctx.identity_verified and ({home=true,task_list=true,ready=true})[initial]
+        if not active and not entry then return stop(ctx,'shimen_task_page_not_verified','blocked') end
+        record={status='running',attempts=0,find_attempts=0,find_retry_pending=initial=='retry' and 1 or 0}
+        progress.write(ctx,'shimen','running','task_page_observed',record)
     end
-    retire_carryover(ctx,record)
     if step~='advance' and step~='complete' and step~='daily' then
         return stop(ctx,'shimen_step_requires_calibration')
     end
@@ -115,14 +109,9 @@ function M.run(ctx)
     end
     local deadline=os.time()+(ctx.config.shimen_timeout or 1800)
     local last_state,actions=nil,0
-    local completion_scrolls=0
     local puzzle_attempted=record.stage=='puzzle_exit_requires_delivery_verification'
     while os.time()<deadline do
         local state=pages.state()
-        if record.attempts==0 and record.carryover_pending~=1 and
-            state~='home' and state~='task_list' and state~='ready' then
-            return stop(ctx,'shimen_active_task_ownership_missing','blocked')
-        end
         if state~=last_state then log.write(ctx,'state','shimen '..state);last_state=state end
         if state=='puzzle_retry' and puzzle_attempted then
             progress.write(ctx,'shimen','running','puzzle_failed_requires_annotation',record)
@@ -136,6 +125,18 @@ function M.run(ctx)
         elseif state=='find' then
             local outcome=find(ctx,record)
             if outcome.reason~='one_minigame_completed' or step=='advance' then return outcome end
+        elseif state=='story_dialogue' then
+            actions=actions+1
+            if actions>12 then return stop(ctx,'shimen_action_limit') end
+            local fingerprint=require('common.list_navigation').fingerprint
+            local view={50,1140,850,1270}
+            local before=fingerprint(view)
+            if not device.tap(ctx,pages.features.story_dialogue,'shimen_story_dialogue') or
+                not device.wait(function()
+                    return pages.state()~='story_dialogue' or fingerprint(view)~=before
+                end,20) then
+                return stop(ctx,'shimen_story_dialogue_not_changed')
+            end
         elseif state=='gourd_notice' then
             if not device.wait(function() return pages.state()~='gourd_notice' end,10,500) then
                 return stop(ctx,'shimen_gourd_notice_not_closed')
@@ -152,31 +153,15 @@ function M.run(ctx)
                     return stop(ctx,'role_identity_not_verified','blocked')
                 end
             else
-                local count=pages.count()
-                if count==nil or count~=record.attempts or
-                    ((record.completed_count or 0)~=count-1 and (record.completed_count or 0)~=count) then
-                    return stop(ctx,'shimen_completion_count_mismatch','blocked')
-                end
-                record.completed_count=count
-                if record.carryover_pending==1 then
-                    if count~=0 then return stop(ctx,'shimen_carryover_count_mismatch','blocked') end
-                    log.write(ctx,'shimen_carryover_completed','source_date='..record.carryover_source_date..
-                        ' source_attempt='..record.carryover_source_attempt..' current_count=0')
-                    snapshot.capture(ctx,'shimen_carryover_completion_evidence','debug')
-                    record.carryover_pending=0
-                    retire_carryover(ctx,record)
-                end
-                progress.write(ctx,'shimen',count==20 and 'done' or 'running','delivery_verified',record)
-                log.write(ctx,'shimen_completed','count='..count..'/20')
+                progress.write(ctx,'shimen','running','delivery_verified',record)
+                log.write(ctx,'shimen_delivery','idle_page=true')
                 snapshot.capture(ctx,'shimen_completion_evidence','debug')
-                if count==20 then return result('done','all_twenty_tasks_completed') end
                 if step=='advance' then return result('paused','one_task_completed') end
-                record.attempts=count+1
-                record.reserved_energy=(record.reserved_energy or 0)+2
+                record.attempts=(record.attempts or 0)+1
                 record.find_attempts=0;record.find_retry_pending=0
                 progress.write(ctx,'shimen','running','accept_reserved',record)
                 if not device.tap(ctx,pages.features.accept,'shimen_accept') or
-                    not device.wait(function() return pages.state()~='ready' and pages.count()==record.attempts end,20) then
+                    not device.wait(function() return pages.state()~='ready' end,20) then
                     return stop(ctx,'shimen_accept_postcondition_not_verified')
                 end
                 actions=0
@@ -192,44 +177,27 @@ function M.run(ctx)
                 return stop(ctx,'shimen_task_list_postcondition_not_verified')
             end
         elseif state=='completed_card' then
-            if record.attempts~=20 or ((record.completed_count or 0)~=19 and (record.completed_count or 0)~=20) then
-                return stop(ctx,'shimen_completed_card_ledger_mismatch','blocked')
-            end
             if not ctx.identity_verified then
                 if not require('common.navigation').prepare_recorded(ctx) then
                     return stop(ctx,'role_identity_not_verified','blocked')
                 end
             else
-                record.completed_count=20
-                progress.write(ctx,'shimen','done','completion_card_verified',record)
-                log.write(ctx,'shimen_completed','count=20/20')
-                snapshot.capture(ctx,'shimen_completion_evidence','debug')
-                return result('done','all_twenty_tasks_completed')
+                return audit_existing_completion(ctx)
             end
         elseif state=='task_list' then
-            if not ctx.identity_verified then return stop(ctx,'role_identity_not_verified','blocked') end
-            if record.attempts==20 and not require('common.detector').present(pages.features.task_card) then
-                if completion_scrolls>=4 then return stop(ctx,'shimen_completed_card_not_found') end
-                if not device.swipe(ctx,pages.features.task_list,'shimen_find_completed_card',{800,1260},{800,600}) then
-                    return stop(ctx,'shimen_completion_list_changed')
+            if not ctx.identity_verified then
+                if not require('common.navigation').prepare_recorded(ctx) then
+                    return stop(ctx,'role_identity_not_verified','blocked')
                 end
-                completion_scrolls=completion_scrolls+1
             else
-                if not device.tap(ctx,pages.features.task_card,'shimen_open_card') or
-                    not device.wait(function() return pages.state()~='task_list' end,20) then
-                    return stop(ctx,'shimen_card_postcondition_not_verified')
-                end
+                local ok,reason=open_list_card(ctx)
+                if not ok then return stop(ctx,reason) end
             end
         elseif state=='idle' then
             if not ctx.identity_verified then return stop(ctx,'role_identity_not_verified','blocked') end
-            local count=pages.count()
-            if count==nil or count~=record.attempts or (record.completed_count or 0)~=count-1 then
-                return stop(ctx,'shimen_completion_count_mismatch','blocked')
-            end
-            record.completed_count=count
-            progress.write(ctx,'shimen',count==20 and 'done' or 'paused','one_task_completed',record)
+            progress.write(ctx,'shimen','paused','one_task_completed',record)
             snapshot.capture(ctx,'shimen_completion_evidence','debug')
-            return result(count==20 and 'done' or 'paused','one_task_completed')
+            return result('paused','one_task_completed')
         elseif state=='retry' then
             if record.find_retry_pending~=1 then return stop(ctx,'retry_without_recognition_failure') end
             if (record.find_attempts or 0)>=FIND_ATTEMPT_LIMIT then return stop(ctx,'find_retry_limit_reached','blocked') end

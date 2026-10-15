@@ -1,298 +1,186 @@
-"""Reward prerequisites use real Lua task code and role/date-scoped storage."""
+"""Reward prerequisites audit the game, independent of previous task records."""
 from pathlib import Path
 import unittest
-
 from lupa import LuaRuntime
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[2]
 
-
-class RewardsFixture(unittest.TestCase):
+class RewardsGuardTest(unittest.TestCase):
     def setUp(self):
-        self.lua = LuaRuntime(unpack_returned_tuples=True)
+        self.lua=LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
-        self.lua.execute('''
-            files={}; taps={}; captures={}; page_reads=0; state='unknown'
-            ctx={config={business_date='20261014',step='daily',dungeons={'wuji','chechi'}},
-                account={alias='first'},run_id='test',identity_verified=true}
-            other={config={business_date='20261014'},account={alias='second'},run_id='other'}
-            io.open=function(path,mode)
-                if mode=='r' and not files[path] then return nil end
-                return {
-                    write=function(self,value) files[path]=value;return true end,
-                    close=function() return true end
-                }
-            end
-            os.rename=function(source,target)
-                files[target]=files[source];files[source]=nil;return true
-            end
-            loadfile=function(path) return load(files[path]) end
-            package.preload['tasks.rewards.pages']=function()
-                local features={}
-                for _,name in ipairs({'inventory','task_tab','task_tab_selected','dungeon_tab',
-                    'special_tab','special_tab_selected','bag_tab','treasury_tab','zhuagui_card',
-                    'shimen_card','no_cost','detail_title','detail_back','open_one','discard'}) do
-                    features[name]=name
-                end
-                return {
-                    state=function() page_reads=page_reads+1;return state end,
-                    count=function() return visible_count end,
-                    free_card=function() return true end,
-                    features=features,
-                    items={
-                        {id=1,name='zhuagui',tab='task',card=features.zhuagui_card,cost=0},
-                        {id=2,name='shimen',tab='task',card=features.shimen_card,cost=0},
-                    }
-                }
-            end
-            package.preload['tasks.shimen.pages']=function() return {
-                state=function() page_reads=page_reads+1;return state end,
-                count=function() return nil end,features={},actions={}
-            } end
-            package.preload['common.detector']=function() return {
-                present=function() error('prerequisites must not infer completion from a detector') end
-            } end
-            package.preload['common.device']=function() return {
-                tap=function(c,feature,label) table.insert(taps,label);return false end,
-                wait=function(predicate) return predicate() end
-            } end
-            package.preload['common.navigation']=function() return {
-                prepare_recorded=function() return false end
-            } end
+        self.lua.execute("""
+            os.date=function() return '20261014' end
+            ctx={config={business_date='20261014',step='complete',dungeons={'wuji','chechi'}},account={alias='first'},identity_verified=true}
+            state='home';current=nil;taps={};captures={};swipes=0;verified={};after_scroll={};audits={}
+            keepScreen=function() end;mSleep=function() end
+            getColor=function() return swipes*0x001010 end
+            io.open=function() error('task state must not touch disk') end
+            loadfile=function() error('task state must not load disk') end
             package.preload['dfx.log']=function() return {write=function() end} end
-            package.preload['dfx.snapshot']=function() return {
-                capture=function(c,label) table.insert(captures,label) end
-            } end
-        ''')
-        self.progress = self.lua.eval("require('progress')")[0]
-        self.task = self.lua.eval("require('tasks.rewards.task')")[0]
-        self.ctx = self.lua.globals().ctx
+            package.preload['dfx.snapshot']=function() return {capture=function(c,label) captures[#captures+1]=label end} end
+            package.preload['tasks.rewards.pages']=function() return {state=function() return state end} end
+            package.preload['tasks.zhuagui.assets.home_tasks']=function() return 'home_tasks' end
+            package.preload['tasks.shimen.pages']=function() return {
+                features={task_list='list',completed_card='shimen_completed'},actions={},state=function() return state end} end
+            package.preload['tasks.zhuagui.pages']=function() return {
+                features={task_list_title='list',completed_card='zhuagui_completed'}} end
+            package.preload['common.detector']=function() return {present=function(f)
+                if f=='list' then return state=='task_list' end
+                local task=type(f)=='string' and f:match('^(%w+)_completed$')
+                return task and current==task and state=='task_list' and verified[task]==true and swipes>=(after_scroll[task] or 0)
+            end} end
+            package.preload['common.device']=function() return {
+                tap=function(c,f,label)
+                    assert(f=='home_tasks' and state=='home');taps[#taps+1]=label
+                    current=label:match('^rewards_verify_(%w+)$');assert(current)
+                    state=entry_state or 'task_list';return true
+                end,
+                wait=function(predicate) return predicate() end,
+                swipe=function()
+                    swipes=swipes+1
+                    if leave_list then state='unknown' end
+                    return true
+                end} end
+            package.preload['common.navigation']=function() return {
+                return_home=function() if home_failed then return false end;state='home';return true end} end
+            package.preload['tasks.dungeon.task']=function() return {verify_completed=function(c,id)
+                assert(state=='home');audits[#audits+1]=id
+                return verified[id]==true
+            end} end
+        """)
+        self.ctx=self.lua.globals().ctx
+        self.task=self.lua.eval("require('tasks.rewards.task')")[0]
+        self.progress=self.lua.eval("(require('progress'))")
 
-    def write(self, task, status, stage, counters=None, ctx=None, date=None):
-        self.progress.write(
-            self.ctx if ctx is None else ctx, task, status, stage,
-            self.lua.table_from(counters or {}), date,
-        )
-
-    def valid_records(self, ctx=None, date=None):
-        self.write('shimen', 'done', 'delivery_verified',
-                   {'attempts': 20, 'completed_count': 20}, ctx, date)
-        self.write('zhuagui', 'done', 'all_25_completed_gourds_unopened',
-                   {'attempts': 25, 'completed_count': 25}, ctx, date)
-        for task in ('wuji', 'chechi'):
-            self.write(task, 'done', 'reward_intentionally_unclaimed', ctx=ctx, date=date)
+    def complete_pages(self):
+        self.lua.execute("verified={shimen=true,zhuagui=true,wuji=true,chechi=true}")
 
     def assert_rejected(self, reason):
-        self.assertEqual(self.task.prerequisites(self.ctx), (False, reason))
-        self.assertEqual(len(self.lua.globals().taps), 0)
-        self.assertEqual(self.lua.globals().page_reads, 0)
+        self.assertEqual(self.task.prerequisites(self.ctx),(False,reason))
 
-
-class RewardsGuardTest(RewardsFixture):
-    def test_missing_all_ledgers_is_rejected(self):
+    def test_missing_all_completed_pages_is_rejected(self):
         self.assert_rejected('shimen_not_verified_complete')
+        self.assertEqual(self.lua.globals().swipes,24)
 
-    def test_each_missing_required_ledger_is_rejected(self):
-        for task in ('shimen', 'zhuagui', 'wuji', 'chechi'):
+    def test_each_missing_required_page_is_rejected(self):
+        for task in ('shimen','zhuagui','wuji','chechi'):
             with self.subTest(task=task):
-                self.valid_records()
-                self.lua.globals().files[
-                    f'/storage/emulated/0/TouchSprite/res/daily_progress_20261014_first_{task}.lua'
-                ] = None
-                self.assert_rejected(f'{task}_not_verified_complete')
+                self.setUp();self.complete_pages();self.lua.globals().verified[task]=False
+                self.assert_rejected(task+'_not_verified_complete')
 
-    def test_verified_full_ledgers_are_accepted_without_screen_actions(self):
-        self.valid_records()
-        self.assertIs(self.task.prerequisites(self.ctx), True)
-        self.assertEqual(len(self.lua.globals().taps), 0)
-        self.assertEqual(self.lua.globals().page_reads, 0)
+    def test_verified_game_pages_are_accepted_without_task_records(self):
+        self.complete_pages()
+        self.assertIs(self.task.prerequisites(self.ctx),True)
+        self.assertEqual(self.progress.read(self.ctx,'shimen')['stage'],'completion_card_verified')
+        self.assertEqual(list(self.lua.globals().audits.values()),['wuji','chechi'])
 
-    def test_shimen_requires_exact_twenty_attempts_and_deliveries(self):
-        self.valid_records()
-        for attempts, completed in ((None, 20), (20, None), (19, 20), (20, 19),
-                                    (21, 20), (20, 21), (20, 0)):
-            with self.subTest(attempts=attempts, completed=completed):
-                counters = {key: value for key, value in (
-                    ('attempts', attempts), ('completed_count', completed)
-                ) if value is not None}
-                self.write('shimen', 'done', 'delivery_verified', counters)
-                self.assert_rejected('shimen_not_verified_complete')
+    def test_shimen_completion_does_not_require_numeric_task_fields(self):
+        self.complete_pages()
+        self.progress.write(self.ctx,'shimen','running','delivery',self.lua.table_from({'attempts':0}))
+        self.assertIs(self.task.prerequisites(self.ctx),True)
 
-    def test_shimen_accepts_only_verified_delivery_stages(self):
-        self.valid_records()
-        for stage in ('delivery_verified', 'completion_card_verified', 'one_task_completed'):
-            with self.subTest(stage=stage):
-                self.write('shimen', 'done', stage, {'attempts': 20, 'completed_count': 20})
-                self.assertIs(self.task.prerequisites(self.ctx), True)
-        for stage in ('', 'accept_reserved', 'find_exit_requires_delivery_verification',
-                      'puzzle_exit_requires_delivery_verification'):
-            with self.subTest(stage=stage):
-                self.write('shimen', 'done', stage, {'attempts': 20, 'completed_count': 20})
-                self.assert_rejected('shimen_not_verified_complete')
+    def test_audit_does_not_invent_accept_or_fee_history(self):
+        self.complete_pages();self.task.prerequisites(self.ctx)
+        self.assertEqual(list(self.lua.globals().taps.values()),['rewards_verify_shimen','rewards_verify_zhuagui'])
+        self.assertEqual(self.progress.read(self.ctx,'shimen')['stage'],'completion_card_verified')
 
-    def test_shimen_pending_carryover_is_not_complete(self):
-        self.valid_records()
-        self.write('shimen', 'done', 'delivery_verified',
-                   {'attempts': 20, 'completed_count': 20, 'carryover_pending': 1})
+    def test_runtime_done_cannot_replace_a_missing_shimen_card(self):
+        self.progress.write(self.ctx,'shimen','done','delivery_verified')
         self.assert_rejected('shimen_not_verified_complete')
 
-    def test_full_counts_without_done_status_are_rejected(self):
-        for task, count, stage in (
-            ('shimen', 20, 'delivery_verified'),
-            ('zhuagui', 25, 'all_25_completed_gourds_unopened'),
-        ):
-            for status in ('running', 'paused', 'blocked'):
-                with self.subTest(task=task, status=status):
-                    self.valid_records()
-                    self.write(task, status, stage, {'attempts': count, 'completed_count': count})
-                    self.assert_rejected(f'{task}_not_verified_complete')
-
-    def test_zhuagui_requires_exact_twenty_five_attempts_and_deliveries(self):
-        self.valid_records()
-        for attempts, completed in ((None, 25), (25, None), (24, 25), (25, 24),
-                                    (26, 25), (25, 26), (25, 0)):
-            with self.subTest(attempts=attempts, completed=completed):
-                counters = {key: value for key, value in (
-                    ('attempts', attempts), ('completed_count', completed)
-                ) if value is not None}
-                self.write('zhuagui', 'done', 'all_25_completed_gourds_unopened', counters)
-                self.assert_rejected('zhuagui_not_verified_complete')
-
-    def test_partial_zhuagui_target_does_not_unlock_rewards(self):
-        self.valid_records()
-        self.ctx.config.zhuagui_target = 10
-        for status, stage in (
-            ('paused', 'target_10_completed_gourds_unopened'),
-            ('done', 'all_25_completed_gourds_unopened'),
-        ):
-            with self.subTest(status=status):
-                self.write('zhuagui', status, stage, {'attempts': 10, 'completed_count': 10})
-                self.assert_rejected('zhuagui_not_verified_complete')
-
-    def test_zhuagui_needs_final_quota_verification_stage(self):
-        self.valid_records()
-        for stage in ('', 'one_task_completed', 'accept_reserved', 'completed_card_ledger_mismatch'):
-            with self.subTest(stage=stage):
-                self.write('zhuagui', 'done', stage, {'attempts': 25, 'completed_count': 25})
-                self.assert_rejected('zhuagui_not_verified_complete')
-
-    def test_each_dungeon_must_verify_reward_state(self):
-        for task in ('wuji', 'chechi'):
-            for stage in ('reward_claim_requested', 'in_progress', 'completion_detected', ''):
-                with self.subTest(task=task, stage=stage):
-                    self.valid_records()
-                    self.write(task, 'done', stage)
-                    self.assert_rejected(f'{task}_not_verified_complete')
-
-    def test_verified_claimed_and_intentionally_unclaimed_dungeons_are_accepted(self):
-        self.valid_records()
-        for first in ('reward_claimed', 'reward_intentionally_unclaimed'):
-            for second in ('reward_claimed', 'reward_intentionally_unclaimed'):
-                with self.subTest(wuji=first, chechi=second):
-                    self.write('wuji', 'done', first)
-                    self.write('chechi', 'done', second)
-                    self.assertIs(self.task.prerequisites(self.ctx), True)
-
-    def test_dungeon_reward_stage_without_done_is_rejected(self):
-        self.valid_records()
-        for status in ('running', 'paused', 'blocked'):
-            with self.subTest(status=status):
-                self.write('wuji', status, 'reward_intentionally_unclaimed')
-                self.assert_rejected('wuji_not_verified_complete')
-
-    def test_all_configured_dungeons_are_required(self):
-        self.valid_records()
-        self.ctx.config.dungeons = self.lua.table_from(['wuji', 'chechi', 'custom'])
-        self.assert_rejected('custom_not_verified_complete')
-        self.write('custom', 'done', 'reward_claimed')
-        self.assertIs(self.task.prerequisites(self.ctx), True)
-
-    def test_unselected_dungeon_does_not_block_selected_dungeon(self):
-        self.valid_records()
-        self.ctx.config.dungeons = self.lua.table_from(['wuji'])
-        self.write('chechi', 'running', 'reward_claim_requested')
-        self.assertIs(self.task.prerequisites(self.ctx), True)
-
-    def test_missing_dungeon_configuration_uses_both_default_dungeons(self):
-        self.valid_records()
-        self.ctx.config.dungeons = None
-        self.write('chechi', 'done', 'reward_claim_requested')
-        self.assert_rejected('chechi_not_verified_complete')
-
-    def test_previous_business_day_ledgers_cannot_unlock_current_day(self):
-        self.valid_records(date='20261013')
+    def test_active_shimen_page_is_not_a_completed_card(self):
+        self.complete_pages();self.lua.execute("entry_state='go'")
         self.assert_rejected('shimen_not_verified_complete')
-        self.assertEqual(self.progress.read(self.ctx, 'shimen', '20261013')['completed_count'], 20)
-        self.assertIsNone(self.progress.read(self.ctx, 'shimen'))
+        self.assertEqual(self.lua.globals().swipes,0)
 
-    def test_current_shimen_cannot_use_previous_day_zhuagui_or_dungeons(self):
-        self.valid_records(date='20261013')
-        self.write('shimen', 'done', 'delivery_verified', {'attempts': 20, 'completed_count': 20})
+    def test_numeric_counts_cannot_unlock_rewards(self):
+        for task in ('shimen','zhuagui'):
+            self.progress.write(self.ctx,task,'done','counts_only',self.lua.table_from({'completed_count':25}))
+        self.assert_rejected('shimen_not_verified_complete')
+
+    def test_zhuagui_completion_does_not_require_numeric_fields(self):
+        self.complete_pages()
+        self.progress.write(self.ctx,'zhuagui','running','start_requested',self.lua.table_from({'attempts':1}))
+        self.assertIs(self.task.prerequisites(self.ctx),True)
+
+    def test_partial_zhuagui_does_not_unlock_rewards(self):
+        self.complete_pages();self.lua.globals().verified.zhuagui=False
+        self.progress.write(self.ctx,'zhuagui','done','one_task_completed')
         self.assert_rejected('zhuagui_not_verified_complete')
-        self.write('zhuagui', 'done', 'all_25_completed_gourds_unopened',
-                   {'attempts': 25, 'completed_count': 25})
+
+    def test_verified_runtime_zhuagui_does_not_repeat_card_search(self):
+        self.complete_pages();self.lua.globals().verified.zhuagui=False
+        self.progress.write(self.ctx,'zhuagui','done','completion_card_verified')
+        self.assertIs(self.task.prerequisites(self.ctx),True)
+        self.assertEqual(list(self.lua.globals().taps.values()),['rewards_verify_shimen'])
+
+    def test_each_dungeon_requires_a_fresh_audit(self):
+        for task in ('wuji','chechi'):
+            self.setUp();self.complete_pages();self.lua.globals().verified[task]=False
+            self.progress.write(self.ctx,task,'done','reward_claim_requested')
+            self.assert_rejected(task+'_not_verified_complete')
+
+    def test_dungeon_audit_uses_pages_instead_of_claim_history(self):
+        self.complete_pages()
+        for task in ('wuji','chechi'):self.progress.write(self.ctx,task,'paused','reward_claim_requested')
+        self.assertIs(self.task.prerequisites(self.ctx),True)
+
+    def test_running_dungeon_page_is_not_completion(self):
+        self.complete_pages();self.lua.globals().verified.wuji=False
         self.assert_rejected('wuji_not_verified_complete')
 
-    def test_another_role_complete_ledgers_cannot_unlock_selected_role(self):
-        self.valid_records(ctx=self.lua.globals().other)
+    def test_every_configured_dungeon_is_checked(self):
+        self.complete_pages();self.ctx.config.dungeons=self.lua.table_from(['chechi','wuji'])
+        self.assertIs(self.task.prerequisites(self.ctx),True)
+        self.assertEqual(list(self.lua.globals().audits.values()),['chechi','wuji'])
+
+    def test_unselected_dungeon_does_not_block_selected_dungeon(self):
+        self.complete_pages();self.ctx.config.dungeons=self.lua.table_from(['wuji'])
+        self.lua.globals().verified.chechi=False
+        self.assertIs(self.task.prerequisites(self.ctx),True)
+        self.assertEqual(list(self.lua.globals().audits.values()),['wuji'])
+
+    def test_default_configuration_checks_both_dungeons(self):
+        self.complete_pages();self.ctx.config.dungeons=None;self.lua.globals().verified.chechi=False
+        self.assert_rejected('chechi_not_verified_complete')
+
+    def test_previous_business_day_cannot_unlock_rewards(self):
+        self.complete_pages();self.ctx.config.business_date='20261013'
+        self.assert_rejected('rewards_business_date_not_verified')
+        self.assertEqual(len(self.lua.globals().taps),0)
+
+    def test_completed_cards_below_the_fold_use_shared_scrolling(self):
+        self.complete_pages();self.lua.execute('after_scroll.shimen=2;after_scroll.zhuagui=4')
+        self.assertIs(self.task.prerequisites(self.ctx),True)
+        self.assertEqual(self.lua.globals().swipes,4)
+
+    def test_another_role_state_does_not_unlock_selected_role(self):
+        other=self.lua.table_from({'account':self.lua.table_from({'alias':'other'})})
+        self.progress.write(other,'shimen','done','delivery_verified')
         self.assert_rejected('shimen_not_verified_complete')
-        self.valid_records()
-        self.write('zhuagui', 'running', 'accept_reserved',
-                   {'attempts': 1, 'completed_count': 0}, ctx=self.lua.globals().other)
-        self.assertIs(self.task.prerequisites(self.ctx), True)
-        self.assertEqual(self.progress.read(self.ctx, 'zhuagui')['completed_count'], 25)
 
-    def test_shimen_verified_done_is_skipped_for_daily_and_complete(self):
-        task = self.lua.eval("require('tasks.shimen.task')")[0]
-        for step in ('daily', 'complete'):
-            for stage in ('delivery_verified', 'completion_card_verified', 'one_task_completed'):
-                with self.subTest(step=step, stage=stage):
-                    self.ctx.config.step = step
-                    self.write('shimen', 'done', stage, {'attempts': 20, 'completed_count': 20})
-                    result = task.run(self.ctx)
-                    self.assertEqual((result['status'], result['reason']), ('done', 'daily_done_skip'))
-                    self.assertEqual(len(self.lua.globals().taps), 0)
-                    self.assertEqual(len(self.lua.globals().captures), 0)
-                    self.assertEqual(self.lua.globals().page_reads, 0)
+    def test_shimen_done_record_does_not_skip_game_verification(self):
+        task=self.lua.eval("require('tasks.shimen.task')")[0]
+        self.progress.write(self.ctx,'shimen','done','completion_card_verified')
+        self.lua.execute("state='unknown'")
+        self.assertEqual(task.run(self.ctx)['reason'],'shimen_task_page_not_verified')
 
-    def test_shimen_unverified_identity_cannot_skip_done_ledger(self):
-        task = self.lua.eval("require('tasks.shimen.task')")[0]
-        self.write('shimen', 'done', 'delivery_verified', {'attempts': 20, 'completed_count': 20})
-        self.ctx.identity_verified = False
-        for step in ('daily', 'complete'):
-            with self.subTest(step=step):
-                self.ctx.config.step = step
-                result = task.run(self.ctx)
-                self.assertEqual((result['status'], result['reason']),
-                                 ('blocked', 'shimen_active_task_ownership_missing'))
-                self.assertEqual(len(self.lua.globals().taps), 0)
+    def test_identity_must_be_verified_before_audits(self):
+        self.complete_pages();self.ctx.identity_verified=False
+        self.assert_rejected('rewards_identity_not_verified')
+        self.assertEqual(len(self.lua.globals().taps),0)
 
-    def test_shimen_unverified_or_incomplete_done_ledger_cannot_skip(self):
-        task = self.lua.eval("require('tasks.shimen.task')")[0]
-        for stage, attempts, completed, carryover in (
-            ('accept_reserved', 20, 20, 0),
-            ('delivery_verified', 19, 20, 0),
-            ('delivery_verified', 20, 19, 0),
-            ('delivery_verified', 20, 20, 1),
-        ):
-            with self.subTest(stage=stage, attempts=attempts, completed=completed, carryover=carryover):
-                self.write('shimen', 'done', stage, {'attempts': attempts,
-                           'completed_count': completed, 'carryover_pending': carryover})
-                result = task.run(self.ctx)
-                self.assertEqual((result['status'], result['reason']),
-                                 ('blocked', 'shimen_active_task_ownership_missing'))
-                self.assertEqual(len(self.lua.globals().taps), 0)
+    def test_page_change_during_card_search_stops_audit(self):
+        self.complete_pages();self.lua.execute('after_scroll.shimen=3;leave_list=true')
+        self.assert_rejected('shimen_not_verified_complete')
+        self.assertEqual(self.lua.globals().swipes,1)
+        self.assertEqual(len(self.lua.globals().audits),0)
 
-    def test_shimen_previous_day_or_other_role_done_cannot_skip_current_role(self):
-        task = self.lua.eval("require('tasks.shimen.task')")[0]
-        self.write('shimen', 'done', 'delivery_verified',
-                   {'attempts': 20, 'completed_count': 20}, date='20261013')
-        self.write('shimen', 'done', 'delivery_verified',
-                   {'attempts': 20, 'completed_count': 20}, ctx=self.lua.globals().other)
-        result = task.run(self.ctx)
-        self.assertEqual((result['status'], result['reason']),
-                         ('blocked', 'shimen_active_task_ownership_missing'))
-        self.assertEqual(len(self.lua.globals().taps), 0)
+    def test_return_home_failure_stops_later_audits(self):
+        self.complete_pages();self.lua.execute('home_failed=true')
+        self.assert_rejected('shimen_not_verified_complete')
+        self.assertEqual(len(self.lua.globals().audits),0)
 
 
 class ScreenCaptureInitializationTest(unittest.TestCase):

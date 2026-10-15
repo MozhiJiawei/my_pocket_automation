@@ -34,7 +34,7 @@ def evaluate_rounds(rounds,results):
                 if not hits:
                     negative=any(x1<=x<x2 and y1<=y<y2 for x1,y1,x2,y2 in frame.get('known_negative_regions',[]))
                     wrong.append({'case_id':identity,'point':[x,y],'status':'wrong' if negative else 'unscored'})
-        expected=list(item['answers'])
+        expected=[label for label,locations in item['answers'].items() if any(regions(boxes) for boxes in locations.values())]
         evaluated.append({'id':item['id'],'topic':item['topic'],'expected_answers':expected,
             'selected_answers':sorted(selected),'unselected_answers':sorted(set(expected)-selected),
             'approved_count':len(expected),'selected_count':len(selected),

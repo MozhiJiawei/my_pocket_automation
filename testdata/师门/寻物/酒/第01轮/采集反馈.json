@@ -1,0 +1,32 @@
+{
+  "status": "complete",
+  "can_use_as_complete": true,
+  "pages": 7,
+  "unique_rows": 20,
+  "reasons": [],
+  "recoverable": null,
+  "scope": "用户明确给出的完整采集参考；原图包含20行、100个完整物品格。采集完整性与答案正确性分别核验。",
+  "rows_added_per_page": [
+    5,
+    5,
+    5,
+    4,
+    1,
+    0,
+    0
+  ],
+  "reference": {
+    "id": "师门/寻物/酒/20261012_131613_第09轮",
+    "unique_rows": 20
+  },
+  "evidence": "用户2026-10-14在会话中明确以酒20261012_131613_第09轮作为完整输入参考；本轮复核7张原图拼接为20行。",
+  "images": {
+    "第01页.png": "1ed52c6186104552047078cbea556d129e47d3954c43d73c4fd214ec0d64382a",
+    "第02页.png": "e6506eb2e7d5a310dbf3240ce9fbf91203e52c6e1861e0ef561bad95c8cefa77",
+    "第03页.png": "a2ca488cd5e09e05e15c61f244b2f0848896b3c420c4a855e19a94d31050bd82",
+    "第04页.png": "1af4c8891aa062a943ea7cfd9d0fa3ce710fe5f06b7fcbd8723c3ced2ae9f441",
+    "第05页.png": "4bae1d465b114f138cdab42e3eea9cc0b97e40500da8b27fa064bcdfcc005736",
+    "第06页.png": "c4ccc5ace4841897675c78ea1f989ab7ceb19f7677f13620f2a5a68d73799707",
+    "第07页.png": "5ff5b369d56a3453e814fd0d5571e70e4dccbda44d12b8b0f6595302c02bf9d3"
+  }
+}

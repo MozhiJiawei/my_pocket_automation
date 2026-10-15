@@ -13,6 +13,7 @@ class MultiRoleTest(unittest.TestCase):
         self.lua.execute('''
             events={}; visits={}; calls={}; roster=true; home=true
             ctx={config={accounts={{alias='first',claim_dungeon_rewards=true},{alias='second',claim_dungeon_rewards=false}},tasks={'zhuagui','dungeon'}}}
+            package.preload['tasks.dungeon.pages']=function() return {state=function() return receipt_state or 'unknown' end} end
             package.preload['dfx.log']=function() return {write=function(c,e,d) events[#events+1]={e,d} end} end
             package.preload['dfx.snapshot']=function() return {capture=function() end} end
             package.preload['common.navigation']=function() return {
@@ -47,6 +48,31 @@ class MultiRoleTest(unittest.TestCase):
         self.assertEqual([(c[1],c[2],c[3]) for c in calls],
                          [('first','zhuagui',True),('first','dungeon',True),('second','zhuagui',False),('second','dungeon',False)])
         self.assertIn(('summary','scope=roles roles_expected=2 roles_completed=2 all_roles_done=true selected_done=true daily_done=false'),events)
+
+    def receipt_without_task_audit(self,switched=False,date=None):
+        self.lua.execute('''
+            receipt_state='wuji_claim_receipt';ctx.config.business_date=os.date('%Y%m%d')
+            require('common.navigation').verify_roster=function(c)
+                c.account=c.config.accounts[1];c.identity_verified=true;c.role_switched=switched
+                return true
+            end
+        ''')
+        self.lua.globals().switched=switched
+        if date:self.lua.globals().ctx.config.business_date=date
+        self.run_daily()
+        self.lua.globals().ctx.account=self.lua.globals().ctx.config.accounts[1]
+        return self.lua.eval("require('progress').read(ctx,'wuji')")
+
+    def test_roster_verification_cannot_credit_a_receipt_before_task_audit(self):
+        self.assertIsNone(self.receipt_without_task_audit())
+        self.lua.globals().ctx.account=self.lua.globals().ctx.config.accounts[2]
+        self.assertIsNone(self.lua.eval("require('progress').read(ctx,'wuji')"))
+
+    def test_switching_role_does_not_copy_the_previous_roles_receipt(self):
+        self.assertIsNone(self.receipt_without_task_audit(switched=True))
+
+    def test_receipt_cannot_cross_the_business_day(self):
+        self.assertIsNone(self.receipt_without_task_audit(date='19000101'))
 
     def test_daily_modules_run_in_fixed_order_per_verified_role(self):
         self.lua.execute("ctx.config.tasks={'rewards','dungeon','zhuagui','shimen'}")

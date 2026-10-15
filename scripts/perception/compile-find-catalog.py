@@ -12,6 +12,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from scripts.perception.lib.corpus import load_cases,validate
 from tests.support.touchsprite_adapter import Screen
+NAMED_WINE_KEYS={'虎骨酒':'tiger_wine','蛇胆酒':'snake_wine','梅花酒':'plum_wine','珍露酒':'dew_wine'}
 
 
 def oriented(source,mirror,turn):
@@ -52,7 +53,8 @@ def main():
     ghost_evidence=json.loads((folder/'reviewed_ghosts.json').read_text(encoding='utf-8')) if args.task=='zhuagui' else []
     catalog={};audit={}
     for key,sources in list(groups.items())+list(ghosts.items()):
-        selected=[];count=0
+        key=NAMED_WINE_KEYS.get(key,key)
+        selected=catalog.get(key,[]);count=audit.get(key,{}).get('expanded',0)
         for ordinal,source in sources.items():
             ref=index.get(source['calibration_id'])
             if ref is None:
@@ -68,7 +70,7 @@ def main():
                     transformed=np.ascontiguousarray(np.rot90(tile[:,::-1] if mirror else tile,-turn))
                     if not covered(transformed,selected):selected.append(oriented(source,mirror,turn))
         catalog[key]=selected;audit[key]={'expanded':count,'retained':len(selected)}
-    if args.task=='zhuagui':
+    if args.task=='zhuagui' and 'skeleton' not in catalog:
         # Preserve the old unverified skeleton feature; do not claim new coverage.
         source=lua.execute((folder/'icon_skeleton.lua').read_text(encoding='utf-8'))
         source['calibration_id']='legacy/icon_skeleton'

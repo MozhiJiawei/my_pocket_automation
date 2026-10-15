@@ -16,8 +16,14 @@ PAGES = {'任务列表':'task_list','开始任务消耗三精力':'ready_cost_th
          '今日完成任务卡片':'quota_completed_card','进行中未校准页面':'active_uncalibrated',
          '非寻物页面':'not_find','获得葫芦提示禁止操作':'unknown'}
 DUNGEON = {'乌鸡国/副本列表':'list_wuji','乌鸡国/准备开始':'wuji_ready',
+           '乌鸡国/继续战斗':'wuji_active',
+           '乌鸡国/领奖确认':'wuji_claim_confirm',
+           '乌鸡国/领取成功':'wuji_claim_receipt',
+           '乌鸡国/葫芦已领取':'list_wuji',
            '乌鸡国/今日已完成':'wuji_done','乌鸡国/葫芦未领取':'wuji_reward_sealed',
            '车迟国/副本列表':'list_chechi','车迟国/今日已完成':'chechi_done',
+           '车迟国/领奖确认':'chechi_claim_confirm',
+           '车迟国/领取成功':'chechi_claim_receipt',
            '车迟国/葫芦未领取':'chechi_reward_sealed','战斗':'battle',
            '副本切换/乌鸡国切换车迟国':'switch_wuji_chechi',
            '副本切换/车迟国切换乌鸡国':'switch_chechi_wuji','异常画面/未知页面':'unknown'}
@@ -72,6 +78,8 @@ def load_cases(task=None):
         for image in sorted((ROOT/name).rglob('*.png')):
             relative=image.relative_to(ROOT)
             if '审核依据' in relative.parts or '连续帧' in relative.parts:continue
+            if relative.parts[1] in ('寻物','找鬼','拼图') and not (image.parent/'答案.json').is_file():
+                raise ValueError(f'Recognition input has no approved answer file; move it to the annotation queue: {relative}')
             if image.parent not in documents:documents[image.parent]=read_answers(image.parent)
             document=documents[image.parent]
             extra=document.get('预期',{}).get(image.name,{})
@@ -154,6 +162,7 @@ def crop_sources(cases):
     for case in cases:
         if case['task']=='shimen':
             for field,positive in [('target_regions',True),('negative_regions',False)]:
+                if case['truth'].get(field,{}).get('status') not in VERIFIED:continue
                 for box in case['truth'].get(field,{}).get('value') or []:
                     selected.setdefault(case['id'],[]).append({'label':field,'region':box,'positive':positive})
             continue
@@ -162,9 +171,12 @@ def crop_sources(cases):
         visited.add(folder)
         for section,positive in [('正确',True),('反例',False)]:
             for label,locations in read_answers(folder).get(section,{}).items():
+                if not locations:continue
                 name,boxes=next(iter(locations.items()));box=regions(boxes)[0]
                 identity=(folder/name).relative_to(ROOT).as_posix()
                 if identity in available and available[identity]['truth'].get('page',{}).get('value')=='find':
+                    field='target_regions' if positive else 'negative_regions'
+                    if available[identity]['truth'].get(field,{}).get('status') not in VERIFIED:continue
                     selected.setdefault(identity,[]).append({'label':label,'region':box,'positive':positive})
     return selected
 

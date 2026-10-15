@@ -8,6 +8,15 @@ local title=require('tasks.zhuagui.assets.find_title')
 local expired=require('tasks.zhuagui.assets.find_time_expired')
 local M={}
 local matcher=require('common.find_items')
+local function collect_failure(ctx,name,category,reason)
+    log.write(ctx,'find_collection','target=' .. tostring(name) .. ' category=' .. tostring(category) ..
+        ' reason=' .. reason .. ' matching_started=false candidate_taps=0')
+    local captured=require('tasks.zhuagui.catalog').capture(ctx,'find_unmatched_')
+    log.write(ctx,'find_collection_done','target=' .. tostring(name) .. ' pages=' .. captured.pages ..
+        ' reason=' .. captured.reason .. ' coverage_verified=false candidate_taps=0')
+    if captured.reason~='find_catalog_observation_only' then return false,captured.reason,category end
+    return false,reason,category
+end
 function M.identify()
     if not detector.present(title) then return nil,nil,'not_find_page' end
     for _,entry in ipairs({{'dew_wine','dew_wine','酒'},{'tiger_wine','tiger_wine','酒'},
@@ -28,11 +37,22 @@ function M.identify()
 end
 function M.solve(ctx)
     local name,category,reason=M.identify()
-    if reason then return false,reason end
-    if not name then return false,'find_target_unknown' end
-    if category=='酒' and name~='snake_wine' and name~='wine' then return false,'wine_requires_specific_calibration' end
-    local features=catalog[name] or catalog[category] or legacy.items(category)
-    log.write(ctx,'find_search','features=' .. #features .. ' category=' .. category)
+    if reason then
+        if reason=='not_find_page' then return false,reason end
+        return collect_failure(ctx,name,category,reason)
+    end
+    if not name then return collect_failure(ctx,name,category,'find_target_unknown') end
+    local features
+    if category=='酒' and name~='wine' then
+        -- A named wine can only use its own approved bank, never generic wine.
+        features=catalog[name]
+    else
+        features=catalog[name] or catalog[category] or legacy.items(category)
+    end
+    if not features or #features==0 then
+        return collect_failure(ctx,name,category,'find_target_requires_calibration')
+    end
+    log.write(ctx,'find_search','target=' .. name .. ' features=' .. #features .. ' category=' .. category)
     for pass=1,6 do
         snapshot.capture(ctx,'find_catalog_page_' .. pass, 'debug')
         local started=os.time()

@@ -4,11 +4,20 @@ import numpy as np
 import cv2
 import json
 from copy import deepcopy
+from unittest.mock import patch
 from scripts.perception.lib.corpus import ROOT
 from scripts.perception.lib.corpus import load_cases,crop_sources,iter_variants,validate,transform
 
 
 class AugmentationTest(unittest.TestCase):
+    def test_negative_only_confirmed_case_has_no_positive_crop(self):
+        case={'id':'抓鬼/寻物/书籍/第01轮/第01页.png','task':'zhuagui','image':'抓鬼/寻物/书籍/第01轮/第01页.png',
+              'truth':{'page':{'value':'find'},'negative_regions':{'status':'reviewed','value':[[70,543,202,675]]}}}
+        document={'正确':{'书籍':{}},'反例':{'书籍':{'第01页.png':[[70,543,202,675]]}}}
+        with patch('scripts.perception.lib.corpus.read_answers',return_value=document):
+            crops=crop_sources([case])[case['id']]
+        self.assertEqual(crops,[{'label':'书籍','region':[70,543,202,675],'positive':False}])
+
     def test_shimen_transforms_every_approved_region_together(self):
         case=next(c for c in load_cases('shimen') if c['truth'].get('target_regions',{}).get('value'))
         crops=crop_sources([case])[case['id']]
@@ -53,7 +62,10 @@ class AugmentationTest(unittest.TestCase):
             self.assertEqual(variant['truth'][field]['value'],[a['destination']])
 
     def test_pending_regions_never_create_variants(self):
-        cases=[c for c in load_cases('zhuagui') if '/待审核/' in c['id']]
+        cases=deepcopy([c for c in load_cases('zhuagui') if c['truth'].get('target_regions',{}).get('value')])
+        for case in cases:
+            for field in ('target_regions','negative_regions'):
+                if field in case['truth']:case['truth'][field]['status']='pending'
         self.assertTrue(cases);self.assertEqual(crop_sources(cases),{})
 
     def test_puzzle_permutations_preserve_pixels_and_canonical_answer(self):

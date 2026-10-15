@@ -19,6 +19,14 @@ class CatalogTest(unittest.TestCase):
                 table.insert(shots,label)
             end} end
             package.preload['dfx.log']=function() return {write=function() end} end
+            topic_reads=0
+            package.preload['tasks.zhuagui.find']=function() return {identify=function()
+                topic_reads=topic_reads+1
+                if unknown_topic then return nil,nil,'find_target_unknown' end
+                if outside_wine then return 'gold','黄金' end
+                if late_topic and topic_reads==11 then return 'plum_wine','酒' end
+                return topic_reads%2==0 and 'tiger_wine' or 'dew_wine','酒'
+            end} end
             package.preload['common.device']=function() return {
                 tap=function(c,feature)
                     assert(feature=='retry' or feature=='dialogue' or feature=='depart','candidate/accept clicks forbidden')
@@ -61,6 +69,16 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'catalog_prepare_not_verified')
         self.assertEqual(len(self.lua.globals().taps),0)
 
+    def test_capture_current_page_never_prepares_or_retries(self):
+        self.lua.execute("state='retry'")
+        self.assertEqual(self.collector.capture(self.lua.globals().ctx,'failure_')['reason'],'catalog_find_not_open')
+        self.assertEqual(len(self.lua.globals().taps),0)
+        self.assertEqual(self.lua.globals().swipes,0)
+        self.lua.execute("state='find'")
+        self.assertEqual(self.collector.capture(self.lua.globals().ctx,'failure_')['pages'],7)
+        self.assertEqual(len(self.lua.globals().taps),0)
+        self.assertEqual(self.lua.globals().swipes,6)
+
     def test_changed_page_is_incomplete(self):
         self.lua.execute('break_page=true')
         result=self.collector.collect(self.lua.globals().ctx)
@@ -85,5 +103,30 @@ class CatalogTest(unittest.TestCase):
         self.lua.execute('expire_after_swipe=true')
         self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'find_catalog_observation_only')
         self.assertNotIn('catalog_r001_p02',list(self.lua.globals().shots.values()))
+
+    def test_cycles_stop_only_after_a_full_ten_round_cycle_without_new_topics(self):
+        self.lua.execute('ctx.config.browse_rounds=10;ctx.config.browse_until_no_new_topics=true')
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'find_catalog_no_new_topics')
+        self.assertEqual(self.lua.globals().topic_reads,20)
+        self.assertEqual(len(self.lua.globals().taps),20)
+        self.assertEqual(self.lua.globals().swipes,120)
+
+    def test_new_topic_in_second_cycle_requires_a_third_cycle(self):
+        self.lua.execute('ctx.config.browse_rounds=10;ctx.config.browse_until_no_new_topics=true;late_topic=true')
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'find_catalog_no_new_topics')
+        self.assertEqual(self.lua.globals().topic_reads,30)
+
+    def test_unknown_or_non_wine_topic_cannot_count_as_no_new_topics(self):
+        self.lua.execute('ctx.config.browse_rounds=10;ctx.config.browse_until_no_new_topics=true;unknown_topic=true')
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'catalog_wine_topic_not_verified')
+        self.assertEqual(self.lua.globals().swipes,0)
+        self.lua.execute('unknown_topic=false;outside_wine=true')
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'catalog_wine_topic_not_verified')
+        self.assertEqual(self.lua.globals().swipes,0)
+
+    def test_invalid_cycle_size_does_not_retry(self):
+        self.lua.execute('ctx.config.browse_until_no_new_topics=true')
+        self.assertEqual(self.collector.collect(self.lua.globals().ctx)['reason'],'catalog_cycle_requires_ten_rounds')
+        self.assertEqual(len(self.lua.globals().taps),0)
 
 if __name__=='__main__': unittest.main()

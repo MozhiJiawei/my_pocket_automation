@@ -3,6 +3,8 @@
 aside{max-height:calc(100vh - 40px);overflow-y:auto}
 .chosen{background:#b91c1c;color:white;border-color:#b91c1c}#skip,#refresh{margin:10px 6px 0 0}
 #overlay .readonly{cursor:default}
+#capture-feedback{margin-bottom:20px;padding:16px 18px;background:#fff1ef;border:1px solid #de9e94;border-radius:8px;color:#8b231b;white-space:pre-line;line-height:1.8}
+#capture-feedback[data-status="verification_failed"]{background:#fff8e6;border-color:#d4ba75;color:#725514}
 #references{background:white;border:1px solid #dce3e8;border-radius:10px;padding:18px;margin-bottom:20px}#reference-icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:12px}#reference-icons figure{margin:0;text-align:center;padding:8px;background:#f4f7fa;border-radius:6px}#reference-icons img{width:72px;height:72px;object-fit:contain;image-rendering:auto}#reference-icons figcaption{font-size:12px;margin:5px 0;overflow-wrap:anywhere}#reference-icons a{font-size:11px;color:#991b1b}#proposal-note{white-space:pre-wrap}
 #reference-icons small{display:block;font-size:10px;color:#617382;margin:5px 0;overflow-wrap:anywhere}
 #reference-icons{max-height:300px;overflow-y:auto}

@@ -27,7 +27,9 @@ def item_cells(frame):
     step=int(round(np.median(np.diff(tops)))) if len(tops)>1 else 156
     if 150<=step<=160:
         top=tops[0]-step
-        while top>=535:tops.insert(0,top);top-=step
+        # The inventory clips at y=527. A row's outer top border can be above
+        # the edge detector's crop while its entire 132px interior is visible.
+        while top>=527:tops.insert(0,top);top-=step
     return [[70+156*c,y,202+156*c,y+132] for y in tops if y+132<=1405 for c in range(5)]
 
 def compose_rows(pages,image_resolver=None):

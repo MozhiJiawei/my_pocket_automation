@@ -1,11 +1,13 @@
 """File-based annotation handoff. No database, index or replay of old captures."""
 from pathlib import Path
 import json
+import shutil
 import tempfile
 from datetime import datetime
 import cv2
 import numpy as np
 from PIL import Image
+from scripts.perception.lib import capture_feedback
 
 ROOT=Path(__file__).resolve().parents[3]
 BASE=ROOT/'annotation-web'
@@ -71,7 +73,8 @@ def items(stage):
         if stage=='confirmed' and not (path/'答案.json').is_file():continue
         relative=path.relative_to(base);parts=relative.parts
         result.append({'id':relative.as_posix(),'task':parts[0],'kind':parts[1],'topic':parts[2],
-                       'name':parts[-1],'pages':len(list(path.glob('第*页.png')))})
+                       'name':parts[-1],'pages':len(list(path.glob('第*页.png'))),
+                       'capture_feedback':capture_feedback.summary(path)})
     return sorted(result,key=lambda item:(item['topic']!='酒',item['task'],item['kind'],item['topic'],item['name']))
 
 def enqueue(source,task,kind,topic,name,suggestions=None,draft=None):
@@ -83,7 +86,10 @@ def enqueue(source,task,kind,topic,name,suggestions=None,draft=None):
         if component in ('.','..') or '/' in component or '\\' in component:raise ValueError('无效分类')
     target=(PENDING/identity).resolve()
     if not target.is_relative_to(PENDING.resolve()):raise ValueError('无效入队路径')
-    if target.exists() or (CONFIRMED/identity).exists():return identity.as_posix()
+    if target.exists() or (CONFIRMED/identity).exists():
+        existing=target if target.exists() else CONFIRMED/identity
+        capture_feedback.warn(identity.as_posix(),capture_feedback.read(existing))
+        return identity.as_posix()
     files=sorted(Path(source).glob('第*页.png'))
     if not files:raise ValueError('采集输入为空')
     if kind=='拼图':
@@ -102,7 +108,9 @@ def enqueue(source,task,kind,topic,name,suggestions=None,draft=None):
         (folder/'来源.txt').write_text(Path(source).resolve().relative_to(ROOT).as_posix()+'\n',encoding='utf-8')
         for filename,document in [('建议.json',suggestions),('草稿.json',draft)]:
             if document is not None:(folder/filename).write_text(json.dumps(document,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        feedback=capture_feedback.write(folder,capture_feedback.inspect(folder,task,kind))
         target.parent.mkdir(parents=True,exist_ok=True);folder.rename(target)
+    capture_feedback.warn(identity.as_posix(),feedback)
     return identity.as_posix()
 
 def confirm(identity,document,*,evidence=None):
@@ -129,4 +137,39 @@ def confirm(identity,document,*,evidence=None):
         f'确认时间：{datetime.now().isoformat(timespec="seconds")}。坐标以原图为准；尚未写入正式测试真值。\n',encoding='utf-8')
     (source/'草稿.json').unlink(missing_ok=True)
     target.parent.mkdir(parents=True,exist_ok=True);source.rename(target)
+    return target
+
+
+def remove_frozen(identity,target):
+    """Remove a confirmed handoff only after its originals and labels are frozen."""
+    from scripts.perception.lib.corpus import read_answers,regions
+    source=resolve('confirmed',identity);target=Path(target).resolve()
+    if not target.is_relative_to((ROOT/'testdata').resolve()):raise ValueError('正式用例须位于testdata内')
+    if not (source/'审核.md').is_file() or not (target/'审核.md').is_file():raise ValueError('缺少审核依据')
+    images={p.name:p.read_bytes() for p in target.glob('*.png')}
+    names={}
+    for path in source.glob('第*页.png'):
+        content=path.read_bytes()
+        match=path.name if images.get(path.name)==content else next((name for name,data in images.items() if data==content),None)
+        if match is None:raise ValueError('固化原图内容不一致或缺页')
+        names[path.name]=match
+    original=read_answers(source);frozen=read_answers(target)
+    for section in ('正确','反例'):
+        for topic,locations in original.get(section,{}).items():
+            for name,boxes in locations.items():
+                approved=frozen.get(section,{}).get(topic,{}).get(names[name],[])
+                if not set(map(tuple,regions(boxes)))<=set(map(tuple,regions(approved))):raise ValueError('已确认答案尚未全部固化')
+    for name,expected in original.get('预期',{}).items():
+        if frozen.get('预期',{}).get(names[name])!=expected:raise ValueError('已确认拼图答案尚未固化')
+    audit=(target/'审核.md').read_text(encoding='utf-8')
+    approval=(source/'审核.md').read_text(encoding='utf-8').replace('尚未写入正式测试真值','现已固化正式测试真值')
+    if approval not in audit:audit+='\n'+approval
+    for name in ('来源.txt',capture_feedback.FILENAME):
+        path=source/name
+        if not path.exists():continue
+        if not (target/name).exists():shutil.copyfile(path,target/name)
+        elif path.read_bytes()!=(target/name).read_bytes():
+            audit+=f'\n原确认归档的{name}：\n'+path.read_text(encoding='utf-8')+'\n'
+    (target/'审核.md').write_text(audit,encoding='utf-8')
+    shutil.rmtree(source)
     return target

@@ -33,6 +33,36 @@ class QueueTest(unittest.TestCase):
         self.item.strip=self.directory/'第01页.png';self.item.data={'id':self.identity}
         self.review=web.Review();self.review.cache[('pending',self.identity)]=self.item
         self.doc={'正确':{'酒':{'第01页.png':[[100,600,220,720]]}},'反例':{'酒':{'第01页.png':[[250,600,370,720]]}}}
+    def test_capture_negative_feedback_is_returned_without_clearing_confirmed_answers(self):
+        web.capture_feedback.write(self.directory,{'status':'incomplete','reasons':['缺少后续页面。'],'recoverable':False})
+        target=self.item.save(self.doc)
+        self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),self.doc)
+        server=ThreadingHTTPServer(('127.0.0.1',0),web.handler(self.review))
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        from urllib.parse import quote
+        try:
+            url=f'http://127.0.0.1:{server.server_port}/api/item?stage=confirmed&id='+quote(self.identity)
+            with urlopen(url) as response:record=json.load(response)
+            self.assertEqual(record['capture_feedback']['status'],'verification_failed')
+            self.assertEqual(record['capture_feedback']['previous_feedback']['reasons'],['缺少后续页面。'])
+            self.assertFalse(record['capture_feedback']['recoverable'])
+            self.assertEqual(record['initial'],self.doc)
+            Image.new('RGB',(900,1600),'red').save(target/'第01页.png')
+            with urlopen(url) as response:changed=json.load(response)
+            self.assertEqual(changed['capture_feedback']['status'],'verification_failed')
+            self.assertTrue(changed['capture_feedback']['reasons'])
+        finally:server.shutdown();server.server_close();thread.join()
+
+    def test_opening_unknown_capture_runs_verification_and_persists_the_result(self):
+        web.capture_feedback.write(self.directory,{'status':'unverified','reasons':['尚未运行检查。']})
+        with patch.object(web.capture_feedback,'verify',wraps=web.capture_feedback.verify) as verify:
+            item=self.review.get('pending',self.identity)
+            verify.assert_called_once_with(self.directory,'师门','寻物')
+        result=item.data['capture_feedback']
+        self.assertNotEqual(result['status'],'unverified')
+        self.assertTrue(result['reasons'])
+        self.assertEqual(web.capture_feedback.read(self.directory)['status'],result['status'])
+        self.assertEqual(result['previous_feedback']['reasons'],['尚未运行检查。'])
     def test_confirmation_moves_input_and_preserves_original_pixels(self):
         original=(self.directory/'第01页.png').read_bytes();target=self.item.save(self.doc)
         self.assertFalse(self.directory.exists())

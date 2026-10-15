@@ -10,18 +10,25 @@ local function wall_ms()
 end
 function M.install(ctx)
     if not ctx.config.profile then return end
-    ctx.profile={started=wall_ms(),stats={}}
+    ctx.profile={started=wall_ms(),stats={},clock=wall_ms}
     for _,spec in ipairs({
         {'common.detector','find','recognition'},
         {'tasks.zhuagui.pages','state','state.zhuagui'},
         {'tasks.dungeon.pages','state','state.dungeon'},
+        {'tasks.shimen.pages','state','state.shimen'},
+        {'tasks.rewards.pages','state','state.rewards'},
         {'tasks.zhuagui.find','solve','find.solve'},
         {'tasks.zhuagui.puzzle','solve','puzzle.solve'},
+        {'tasks.shimen.find','solve','find.shimen'},
+        {'tasks.shimen.puzzle','solve','puzzle.shimen'},
         {'common.device','tap','input.tap'},
         {'common.device','swipe','input.swipe'},
         {'common.navigation','prepare_recorded','navigation.identity'},
+        {'common.list_navigation','find','navigation.list'},
         {'tasks.zhuagui.task','run','task.zhuagui'},
         {'tasks.dungeon.task','run','task.dungeon'},
+        {'tasks.shimen.task','run','task.shimen'},
+        {'tasks.rewards.task','run','task.rewards'},
     }) do
         local module=require(spec[1])
         local original=module[spec[2]]

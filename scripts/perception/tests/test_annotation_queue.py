@@ -6,7 +6,7 @@ import tempfile
 import unittest
 import subprocess
 from contextlib import ExitStack
-from unittest.mock import patch
+from unittest.mock import ANY,patch
 from PIL import Image
 from scripts.perception.lib import annotation_queue as queue
 
@@ -131,16 +131,118 @@ class AnnotationQueueTest(unittest.TestCase):
                     with self.assertRaises(ValueError):queue.validate_puzzle_document({'预期':{'第01页.png':{field:order}}},images,task)
             wrong='puzzle_order' if field=='puzzle_locations' else 'puzzle_locations'
             with self.assertRaises(ValueError):queue.validate_puzzle_document({'预期':{'第01页.png':{wrong:valid}}},images,task)
-    def test_freeze_tool_filters_other_tasks_and_puzzles(self):
+    def test_freeze_tool_handles_both_tasks_and_recognition_types(self):
         spec=importlib.util.spec_from_file_location('freeze_annotations',queue.ROOT/'scripts/perception/freeze-annotations.py')
         freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
-        unsupported='师门/拼图/香炉/输入'
+        unsupported='副本/页面/测试/输入'
         with self.assertRaisesRegex(ValueError,'Unsupported annotation type'):freeze.prepare(unsupported)
         items=[{'task':'师门','kind':'寻物','id':'师门/寻物/酒/输入'},
-               {'task':'师门','kind':'拼图','id':unsupported},
+               {'task':'师门','kind':'拼图','id':'师门/拼图/老虎/输入'},
                {'task':'抓鬼','kind':'找鬼','id':'抓鬼/找鬼/鬼/输入'}]
         with patch.object(freeze,'ROOT',self.root),patch.object(freeze.queue,'items',return_value=items),\
              patch.object(freeze,'ProcessPoolExecutor') as executor,patch('sys.argv',['freeze-annotations.py']),patch('builtins.print'):
             executor.return_value.__enter__.return_value.map.return_value=[]
             freeze.main()
-            executor.return_value.__enter__.return_value.map.assert_called_once_with(freeze.prepare,['师门/寻物/酒/输入'])
+            executor.return_value.__enter__.return_value.map.assert_called_once_with(freeze.prepare,[item['id'] for item in items],ANY)
+
+    def test_wine_selection_prefers_taller_inputs_and_keeps_three_per_topic(self):
+        spec=importlib.util.spec_from_file_location('freeze_selection',queue.ROOT/'scripts/perception/freeze-annotations.py')
+        freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
+        items=[]
+        for topic in freeze.WINES:
+            for index,height in enumerate((690,2622,2760,2760,1242)):
+                items.append({'task':'抓鬼','kind':'寻物','topic':topic,'id':f'抓鬼/寻物/{topic}/{index}',
+                    'capture_feedback':{'image_height':height}})
+        other={'task':'抓鬼','kind':'找鬼','topic':'牛头','id':'抓鬼/找鬼/牛头/输入'}
+        selected=freeze.select_items(items+[other],3)
+        self.assertEqual(len(selected),13);self.assertIn(other,selected)
+        for topic in freeze.WINES:
+            group=[item for item in selected if item['topic']==topic]
+            self.assertEqual([item['capture_feedback']['image_height'] for item in group],[2760,2760,2622])
+
+    def test_freeze_merges_puzzle_originals_and_consumes_only_confirmed_input(self):
+        spec=importlib.util.spec_from_file_location('freeze_puzzle_merge',queue.ROOT/'scripts/perception/freeze-annotations.py')
+        freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
+        identity=queue.enqueue(self.source,'师门','拼图','老虎','输入')
+        document={'预期':{'第01页.png':{'puzzle_locations':[3,2,4,1]}}}
+        source=queue.confirm(identity,document)
+        prepared=freeze.prepare(identity)
+        target=self.root/'testdata/师门/拼图/老虎';target.mkdir(parents=True)
+        Image.new('RGB',(900,1600),'red').save(target/'第01页.png')
+        old={'预期':{'第01页.png':{'puzzle_locations':[2,4,3,1]}}}
+        (target/'答案.json').write_text(json.dumps(old),encoding='utf-8')
+        (target/'审核.md').write_text('已有用户确认。',encoding='utf-8')
+        with patch.object(freeze,'ROOT',self.root),patch.object(queue,'ROOT',self.root),\
+             patch.object(freeze,'ProcessPoolExecutor') as executor,patch('sys.argv',['freeze-annotations.py']),patch('builtins.print'):
+            executor.return_value.__enter__.return_value.map.return_value=[prepared]
+            freeze.main()
+        merged=json.loads((target/'答案.json').read_text(encoding='utf-8'))
+        self.assertEqual(merged['预期']['第01页.png'],old['预期']['第01页.png'])
+        self.assertEqual(merged['预期']['第02页.png'],document['预期']['第01页.png'])
+        self.assertFalse(source.exists())
+        self.assertEqual(Image.open(target/'第01页.png').getpixel((300,800)),(255,0,0))
+        self.assertTrue((target/'采集反馈.json').is_file())
+
+    def frozen_pair(self):
+        import shutil
+        identity=queue.enqueue(self.source,'师门','寻物','酒','输入')
+        document={'正确':{'酒':{'第01页.png':[[70,543,202,675]]}},'反例':{'酒':{}}}
+        source=queue.confirm(identity,document)
+        target=self.root/'testdata/师门/寻物/酒/第01轮'
+        shutil.copytree(source,target)
+        return identity,source,target,document
+
+    def test_consumed_annotation_is_removed_after_formal_originals_and_labels_match(self):
+        identity,source,target,document=self.frozen_pair()
+        document['正确']['酒']['第01页.png'].append([226,543,358,675])
+        (target/'答案.json').write_text(json.dumps(document),encoding='utf-8')
+        (target/'采集反馈.json').unlink()
+        with patch.object(queue,'ROOT',self.root):queue.remove_frozen(identity,target)
+        self.assertFalse(source.exists())
+        self.assertTrue((target/'第01页.png').is_file())
+        self.assertTrue((target/'采集反馈.json').is_file())
+        self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
+        self.assertEqual(queue.items('confirmed'),[])
+
+    def test_changed_confirmed_answer_is_retained_instead_of_removed(self):
+        identity,source,target,document=self.frozen_pair()
+        document['正确']['酒']['第01页.png']=[[226,543,358,675]]
+        (source/'答案.json').write_text(json.dumps(document),encoding='utf-8')
+        with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'答案尚未全部固化'):
+            queue.remove_frozen(identity,target)
+        self.assertTrue(source.exists())
+
+    def test_changed_or_missing_formal_original_prevents_removal(self):
+        identity,source,target,_=self.frozen_pair()
+        Image.new('RGB',(900,1600),'red').save(target/'第01页.png')
+        with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'原图'):
+            queue.remove_frozen(identity,target)
+        (target/'第01页.png').unlink()
+        with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'缺页'):
+            queue.remove_frozen(identity,target)
+        self.assertTrue(source.exists())
+
+    def test_outside_target_or_missing_audit_prevents_removal(self):
+        identity,source,target,_=self.frozen_pair()
+        with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'testdata'):
+            queue.remove_frozen(identity,self.source)
+        (target/'审核.md').unlink()
+        with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'审核'):
+            queue.remove_frozen(identity,target)
+        self.assertTrue(source.exists())
+
+    def test_renamed_puzzle_original_is_matched_by_content_and_answer(self):
+        import shutil
+        identity=queue.enqueue(self.source,'师门','拼图','香炉','输入')
+        expected={'puzzle_locations':[3,2,1,4]}
+        source=queue.confirm(identity,{'预期':{'第01页.png':expected}})
+        target=self.root/'testdata/师门/拼图/香炉';target.mkdir(parents=True)
+        shutil.copyfile(source/'第01页.png',target/'画面.png')
+        shutil.copyfile(source/'审核.md',target/'审核.md')
+        (target/'答案.json').write_text(json.dumps({'预期':{'画面.png':{'puzzle_locations':[1,2,3,4]}}}),encoding='utf-8')
+        with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'拼图答案尚未固化'):
+            queue.remove_frozen(identity,target)
+        (target/'答案.json').write_text(json.dumps({'预期':{'画面.png':expected}}),encoding='utf-8')
+        with patch.object(queue,'ROOT',self.root):queue.remove_frozen(identity,target)
+        self.assertFalse(source.exists())
+        self.assertTrue((target/'画面.png').is_file())
