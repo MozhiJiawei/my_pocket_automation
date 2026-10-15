@@ -1,5 +1,6 @@
 """Freeze explicitly confirmed queue rounds; never consume AI proposals."""
 import json
+import hashlib
 import argparse
 import shutil
 import sys
@@ -11,11 +12,15 @@ import cv2
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from scripts.perception.lib import annotation_queue as queue
-from scripts.perception.lib import capture_feedback
+from scripts.perception.lib import capture_height
 from scripts.perception.lib.corpus import read_answers,regions
 from scripts.perception.lib.task_review import compose_rows
 SUPPORTED={('师门','寻物'),('师门','拼图'),('抓鬼','寻物'),('抓鬼','找鬼'),('抓鬼','拼图')}
 WINES={'虎骨酒','蛇胆酒','梅花酒','珍露酒'}
+
+
+def manifest(folder):
+    return tuple((p.name,hashlib.sha256(p.read_bytes()).hexdigest()) for p in sorted(folder.glob('*.png')))
 
 
 def prepare(identity,allow_partial=False):
@@ -23,13 +28,9 @@ def prepare(identity,allow_partial=False):
     task,kind=Path(identity).parts[:2]
     if (task,kind) not in SUPPORTED:raise ValueError(f'Unsupported annotation type: {identity}')
     folder=queue.resolve('confirmed',identity)
-    if not (folder/'审核.md').is_file():raise ValueError(f'Missing approval: {identity}')
-    feedback=capture_feedback.verify(folder,task,kind)
-    if feedback['status']!='complete':
-        capture_feedback.warn(identity,feedback)
-        if not allow_partial:
-            raise ValueError(f'采集不完整或未核验 [{identity}]: '+
-                '；'.join(feedback['reasons'])+' 若仅固化已确认局部，须显式使用 --allow-partial 并保留采集反馈。')
+    pixel_height=capture_height.height(folder,kind)
+    if not capture_height.complete(pixel_height,kind) and not allow_partial:
+        raise ValueError(f'采集高度不足 [{identity}]: {pixel_height}像素；仅固化已确认局部须显式使用 --allow-partial')
     doc=read_answers(folder)
     files=sorted(folder.glob('第*页.png'))
     if kind=='拼图':
@@ -38,7 +39,7 @@ def prepare(identity,allow_partial=False):
         for path in files:
             with Image.open(path) as image:images[path.name]={'size':list(image.size)}
         queue.validate_puzzle_document(doc,images,task,complete=True)
-        return identity,doc,4*len(files),feedback
+        return identity,doc,4*len(files)
     _,_,_,layers=compose_rows({i:{'id':p.name,'image':p.name} for i,p in enumerate(files)},lambda c:folder/c['image'])
     output={};mapped=0
     for section in ('正确','反例'):
@@ -65,7 +66,7 @@ def prepare(identity,allow_partial=False):
         for name,boxes in locations.items():
             if set(map(tuple,boxes))&set(map(tuple,output['反例'].get(topic,{}).get(name,[]))):
                 raise ValueError(f'Conflicting confirmed labels: {identity}/{name}')
-    return identity,output,mapped,feedback
+    return identity,output,mapped
 
 
 def compact(document):
@@ -88,7 +89,7 @@ def select_items(items,wine_cases=None):
     result=[item for item in selected if item['topic'] not in WINES]
     for topic in sorted(WINES):
         candidates=[item for item in selected if item['topic']==topic]
-        candidates.sort(key=lambda item:(-(item['capture_feedback'].get('image_height') or 0),item['id']))
+        candidates.sort(key=lambda item:(-capture_height.height(queue.resolve('confirmed',item['id']),item['kind']),item['id']))
         result.extend(candidates[:wine_cases])
     return result
 
@@ -96,7 +97,7 @@ def select_items(items,wine_cases=None):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--update',action='store_true',help='Apply changed, explicitly confirmed answers to their existing rounds')
-    parser.add_argument('--allow-partial',action='store_true',help='Freeze confirmed visible regions with explicit incomplete/unverified capture feedback; never claim a full round')
+    parser.add_argument('--allow-partial',action='store_true',help='Freeze confirmed visible regions even when source height is below the complete threshold')
     parser.add_argument('--id',action='append',help='Only freeze these confirmed queue identities')
     parser.add_argument('--wine-cases',type=int,help='Keep this many confirmed rounds per named wine, preferring taller strips')
     args=parser.parse_args()
@@ -109,20 +110,21 @@ def main():
         items=[found[identity] for identity in args.id]
     with ProcessPoolExecutor(max_workers=8) as pool:prepared=list(pool.map(prepare,[i['id'] for i in items],repeat(args.allow_partial)))
     counts={};existing={};report=[]
-    for target in (ROOT/'testdata').glob('*/*/*/第*轮'):
+    for target in sorted((ROOT/'testdata').glob('*/*/*/第*轮')):
+        if not target.is_dir():continue
         key=target.relative_to(ROOT/'testdata').parts[:3]
         counts[key]=max(counts.get(key,0),int(target.name[1:-1]))
-    for history in (ROOT/'testdata').rglob('审核.md'):
-        target=history.parent
-        if history.is_file():
-            for line in history.read_text(encoding='utf-8').splitlines():
-                if line.startswith('原确认归档：'):existing[line.split('：',1)[1].split('。',1)[0]]=target
-    for identity,document,mapped,feedback in prepared:
+        signature=manifest(target)
+        existing.setdefault((key,signature),[]).append(target)
+    for identity,document,mapped in prepared:
         source=queue.resolve('confirmed',identity);task,kind,topic=Path(identity).parts[:3];key=(task,kind,topic)
-        target=existing.get(identity)
-        if target is None:
-            if kind=='拼图':target=ROOT/'testdata'/task/kind/topic
-            else:
+        if kind=='拼图':target=ROOT/'testdata'/task/kind/topic
+        else:
+            signature=manifest(source)
+            matches=existing.get((key,signature),[])
+            if len(matches)>1:raise ValueError(f'Multiple rounds have the same original images: {identity}')
+            target=matches[0] if matches else None
+            if target is None:
                 counts[key]=counts.get(key,0)+1
                 target=ROOT/'testdata'/task/kind/topic/f'第{counts[key]:02d}轮'
         if kind=='拼图' and target.exists():
@@ -141,11 +143,8 @@ def main():
             for image,destination in planned:
                 if not destination.exists():shutil.copyfile(image,destination)
             (target/'答案.json').write_text(compact(merged),encoding='utf-8')
-            if identity not in existing:
-                with (target/'审核.md').open('a',encoding='utf-8') as stream:stream.write(f'\n原确认归档：{identity}。\n')
             queue.remove_frozen(identity,target)
-            report.append({'source':identity,'case':target.relative_to(ROOT/'testdata').as_posix(),'approved_regions':mapped,
-                'capture_status':feedback['status'],'can_use_as_complete':feedback['can_use_as_complete']})
+            report.append({'source':identity,'case':target.relative_to(ROOT/'testdata').as_posix(),'approved_regions':mapped})
             continue
         if target.exists():
             original_names={p.name for p in source.glob('第*页.png')}
@@ -156,27 +155,22 @@ def main():
                     raise ValueError(f'Original image changed: {target/name}')
             if read_answers(target)!=document:
                 if not args.update:raise ValueError(f'Confirmed answers changed; review and use --update: {target}')
-                backup=ROOT/'debug-runs'/datetime.now().strftime('%Y%m%d_%H%M%S')/'annotation-corrections'/target.relative_to(ROOT/'testdata')
+                backup=ROOT/'debug-runs'/datetime.now().strftime('%Y%m%d_%H%M%S_%f')/'annotation-corrections'/target.relative_to(ROOT/'testdata')
                 backup.mkdir(parents=True,exist_ok=True)
-                for name in ('答案.json','审核.md'):shutil.copyfile(target/name,backup/name)
+                shutil.copyfile(target/'答案.json',backup/'答案.json')
                 (target/'答案.json').write_text(compact(document),encoding='utf-8')
-                with (target/'审核.md').open('a',encoding='utf-8') as stream:
-                    stream.write('\n已按用户重新确认的归档更正：\n'+(source/'审核.md').read_text(encoding='utf-8').replace('尚未写入正式测试真值','现已固化正式测试真值'))
         else:
             target.mkdir(parents=True)
             # Retain every input: scroll overlap alone is not duplicate evidence.
             for image in source.glob('第*页.png'):shutil.copyfile(image,target/image.name)
             (target/'答案.json').write_text(compact(document),encoding='utf-8')
-            (target/'审核.md').write_text((source/'审核.md').read_text(encoding='utf-8').replace('尚未写入正式测试真值','现已固化正式测试真值')+
-                f'\n原确认归档：{identity}。重叠页位置沿用同一物品行的原图映射；未标区域仍为未知。\n',encoding='utf-8')
+            if kind!='拼图':existing.setdefault((key,signature),[]).append(target)
         assert read_answers(target)==document
         for image in source.glob('第*页.png'):assert image.read_bytes()==(target/image.name).read_bytes()
-        capture_feedback.write(target,feedback)
-        report.append({'source':identity,'case':target.relative_to(ROOT/'testdata').as_posix(),'approved_regions':mapped,
-            'capture_status':feedback['status'],'can_use_as_complete':feedback['can_use_as_complete'],
-            'mapped_regions':sum(len(bs) for g in document.values() for loc in g.values() for bs in loc.values())})
         queue.remove_frozen(identity,target)
-    output=ROOT/'debug-runs'/datetime.now().strftime('%Y%m%d_%H%M%S')/'annotation-freeze';output.mkdir(parents=True)
+        report.append({'source':identity,'case':target.relative_to(ROOT/'testdata').as_posix(),'approved_regions':mapped,
+            'mapped_regions':sum(len(bs) for g in document.values() for loc in g.values() for bs in loc.values())})
+    output=ROOT/'debug-runs'/datetime.now().strftime('%Y%m%d_%H%M%S_%f')/'annotation-freeze';output.mkdir(parents=True)
     (output/'核对.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     topics={Path(item['source']).parts[:3] for item in report}
     print(f'Frozen {len(report)} inputs, {len(topics)} topics. Evidence: {output}')

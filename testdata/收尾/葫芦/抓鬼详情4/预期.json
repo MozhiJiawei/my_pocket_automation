@@ -1,14 +1,4 @@
 {
-  "source": "debug-runs/20261014_111820/res/daily_20261014_111820_gourd_batch.png",
-  "source_sha256": "1d471f4fdb3936f72f29c2256f9dcfd5c786fbb076a47bdea82b2886ec46241b",
-  "review": {
-    "status": "reviewed",
-    "kind": "flow_controls",
-    "reviewer": "主 Agent",
-    "method": "independent_visual_review",
-    "reviewed_at": "2026-10-14",
-    "original_frame": "full_900x1600"
-  },
   "expected": {
     "state": "detail",
     "selected_category": null,

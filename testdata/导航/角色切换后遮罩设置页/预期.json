@@ -1,0 +1,12 @@
+{
+  "features": [
+    "common.assets.settings_page",
+    "common.assets.settings_back"
+  ],
+  "tap_region": [
+    0,
+    1455,
+    120,
+    1556
+  ]
+}

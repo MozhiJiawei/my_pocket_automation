@@ -1,5 +1,6 @@
 """Local annotation queue. Queue directories are the only queue state."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import secrets
@@ -15,11 +16,14 @@ from urllib.parse import urlsplit,parse_qs
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from scripts.perception.lib import annotation_queue as queue
-from scripts.perception.lib import capture_feedback
 from scripts.perception.lib.corpus import validate_truth
 from scripts.perception.lib.task_review import item_cells,compose_rows
 
 REFERENCES=Path(__file__).parent/'图标参考'
+
+def source_manifest(folder):
+    """Invalidate rendered-image caches when source names or bytes change."""
+    return {path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(folder.glob('第*页.png'))}
 
 def reference_catalog(identity):
     folder=(REFERENCES/Path(*Path(identity).parts[:3])).resolve()
@@ -74,7 +78,7 @@ def validate_document(document,images,topic):
 class Item:
     def __init__(self,stage,identity,output):
         self.directory=queue.resolve(stage,identity);self.stage=stage;self.id=identity
-        self.source_manifest=capture_feedback.manifest(self.directory)
+        self.source_manifest=source_manifest(self.directory)
         self.task,self.kind,self.topic=Path(identity).parts[:3];self.token=secrets.token_urlsafe(24)
         files=sorted(self.directory.glob('第*页.png'))
         self.images={}
@@ -82,18 +86,20 @@ class Item:
             try:
                 with Image.open(path) as image:self.images[path.name]={'size':list(image.size),'path':path}
             except OSError as exc:raise ValueError('无效原图') from exc
-        limitation='';puzzle=None;records=[];layers=[];cells=[]
+        limitation='';puzzle=None;records=[];layers=[];cells=[];height=0
         if self.kind=='拼图':
             puzzle={'cells':[],'field':queue.PUZZLE_FIELDS.get(self.task)}
             try:puzzle=queue.puzzle_layout(self.task,self.images)
             except ValueError as exc:limitation=f'仅查看原图：{exc}。此输入不能确认。'
             # Puzzle pieces always come directly from the original source image.
             self.strip=files[0];strip_size=self.images[files[0].name]['size']
+            height=min(value['size'][1] for value in self.images.values())
         else:
             cases={i:{'image':p.name,'id':p.name} for i,p in enumerate(files,1)}
             try:
                 if self.kind not in ('寻物','找鬼'):raise ValueError('当前只支持寻物物品格或拼图标注')
                 strip,records,original,layers=compose_rows(cases,image_resolver=lambda c:self.images[c['image']]['path'])
+                height=strip.height
                 strip,layers=with_question(strip,original,layers)
             except ValueError as exc:
                 # Unsupported failure scenes stay reviewable, without creating truth.
@@ -108,7 +114,7 @@ class Item:
         self.data={'id':identity,'stage':stage,'kind':self.kind,'topic':self.topic,'token':self.token,'cells':cells,
                    'images':[{'name':name,'size':value['size']} for name,value in self.images.items()],
                    'strip':{'size':strip_size,'layers':layers,'records':records},'suggestions':suggestions,
-                   'annotatable':not limitation,'limitation':limitation}
+                   'annotatable':not limitation,'limitation':limitation,'height':height,'minimum':1600 if self.kind=='拼图' else 2760}
         if puzzle is not None:
             self.data['puzzle']=puzzle
             self.puzzle_documents()
@@ -154,11 +160,9 @@ class Review:
         key=(stage,identity)
         with self.lock:
             cached=self.cache.get(key)
-            if cached is None or (hasattr(cached,'source_manifest') and cached.source_manifest!=capture_feedback.manifest(folder)):
+            if cached is None or cached.source_manifest!=source_manifest(folder):
                 self.cache[key]=Item(stage,identity,self.output)
-            item=self.cache[key]
-            item.data['capture_feedback']=capture_feedback.verify(folder,item.task,item.kind)
-            return item
+            return self.cache[key]
 
 def handler(review):
     class Handler(BaseHTTPRequestHandler):
@@ -185,8 +189,7 @@ def handler(review):
                 except (ValueError,KeyError):references={'说明':'参考资料格式无效，请检查该题目的参考.json。','图标':[]}
                 note=item.directory/'建议说明.md'
                 return self.respond(200,{**item.data,'suggestions':suggestions,'initial':initial,
-                    'references':references,'proposal_note':note.read_text(encoding='utf-8').split('\n采集反馈：',1)[0] if note.is_file() else '',
-                    'capture_feedback':item.data['capture_feedback']})
+                    'references':references,'proposal_note':note.read_text(encoding='utf-8') if note.is_file() else ''})
             if url.path=='/api/reference':
                 try:folder,catalog=reference_catalog(item.id)
                 except (ValueError,KeyError) as exc:return self.respond(404,{'error':str(exc)})

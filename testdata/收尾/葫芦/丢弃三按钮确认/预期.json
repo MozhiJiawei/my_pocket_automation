@@ -1,14 +1,4 @@
 {
-  "source": "debug-runs/20261014_113825/res/daily_20261014_113825_001_rewards_action_result_not_verified.png",
-  "source_sha256": "27fa94ab61c46aff84168e25eae6feb8dc14e040380334e7d8f501c6022dd332",
-  "review": {
-    "status": "reviewed",
-    "kind": "flow_controls",
-    "reviewer": "主 Agent",
-    "method": "independent_visual_review",
-    "reviewed_at": "2026-10-14",
-    "original_frame": "full_900x1600"
-  },
   "expected": {
     "state": "discard_confirm",
     "selected_category": null,

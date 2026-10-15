@@ -44,13 +44,18 @@ class DungeonCardsTest(unittest.TestCase):
 
     def check_unselected_card(self, dungeon):
         field=dungeon+'_card'
-        case=next(c for c in load_cases('dungeon') if field in c['truth'])
-        self.assertEqual(case['truth'][field]['status'], 'reviewed')
-        runtime=Runtime(Screen.read(validate(case)))
-        feature=runtime.require('tasks.dungeon.'+dungeon+'.assets.card')
-        feature.region=runtime.lua.table_from([15,1140,870,1260])
-        found=runtime.require('common.detector').find(feature)
-        self.assertIsNotNone(found)
-        x1,y1,x2,y2=case['truth'][field]['value']
-        offset=found['tap_offset'] or feature['tap_offset']
-        self.assertTrue(x1<=found['x']+offset[1]<=x2 and y1<=found['y']+offset[2]<=y2)
+        cases=[c for c in load_cases('dungeon') if field in c['truth']]
+        self.assertTrue(cases)
+        for case in cases:
+            with self.subTest(case=case['id']):
+                self.assertEqual(case['truth'][field]['status'], 'reviewed')
+                runtime=Runtime(Screen.read(validate(case)))
+                try:
+                    feature=runtime.require('tasks.dungeon.'+dungeon+'.assets.card')
+                    feature.region=runtime.lua.table_from([15,1140,870,1260])
+                    found=runtime.require('common.detector').find(feature)
+                    self.assertIsNotNone(found)
+                    x1,y1,x2,y2=case['truth'][field]['value']
+                    offset=found['tap_offset'] or feature['tap_offset']
+                    self.assertTrue(x1<=found['x']+offset[1]<=x2 and y1<=found['y']+offset[2]<=y2)
+                finally:runtime.close()

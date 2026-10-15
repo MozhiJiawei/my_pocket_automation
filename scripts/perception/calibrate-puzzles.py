@@ -1,4 +1,4 @@
-"""Generate static piece signatures from user-approved four-cell arrangements."""
+"""Generate static piece signatures from independently reviewed four-cell arrangements."""
 import json
 from pathlib import Path
 import cv2
@@ -37,9 +37,11 @@ def main():
     cells=json.loads((base/'格位.json').read_text(encoding='utf-8'))
     result=[];first=None
     for folder in sorted(p for p in base.iterdir() if p.is_dir()):
-        answer=json.loads((folder/'答案.json').read_text(encoding='utf-8'))['预期']['画面.png']['puzzle_order']
+        answers=json.loads((folder/'答案.json').read_text(encoding='utf-8'))['预期']
+        filename='画面.png' if '画面.png' in answers else sorted(answers)[0]
+        answer=answers[filename]['puzzle_order']
         assert sorted(answer)==list('ABCD')
-        frame=cv2.imdecode(np.fromfile(folder/'画面.png',np.uint8),1)
+        frame=cv2.imdecode(np.fromfile(folder/filename,np.uint8),1)
         if first is None:first=frame
         pieces=[]
         for letter in answer:
@@ -48,9 +50,9 @@ def main():
             pieces.append(feature(frame,box,[146,556,740,1308],center))
         result.append('['+json.dumps(folder.name,ensure_ascii=False)+']={'+','.join(pieces)+'}')
     title=feature(first,[390,179,510,236],[380,170,530,242],white=True)
-    # The separately retained free-Continue prompt is observation evidence,
+    # The retained free-Continue prompt is a production calibration reference,
     # not a puzzle answer; use only with a caller-authorized owned attempt.
-    retry_frame=cv2.imdecode(np.fromfile(ROOT/'testdata/抓鬼/待审核/拼图超时对话/画面.png',np.uint8),1)
+    retry_frame=cv2.imdecode(np.fromfile(ROOT/'src/tasks/zhuagui/assets/reference/retry_dialogue.png',np.uint8),1)
     prompt=feature(retry_frame,[705,1025,810,1074],[680,1010,822,1080])
     button=feature(retry_frame,[550,1340,644,1400],[535,1320,659,1410],(594,1368),True)
     text='return {title='+title+',retry_prompt='+prompt+',retry_button='+button+',cells='+json.dumps(cells,separators=(',',':')).replace('[','{').replace(']','}')+',families={'+','.join(result)+'}}\n'

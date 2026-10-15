@@ -4,6 +4,7 @@ import sys
 import os
 import shutil
 import time
+from contextlib import nullcontext
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 import cv2
@@ -56,7 +57,7 @@ def _evaluate_input(job):
     return cases,results
 
 
-def evaluate_inputs(inputs,origin=None,workers=None):
+def evaluate_inputs(inputs,origin=None,workers=None,*,executor=None):
     """Each worker reads one original and evaluates its eight pixel transforms.
 
     Only failures need PNG output; scoring still executes production Lua and
@@ -65,7 +66,9 @@ def evaluate_inputs(inputs,origin=None,workers=None):
     crops=crop_sources(inputs)
     jobs=[(c,crops.get(c['id'],[]),origin) for c in inputs]
     cases=[];results=[]
-    with ProcessPoolExecutor(max_workers=workers or min(12,max(1,(os.cpu_count() or 1)-4)),initializer=freeze_module_versions) as pool:
+    context=nullcontext(executor) if executor is not None else ProcessPoolExecutor(
+        max_workers=workers or min(12,max(1,(os.cpu_count() or 1)-4)),initializer=freeze_module_versions)
+    with context as pool:
         for batch,predictions in pool.map(_evaluate_input,jobs):
             cases.extend(batch);results.extend(predictions)
     return cases,results

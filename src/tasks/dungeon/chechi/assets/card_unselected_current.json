@@ -1,0 +1,20 @@
+{
+  "source": "testdata/副本/乌鸡国/葫芦已领取/场景02/画面.png",
+  "crop": [
+    335,
+    1180,
+    495,
+    1228
+  ],
+  "tap": [
+    420,
+    1203
+  ],
+  "search_region": [
+    15,
+    1140,
+    870,
+    1260
+  ],
+  "generator": "scripts/perception/calibrate-feature.py --foreground-ink"
+}

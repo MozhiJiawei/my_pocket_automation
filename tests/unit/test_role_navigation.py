@@ -13,14 +13,15 @@ class RoleNavigationTest(unittest.TestCase):
         self.lua.execute('''
             scene='picker'; selected='first'; swipes=0; taps={}; logs={}
             ctx={config={accounts={{alias='first'},{alias='second'}}},account={alias='second'}}
-            getScreenSize=function() return 900,1600 end; init=function() end
+            getScreenSize=function() return 900,1600 end; init=function() end; mSleep=function() end
+            closeApp=function() end;runApp=function() scene='entry' end
             loadfile=function(path)
                 local alias=path:match('daily_selector_(%w+)')
                 if alias then return function() return {kind='selector',alias=alias} end end
                 alias=path:match('daily_identity_(%w+)')
                 if alias then return function() return {kind='identity',alias=alias} end end
             end
-            for module,kind in pairs({home_dungeon='home',pocket_entry='entry',pocket_confirm='confirm',saved_account_picker='picker',saved_account_switch='switch',current_role_marker='marker',saved_role_tile='tile',incident_notice='incident'}) do
+            for module,kind in pairs({home_dungeon='home',pocket_entry='entry',pocket_confirm='confirm',saved_account_picker='picker',saved_account_switch='switch',current_role_marker='marker',saved_role_tile='tile',saved_role_current_tile='selected_tile',incident_notice='incident',settings_page='settings_page',settings_back='settings_back',settings='settings'}) do
                 local k=kind
                 package.preload['common.assets.'..module]=function() return {kind=k} end
             end
@@ -29,6 +30,9 @@ class RoleNavigationTest(unittest.TestCase):
             package.preload['common.detector']=function() return {
                 present=function(f)
                     if f.kind=='incident' then return incident_visible==true end
+                    if f.kind=='settings_page' then return scene=='settings' end
+                    if f.kind=='entry' then return scene=='entry' end
+                    if f.kind=='confirm' then return scene=='confirm' end
                     if f.kind=='home' then return scene=='home' end
                     if f.kind=='picker' then return scene=='picker' end
                     if f.kind=='identity' then return scene=='home' and f.alias==selected and not identity_mismatch end
@@ -45,8 +49,15 @@ class RoleNavigationTest(unittest.TestCase):
                     end
                     if f.kind=='tile' then
                         if hidden_tiles then return nil end
+                        if selected_badge and f.region[1]<500 then
+                            if f.region[2]<=800 then return {x=194,y=800} end
+                            return nil
+                        end
                         if f.region[2]<=426+dy then return {x=f.region[1]<500 and 194 or 589,y=426+dy} end
                         if unknown_role and f.region[1]<500 and f.region[2]<=800 then return {x=194,y=800} end
+                    end
+                    if f.kind=='selected_tile' and selected_badge and f.region[1]<500 and f.region[2]<=426 then
+                        return {x=194,y=426}
                     end
                 end
             } end
@@ -62,6 +73,10 @@ class RoleNavigationTest(unittest.TestCase):
                 tap=function(c,f,label)
                     taps[#taps+1]=label
                     if f.kind=='incident' then incident_visible=false
+                    elseif f.kind=='settings_back' then if not blocked_settings then scene='home' end
+                    elseif f.kind=='settings' then scene='settings'
+                    elseif f.kind=='entry' then scene='confirm'
+                    elseif f.kind=='confirm' then scene='home'
                     elseif f.kind=='switch' then scene='picker'
                     elseif f.kind=='back' then scene='home'
                     elseif f.kind=='selector' then selected=f.alias;scene='home' end
@@ -77,11 +92,40 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().scene,'home')
         self.assertEqual(self.lua.globals().swipes,2)
 
+    def test_selected_badge_precedes_a_lower_generic_tile(self):
+        self.lua.execute("selected_badge=true;ctx.config.accounts[3]={alias='third'};local old=require('common.detector').find;require('common.detector').find=function(f) if f.kind=='selector' and f.alias=='third' then return {x=199,y=958} end;return old(f) end")
+        self.assertTrue(self.module.verify_roster(self.lua.globals().ctx))
+
     def test_incident_overlay_is_closed_before_home_is_accepted(self):
         self.lua.execute("scene='home';incident_visible=true")
         self.assertTrue(self.module.return_home(self.lua.globals().ctx))
         self.assertEqual(list(self.lua.globals().taps.values()),['close_incident_notice'])
         self.assertFalse(self.lua.globals().incident_visible)
+
+    def test_stuck_settings_restarts_only_game_then_checks_identity(self):
+        self.lua.execute('''
+            scene='settings';blocked_settings=true;restarts={}
+            closeApp=function(id) restarts[#restarts+1]={'close',id} end
+            runApp=function(id) restarts[#restarts+1]={'run',id};scene='entry';selected='second' end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual([(x[1],x[2]) for x in self.lua.globals().restarts.values()],
+                         [('close','com.netease.mhxyhtb'),('run','com.netease.mhxyhtb')])
+
+    def test_selected_role_with_stale_home_reenters_before_identity_is_verified(self):
+        self.lua.execute('''
+            scene='home';selected='first';restarts=0
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if label=='select_saved_role' then scene='home';return true end
+                return tap(c,f,label)
+            end
+            runApp=function() restarts=restarts+1;selected='second';scene='entry' end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
 
     def test_incident_close_requires_verified_disappearance(self):
         self.lua.execute("""
@@ -115,6 +159,22 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
         self.assertEqual(self.lua.globals().selected,'second')
         self.assertTrue(self.lua.globals().ctx.identity_verified)
+
+    def test_hidden_saved_role_uses_bounded_shared_scanner_before_switch(self):
+        self.lua.execute('''
+            scene='home';missing_selector='second';scans=0
+            package.preload['common.list_navigation']=function() return {
+                find=function(c,spec)
+                    scans=scans+1
+                    assert(spec.max_forward==6 and spec.valid() and spec.inspect()==nil)
+                    missing_selector=nil
+                    return spec.inspect()
+                end
+            } end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertEqual(self.lua.globals().scans,1)
+        self.assertEqual(self.lua.globals().selected,'second')
 
     def test_wrong_identity_after_switch_is_rejected(self):
         self.lua.execute("scene='home'; identity_mismatch=true")
@@ -154,6 +214,49 @@ class RoleNavigationTest(unittest.TestCase):
         ''')
         self.assertTrue(self.module.return_home(self.lua.globals().ctx))
         self.assertEqual(list(self.lua.globals().taps.values()),['close_completed_ghost_dialogue','return_home_from_tasks'])
+
+    def test_shimen_retry_can_rest_before_switching_roles(self):
+        self.lua.execute('''
+            scene='puzzle_retry'
+            package.preload['tasks.dungeon.pages']=function() return {state=function() return 'unknown' end} end
+            package.preload['tasks.zhuagui.pages']=function() return {state=function() return 'task_list' end} end
+            package.preload['tasks.shimen.pages']=function() return {state=function() return scene end} end
+            require('common.device').tap=function(c,f,label,guard)
+                assert(guard())
+                taps[#taps+1]=label
+                scene='home';return true
+            end
+        ''')
+        self.assertTrue(self.module.return_home(self.lua.globals().ctx))
+        self.assertEqual(list(self.lua.globals().taps.values()),['shimen_rest_before_identity_check'])
+
+    def test_shimen_retry_rest_requires_verified_destination(self):
+        self.lua.execute('''
+            scene='puzzle_retry'
+            package.preload['tasks.dungeon.pages']=function() return {state=function() return 'unknown' end} end
+            package.preload['tasks.zhuagui.pages']=function() return {state=function() return 'unknown' end} end
+            package.preload['tasks.shimen.pages']=function() return {state=function() return scene end} end
+        ''')
+        self.assertFalse(self.module.return_home(self.lua.globals().ctx))
+
+    def test_shimen_rest_returns_via_home_tab_without_canceling_task(self):
+        self.lua.execute('''
+            scene='puzzle_retry'
+            package.preload['tasks.dungeon.pages']=function() return {state=function() return 'unknown' end} end
+            package.preload['tasks.zhuagui.pages']=function() return {state=function() return 'task_list' end} end
+            package.preload['tasks.shimen.pages']=function() return {state=function() return scene end} end
+            require('common.device').tap=function(c,f,label,guard)
+                assert(guard())
+                taps[#taps+1]=label
+                if label=='shimen_rest_before_identity_check' then scene='catch'
+                elseif label=='shimen_home_without_cancel' then scene='home'
+                else error('unexpected navigation') end
+                return true
+            end
+        ''')
+        self.assertTrue(self.module.return_home(self.lua.globals().ctx))
+        self.assertEqual(list(self.lua.globals().taps.values()),
+                         ['shimen_rest_before_identity_check','shimen_home_without_cancel'])
 
     def test_quota_dialogue_with_unverified_close_cannot_reach_home(self):
         self.lua.execute('''

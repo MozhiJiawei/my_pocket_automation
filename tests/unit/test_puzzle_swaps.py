@@ -12,6 +12,10 @@ class PuzzleSwapTest(unittest.TestCase):
         lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
         lua.execute('''
             held=false; taps=0; selected=nil; finished=false; corrupt=false
+            puzzle_logs={}
+            package.preload['dfx.log']=function() return {write=function(c,event,detail)
+                puzzle_logs[#puzzle_logs+1]={event,detail}
+            end} end
             local cells={{0,0,10,10},{10,0,20,10},{0,10,10,20},{10,10,20,20}}
             local features={{id=1},{id=2},{id=3},{id=4}}
             package.preload['tasks.zhuagui.assets.puzzle']=function() return {title={title=true},cells=cells,families={fake=features}} end
@@ -51,6 +55,7 @@ class PuzzleSwapTest(unittest.TestCase):
                 lua=self.make_lua(order)
                 ok,reason=lua.execute("return require('tasks.zhuagui.puzzle').solve({})")
                 self.assertTrue(ok,reason)
+                self.assertEqual(lua.globals().puzzle_logs[1][2],'family=fake recognition=all_tiles_matched')
                 self.assertLessEqual(lua.globals().taps,6)
                 self.assertEqual(list(lua.globals().board.values()),[1,2,3,4])
 

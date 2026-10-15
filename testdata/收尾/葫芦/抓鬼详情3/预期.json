@@ -1,14 +1,4 @@
 {
-  "source": "debug-runs/20261014_111940/res/daily_20261014_111940_gourd_count3.png",
-  "source_sha256": "eabbe247e6065516b1b8e1ba6b9c4b8e9804088d82b1ecc37ffd18a7d2ddb1ae",
-  "review": {
-    "status": "reviewed",
-    "kind": "flow_controls",
-    "reviewer": "主 Agent",
-    "method": "independent_visual_review",
-    "reviewed_at": "2026-10-14",
-    "original_frame": "full_900x1600"
-  },
   "expected": {
     "state": "detail",
     "selected_category": null,

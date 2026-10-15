@@ -5,16 +5,13 @@ from pathlib import Path
 import sys
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from scripts.perception.lib import annotation_queue as queue
-from scripts.perception.lib import capture_feedback
+from scripts.perception.lib import capture_height
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage',choices=['pending','confirmed'],default='pending')
     parser.add_argument('--id',action='append',help='Only inspect these queue identities')
-    parser.add_argument('--record',action='store_true',help='Save feedback alongside original images')
-    parser.add_argument('--unrecoverable',action='store_true',help='The original attempt can no longer be recaptured')
-    parser.add_argument('--evidence',help='Independent inspection or user feedback')
     args=parser.parse_args();results=[]
     items=queue.items(args.stage)
     if args.id:
@@ -24,13 +21,13 @@ def main():
         items=[found[identity] for identity in args.id]
     for item in items:
         folder=queue.resolve(args.stage,item['id'])
-        report=capture_feedback.verify(folder,item['task'],item['kind'])
-        if args.evidence:report['evidence']=args.evidence
-        if args.unrecoverable:report['recoverable']=False
-        if args.record:report=capture_feedback.write(folder,report)
-        results.append({'id':item['id'],**report})
-    print(json.dumps({'items':results,'passed':all(r['status']=='complete' for r in results)},ensure_ascii=False,indent=2))
-    return 0 if all(r['status']=='complete' for r in results) else 1
+        try:pixel_height=capture_height.height(folder,item['kind'])
+        except (ValueError,OSError):pixel_height=0
+        results.append({'id':item['id'],'height':pixel_height,'minimum':1600 if item['kind']=='拼图' else 2760,
+                        'complete':capture_height.complete(pixel_height,item['kind'])})
+    passed=all(item['complete'] for item in results)
+    print(json.dumps({'items':results,'passed':passed},ensure_ascii=False,indent=2))
+    return 0 if passed else 1
 
 
 if __name__=='__main__':sys.exit(main())

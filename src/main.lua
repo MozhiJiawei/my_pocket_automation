@@ -15,6 +15,15 @@ local ok, err = pcall(function()
     else
         assert(config.mode == 'run', 'invalid mode')
         assert(config.allow_reward_claim == false, 'debug policy must forbid reward claims')
+        if config.step=='select-role' then
+            assert(#config.accounts==1,'select-role requires one configured role')
+            ctx.account=config.accounts[1]
+            assert(require('common.navigation').inspect_saved(ctx),'saved role inspection failed')
+            snapshot.capture(ctx,'saved_role_identity_review')
+            log.write(ctx,'task_result','identity status=done reason=home_captured_for_review')
+            log.write(ctx,'summary','daily_done=false scope=identity_review')
+            return
+        end
         if config.step=='daily' and config.tasks then
             require('daily').run(ctx)
             return

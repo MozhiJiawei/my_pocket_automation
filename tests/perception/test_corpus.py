@@ -9,6 +9,7 @@ from scripts.perception.lib.evaluation import evaluate_inputs, write_report
 
 
 class CorpusTest(unittest.TestCase):
+    executor=None
     def __init__(self,methodName='runTest',task=None):
         super().__init__(methodName)
         self.task=task
@@ -17,8 +18,16 @@ class CorpusTest(unittest.TestCase):
         return super().id()+(f'[{self.task}]' if self.task else '')
 
     def test_annotations_and_evidence_are_consistent(self):
+        root=Path(__file__).resolve().parents[2]/'testdata'
+        allowed={'答案.json','预期.json','格位.json'}
+        for path in root.rglob('*'):
+            if not path.is_file():continue
+            self.assertTrue(path==root/'README.md' or path.suffix=='.png' or path.name in allowed,
+                f'正式用例混入非测试文件：{path}')
+            self.assertFalse({'审核依据','待审核'}&set(path.relative_to(root).parts),str(path))
         seen=set();reviewed_folders=set()
         for case in load_cases(self.task):
+            self.assertTrue(case['expected']['checks'],f'用例没有回归断言：{case["id"]}')
             self.assertNotIn(case['id'],seen)
             seen.add(case['id'])
             with self.subTest(case=case['id']): validate_truth(case,*case['capture']['size'])
@@ -34,7 +43,8 @@ class CorpusTest(unittest.TestCase):
 
     def test_reviewed_recognition_and_planned_coordinates(self):
         started=time.perf_counter()
-        cases,results=evaluate_inputs(load_cases(self.task))
+        inputs=load_cases(self.task)
+        cases,results=evaluate_inputs(inputs,executor=self.executor) if self.executor is not None else evaluate_inputs(inputs)
         recognition_elapsed=time.perf_counter()-started
         for family in {c['truth']['puzzle_family']['value'] for c in cases if 'puzzle_family' in c['truth']}:
             self.assertEqual(sum(c['truth'].get('puzzle_family',{}).get('value')==family for c in cases),24,family)
@@ -54,7 +64,7 @@ class CorpusTest(unittest.TestCase):
         self.assertEqual(len(cases),752)
         self.assertEqual(len({c['capture']['group'] for c in cases}),109)
         self.assertEqual(len({c['truth']['question']['value']['target'] for c in cases}),22)
-        self.assertTrue(all((Path(__file__).resolve().parents[2]/'testdata'/c['capture']['group']/'审核.md').is_file() for c in cases))
+        self.assertTrue(all((Path(__file__).resolve().parents[2]/'testdata'/c['image']).is_file() for c in cases))
 
     def test_required_topics_are_not_filled_with_unreviewed_objects(self):
         required={'蛇胆酒','黄金','黄纸','书籍','书画','香','蜡烛','野鬼','牛头','马面','僵尸'}

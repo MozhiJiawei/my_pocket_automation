@@ -203,8 +203,11 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         shutil.copyfile(ROOT / 'dist/manifest.json', archive / 'manifest.json')
         record['bundle_sha256'] = hashlib.sha256(bundle.read_bytes()).hexdigest()
         config = ROOT / 'dist/daily_config.lua'
-        account_lua = ','.join('{alias="%s",claim_dungeon_rewards=%s}' %
-                              (item['alias'],'true' if item.get('claim_dungeon_rewards') is True else 'false') for item in accounts)
+        def binding(item):
+            path=Path.home()/'.my_pocket_automation/accounts'/item['alias']/'role.lua'
+            return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ''
+        account_lua = ','.join('{alias="%s",claim_dungeon_rewards=%s,identity_binding="%s"}' %
+                              (item['alias'],'true' if item.get('claim_dungeon_rewards') is True else 'false',binding(item)) for item in accounts)
         config.write_text('return {run_id="%s", business_date="%s", mode="%s", step="%s", task="%s", dungeon="%s", browse_rounds=%d, allow_reward_claim=false, accounts={%s}}\n' %
                           (run_id, datetime.now().strftime('%Y%m%d'), args.mode, args.step, getattr(args, 'task', 'dungeon'), args.dungeon,
                            getattr(args,'browse_rounds',1), account_lua), encoding='utf-8')
@@ -216,7 +219,7 @@ def run_once(args, accounts, max_seconds, run_id, archive):
             text=config.read_text(encoding='utf-8').rstrip()
             config.write_text(text[:-1]+',selected_accounts={'+','.join(json.dumps(alias) for alias in args.select_accounts)+'},verify_role=true}\n',encoding='utf-8')
         text=config.read_text(encoding='utf-8').rstrip()
-        extra=',profile=true'
+        extra=',profile=true,completion_ledger_path="/storage/emulated/0/TouchSprite/res/daily_completion.tsv"'
         extra+=',shimen_needed='+str(getattr(args,'shimen_needed',2))
         extra+=',rewards_debug_after_shimen='+str(record['rewards_debug_after_shimen']).lower()
         extra+=',rewards_inspect_category='+json.dumps(record['rewards_inspect_category'])
@@ -245,6 +248,8 @@ def run_once(args, accounts, max_seconds, run_id, archive):
             for item in accounts:
                 alias = item['alias']
                 for local_name, remote_kind in [('role.lua', 'identity'), ('selector.lua', 'selector')]:
+                    if args.step=='select-role' and local_name=='role.lua':
+                        continue
                     identity = Path.home() / '.my_pocket_automation/accounts' / alias / local_name
                     if not identity.exists():
                         raise RuntimeError('Calibrate configured saved-role resources outside repository first')
@@ -335,7 +340,7 @@ def main():
     p.add_argument('--account', help='One configured role for bounded recovery; full daily runs still verify the roster')
     p.add_argument('--select-accounts',nargs='+',help='Configured roles to run in daily mode; verify the full saved roster first')
     p.add_argument('--tasks', default=','.join(DAILY_TASK_ORDER), help='Daily selected task modules, comma-separated; run in Shimen, ZhuaGui, dungeon, rewards order')
-    p.add_argument('--step', choices=['enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
+    p.add_argument('--step', choices=['select-role', 'enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
     args = p.parse_args()
     validate_rewards_options(args)
     if not 1<=args.shimen_needed<=10:raise ValueError('Invalid Shimen item count')

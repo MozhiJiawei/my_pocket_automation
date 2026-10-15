@@ -22,6 +22,7 @@ class Device:
         self.device = device
         self.port = None
         self.auth = None
+        self.auth_deadline = None
         self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     def adb_call(self, *args):
@@ -45,7 +46,8 @@ class Device:
             raise RuntimeError('TouchSprite HTTP failure; details suppressed') from None
 
     def authorize(self):
-        self.port = self.adb_call('forward', 'tcp:0', 'tcp:50005')
+        if not self.port:
+            self.port = self.adb_call('forward', 'tcp:0', 'tcp:50005')
         if not self.port.isdigit():
             raise RuntimeError('Invalid forwarded port')
         identity = self.request(f'http://127.0.0.1:{self.port}/deviceid')
@@ -57,8 +59,11 @@ class Device:
         if reply.get('status') != 200 or not reply.get('auth'):
             raise RuntimeError('API authorization rejected; details suppressed')
         self.auth = reply['auth']
+        self.auth_deadline = time.monotonic() + 3540
 
     def status(self):
+        if self.auth_deadline is not None and time.monotonic() >= self.auth_deadline:
+            self.authorize()
         for attempt in range(3):
             try:
                 return self.request(f'http://127.0.0.1:{self.port}/status', authenticated=True)
@@ -71,3 +76,4 @@ class Device:
         if self.port and self.port.isdigit():
             self.adb_call('forward', '--remove', f'tcp:{self.port}')
         self.auth = None
+        self.auth_deadline = None

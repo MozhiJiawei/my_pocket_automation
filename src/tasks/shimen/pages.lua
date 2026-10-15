@@ -27,7 +27,8 @@ M.features.duel=require('tasks.shimen.assets.duel')
 M.features.choose_city=require('tasks.shimen.assets.choose_city')
 M.features.choose_city.variants={require('tasks.shimen.assets.choose_jianye'),
     require('tasks.shimen.assets.choose_zhuzi'),require('tasks.shimen.assets.choose_xiliang'),
-    require('tasks.shimen.assets.choose_aolai'),(require('tasks.shimen.assets.choose_changshou'))}
+    require('tasks.shimen.assets.choose_aolai'),require('tasks.shimen.assets.choose_changshou'),
+    (require('tasks.shimen.assets.choose_baoxiang'))}
 -- Reviewed city names can occupy either of the two bottom choice buttons.
 M.features.choose_city.region={330,1336,800,1370}
 for _,feature in ipairs(M.features.choose_city.variants) do

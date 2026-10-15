@@ -151,11 +151,17 @@ class ShimenPuzzleTest(unittest.TestCase):
     def test_imported_resources_have_four_bounded_features_each(self):
         lua=LuaRuntime(unpack_returned_tuples=True)
         data=lua.execute((ROOT/'src/tasks/shimen/assets/legacy_puzzles.lua').read_text(encoding='utf-8'))
-        self.assertEqual(len(list(data.families.keys())),31)
+        self.assertEqual(len(list(data.families.keys())),37)
         self.assertIn('老虎',data.families)
         self.assertIn('地狱战神',data.families)
         self.assertIn('雨师',data.families)
         self.assertIn('骨精灵',data.families)
+        self.assertIn('金盔少女',data.families)
+        self.assertIn('蓝帽少女',data.families)
+        self.assertIn('铠甲棕熊',data.families)
+        self.assertIn('蛟龙',data.families)
+        self.assertIn('巡游天神',data.families)
+        self.assertIn('绿发蝶翼少女',data.families)
         for features in data.families.values():
             self.assertEqual(len(features),4)
             for feature in features.values():

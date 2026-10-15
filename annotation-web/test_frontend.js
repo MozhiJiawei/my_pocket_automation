@@ -218,16 +218,29 @@ const tests = {
   },
 };
 
-async function createApp() {
-  const category = '师门/拼图/测试题目';
+function inventoryData(stage) {
+  const box = [70, 543, 202, 675];
+  return {
+    stage, kind: '寻物', topic: '测试题目', token: 'test-token', annotatable: true,
+    images: [{ name: page(1), size: [900, 1600] }],
+    cells: [{ image: page(1), box }],
+    strip: { size: [766, 2689], layers: [{ image: page(1), source: [63, 540, 829, 678], destination: [0, 205, 766, 343] }] },
+    initial: { 正确: { 测试题目: { [page(1)]: [box] } } }, suggestions: { 正确: { 测试题目: {} } },
+  };
+}
+
+async function createApp({ kind = '拼图', heights = [1600, 1600], failSecond = false } = {}) {
+  const category = `师门/${kind}/测试题目`;
   const a = category + '/A', b = category + '/B';
-  const queue = { pending: [a, b].map(id => ({ id, task: '师门', kind: '拼图', topic: '测试题目', name: id.slice(-1) })), confirmed: [] };
+  const queue = { pending: [a, b].map(id => ({ id, task: '师门', kind, topic: '测试题目', name: id.slice(-1) })), confirmed: [] };
   const requests = [];
   const fetch = url => {
     if (url === '/api/queue') return new Promise(resolve => requests.push(resolve));
     if (url.startsWith('/api/confirm')) return new Promise(() => {});
-    const id = new URL(url, 'http://localhost').searchParams.get('id');
-    return Promise.resolve({ ok: true, json: async () => ({ ...puzzleData('puzzle_locations', 'pending', 1), id }) });
+    const params = new URL(url, 'http://localhost').searchParams, id = params.get('id'), stage = params.get('stage');
+    if (failSecond && id === b) return Promise.resolve({ ok: false, json: async () => ({ error: '无效原图' }) });
+    const item = kind === '拼图' ? puzzleData('puzzle_locations', stage, 1) : inventoryData(stage);
+    return Promise.resolve({ ok: true, json: async () => ({ ...item, id, height: heights[id === a ? 0 : 1], minimum: kind === '拼图' ? 1600 : 2760 }) });
   };
   const environment = createContext(fetch);
   const { context } = environment;
@@ -266,25 +279,34 @@ tests.queue_refresh_cannot_unlock_confirmation = async () => {
   assert.equal(app.document.getElementById('save').disabled, true);
 };
 
-tests.incomplete_capture_feedback_stays_visible_after_answer_confirmation = async () => {
-  const app = await createApp();
-  app.run("data.capture_feedback={status:'incomplete',recoverable:false,reasons:['只有一页，缺少后续物品']};showCaptureFeedback()");
-  assert.equal(app.document.getElementById('capture-feedback').hidden, false);
-  assert.match(app.document.getElementById('capture-feedback').textContent, /无法补采/);
-  app.run("stage='confirmed';showCaptureFeedback()");
-  assert.match(app.document.getElementById('capture-feedback').textContent, /不能作为完整题目归档/);
-  app.run("data.capture_feedback={status:'complete',reasons:[]};showCaptureFeedback()");
-  assert.equal(app.document.getElementById('capture-feedback').hidden, true);
+tests.capture_height_updates_with_round_and_preserves_confirmed_answers = async () => {
+  const app = await createApp({ kind: '寻物', heights: [2484, 2760] });
+  const banner = app.document.getElementById('capture-height');
+  assert.equal(banner.hidden, false);
+  assert.equal(banner.textContent, '采集高度：2484 / 2760像素（高度不足）');
+  assert.deepEqual(app.document.getElementById('round').children.map(option => option.textContent), ['A', 'B']);
+  const answer = plain(app.run('documentAnswers()'));
+  assert.equal(app.document.getElementById('overlay').children.length, 1);
+  await app.run('load(bSeed)');
+  assert.equal(banner.hidden, false, 'Completed capture height remains visible');
+  assert.equal(banner.textContent, '采集高度：2760 / 2760像素（高度达标）');
+  await app.run("queues.confirmed=[queues.pending[0]];stage='confirmed';load(aSeed)");
+  assert.equal(banner.textContent, '采集高度：2484 / 2760像素（高度不足）');
+  assert.equal(app.document.getElementById('save').hidden, true);
+  assert.equal(app.document.getElementById('undo').disabled, true);
+  app.document.getElementById('overlay').children[0].onclick();
+  assert.deepEqual(plain(app.run('documentAnswers()')), answer, 'Insufficient height must not remove or unlock a confirmed answer');
 };
 
-tests.open_feedback_has_a_verification_result_instead_of_an_unknown_warning = async () => {
-  const app = await createApp();
-  app.run("data.capture_feedback={status:'verification_failed',reasons:['缺少触底原图']};showCaptureFeedback()");
-  const banner=app.document.getElementById('capture-feedback');
-  assert.match(banner.textContent,/采集核验失败/);
-  assert.match(banner.textContent,/缺少触底原图/);
-  assert.doesNotMatch(banner.textContent,/未核验/);
-  assert.equal(banner.dataset.status,'verification_failed');
+tests.capture_height_hides_on_the_existing_image_open_error = async () => {
+  const app = await createApp({ failSecond: true });
+  const banner = app.document.getElementById('capture-height');
+  assert.equal(banner.textContent, '采集高度：1600 / 1600像素（高度达标）');
+  await app.run('load(bSeed)');
+  assert.equal(banner.hidden, true);
+  assert.equal(app.document.getElementById('status').textContent, '加载失败：无效原图');
+  assert.equal(app.document.getElementById('save').disabled, true);
+  assert.equal(app.run('ready'), false);
 };
 
 (async () => {

@@ -29,6 +29,33 @@ def log_for(status='done', reason='completed', summary='dungeon_done=true daily_
 
 
 class RuntimeResultTest(unittest.TestCase):
+    def test_long_run_refreshes_expiring_transport_authorization(self):
+        from dfx_device import Device
+        device=Device('offline');device.port='123';device.auth='fixture';device.auth_deadline=10
+        with patch('dfx_device.time.monotonic',return_value=20),patch.object(device,'authorize') as renew, \
+                patch.object(device,'request',return_value='f01'):
+            self.assertEqual(device.status(),'f01')
+            renew.assert_called_once_with()
+
+    def test_valid_transport_authorization_is_reused(self):
+        from dfx_device import Device
+        device=Device('offline');device.port='123';device.auth='fixture';device.auth_deadline=30
+        with patch('dfx_device.time.monotonic',return_value=20),patch.object(device,'authorize') as renew, \
+                patch.object(device,'request',return_value='f01'):
+            self.assertEqual(device.status(),'f01')
+            renew.assert_not_called()
+
+    def test_authorization_refresh_keeps_existing_forwarding_port(self):
+        from dfx_device import Device
+        device=Device('offline');device.port='123'
+        with patch.object(device,'adb_call') as adb,patch.object(Path,'read_text',return_value='fixture'), \
+                patch.object(device,'request',side_effect=['abcdefghijklmnop','{"status":200,"auth":"renewed"}']), \
+                patch('dfx_device.time.monotonic',return_value=20):
+            device.authorize()
+            adb.assert_not_called()
+            self.assertEqual(device.port,'123')
+            self.assertEqual(device.auth_deadline,3560)
+
     def test_ledger_retry_cli_options_are_removed(self):
         for option in ('--find-retry-attempt','--puzzle-retry-attempt'):
             with self.subTest(option=option),patch.object(sys,'argv',['run-daily.py','--device','fake',option,'14']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):

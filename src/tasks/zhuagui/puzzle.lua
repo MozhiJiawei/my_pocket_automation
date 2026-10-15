@@ -2,6 +2,7 @@
 local detector=require('common.detector')
 local device=require('common.device')
 local assets=require('tasks.zhuagui.assets.puzzle')
+local log=require('dfx.log')
 local M={}
 function M.read()
     keepScreen(true)
@@ -29,9 +30,10 @@ function M.read()
 end
 function M.solve(ctx)
     if not detector.present(assets.title) then return false,'puzzle_page_changed' end
-    for _=1,3 do
+    for attempt=1,3 do
         local family,locations=M.read()
         if not family then return false,'puzzle_tiles_unrecognized' end
+        if attempt==1 then log.write(ctx,'puzzle_identified','family='..family..' recognition=all_tiles_matched') end
         local wanted,destination
         for piece,cell in ipairs(locations) do if piece~=cell then wanted=piece;break end end
         local features=assets.families[family]

@@ -16,4 +16,8 @@
 
 2026-10-10 已用用户标注和口袋版完成结果确认蛇胆酒。其余三种尚未完成口袋版点击验证。不要把酒类外观猜成药瓶，也不要将某一种酒的特征用于所有酒类题目。
 
-2026-10-10 用户补全酒类集合：虎骨酒、女儿红、珍露酒、梅花酒、百味酒、蛇胆酒、醉生梦死。用户图标指认纠正了将酒坛漏出答案集合的问题。审核依据保存在 [抓鬼审核说明](</D:/Agent Repo/my_pocket_automation/testdata/抓鬼/审核.md>)；正式位置归入各轮答案，未批准提案留在 `.tmp/`。七类清单完整不等于七类外观已全部确认，也不等于设备求解器已支持七类。
+酒类集合为虎骨酒、女儿红、珍露酒、梅花酒、百味酒、蛇胆酒、醉生梦死。用户指认的酒坛外观见 [用户指认图](</D:/Agent Repo/my_pocket_automation/src/tasks/zhuagui/assets/reference/wine_user_review.png>)；已确认位置保存在各轮 `答案.json`，审核过程和依据保存在 `debug-runs/`。七类清单完整不等于七类外观已全部确认，也不等于设备求解器已支持七类。
+
+## 免费重试对话校准
+
+[retry_dialogue.png](</D:/Agent Repo/my_pocket_automation/src/tasks/zhuagui/assets/reference/retry_dialogue.png>) 是 `scripts/perception/calibrate-puzzles.py` 使用的生产校准原图，用于提取免费继续提示和按钮特征。它不作为已确认拼图答案，也不代表设备成功验收。

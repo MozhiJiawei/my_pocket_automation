@@ -1,5 +1,6 @@
 """Import cannot approve predictions; corrections replace old coordinates."""
 import json
+import hashlib
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -39,11 +40,24 @@ class IngestTest(unittest.TestCase):
     def test_explicit_correction_replaces_stale_answer_and_preserves_history(self):
         folder=import_frames([self.source],self.case,[[0,0,900,1600]])
         approve(self.case,{'正确':{'金锭':{'画面.png':[10,10,40,40]}}},'user','confirmed first answer')
+        previous=(folder/'答案.json').read_bytes()
+        history=self.root/'debug-runs/annotation-corrections'/self.case
+        self.assertEqual(list(history.glob('*.json')),[])
         approve(self.case,{'正确':{'金锭':{'画面.png':[50,50,80,80]}}},'user','corrected answer')
         case=corpus.load_cases()[0]
         self.assertEqual(case['truth']['target_regions']['value'],[[50,50,80,80]])
         self.assertEqual(case['capture']['split'],'holdout')
-        self.assertIn('[10, 10, 40, 40]',(folder/'审核.md').read_text(encoding='utf-8'))
+        backup=history/(hashlib.sha256(previous).hexdigest()+'.json')
+        self.assertEqual(list(history.glob('*.json')),[backup])
+        self.assertEqual(backup.read_bytes(),previous)
+        self.assertEqual(json.loads(backup.read_text(encoding='utf-8'))['正确']['金锭']['画面.png'],[10,10,40,40])
+        self.assertFalse((folder/'审核.md').exists())
+        saved=backup.read_bytes();modified=backup.stat().st_mtime_ns
+        approve(self.case,{'正确':{'金锭':{'画面.png':[50,50,80,80]}}},'user','same answer checked again')
+        self.assertEqual(list(history.glob('*.json')),[backup])
+        self.assertEqual(backup.read_bytes(),saved)
+        self.assertEqual(backup.stat().st_mtime_ns,modified)
+        self.assertEqual(list((self.root/'testdata').rglob('审核.md')),[])
 
     def test_unapproved_or_invalid_proposal_does_not_write(self):
         folder=import_frames([self.source],self.case,[[0,0,900,1600]])

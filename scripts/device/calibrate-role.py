@@ -25,7 +25,12 @@ def main():
     tx,ty = map(int,args.tap.split(','))
     crop = frame[y1:y2,x1:x2]
     # Bright glyph pixels, spatially distributed across the whole reviewed name.
-    mask = np.min(crop,axis=2)>190 if args.kind=='role' else np.max(crop,axis=2)<120
+    if args.kind=='role':
+        mask=np.min(crop,axis=2)>190
+    else:
+        # Keep solid ink, excluding background-dependent antialiased edges.
+        # Saved roles reorder when selected, changing each tile's background.
+        mask=np.max(np.abs(crop.astype(np.int16)-np.array([96,47,41])),axis=2)<=4
     pixels = np.column_stack(np.where(mask))[:,::-1]
     if len(pixels)<24:
         raise ValueError('Insufficient readable name pixels')

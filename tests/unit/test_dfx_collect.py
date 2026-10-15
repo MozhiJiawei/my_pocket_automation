@@ -47,6 +47,8 @@ class CollectGuardTest(unittest.TestCase):
         complete = {main_log(): finished(), screenshot(): 'image-a', screenshot('b'): 'image-b'}
         case('daily', {**complete, f'log/daily_{RUN}_detail.log': 'detail'})
         case('failed', {main_log(): finished(failed=True), screenshot(): 'failure-image'})
+        case('profiled', {main_log(): finished().replace('[finished]','[elapsed_ms=1270540][finished]'), screenshot(): 'image'})
+        case('profiled_failed', {main_log(): finished(failed=True).replace('[finished]','[elapsed_ms=1][finished]'), screenshot(): 'image'})
         case('hello', {main_log('hello_world'): finished('hello_world'),
                        screenshot(prefix='hello_world'): 'hello-image'})
         case('trailing_blank', {main_log(): finished() + '\n  \n\t\n', screenshot(): 'image'})
@@ -61,6 +63,7 @@ class CollectGuardTest(unittest.TestCase):
             'wrong_case': finished().replace('daily', 'DAILY'),
             'generic_marker': '[finished] script_exited_normally\n',
             'empty': '\n \n',
+            'invalid_elapsed': finished().replace('[finished]','[elapsed_ms=unknown][finished]'),
         }
         for name, text in invalid.items():
             case(name, {main_log(): text, screenshot(): 'image'})
@@ -268,7 +271,8 @@ class CollectGuardTest(unittest.TestCase):
         return [call for call in self.results[name]['calls'] if call['op'] == operation]
 
     def test_completed_groups_archive_every_file_before_deleting_main_log_last(self):
-        for name, prefix in [('daily', 'daily'), ('failed', 'daily'), ('hello', 'hello_world'), ('trailing_blank', 'daily')]:
+        for name, prefix in [('daily', 'daily'), ('failed', 'daily'), ('profiled','daily'),
+                             ('profiled_failed','daily'), ('hello', 'hello_world'), ('trailing_blank', 'daily')]:
             with self.subTest(name=name):
                 result = self.results[name]
                 self.assertIsNone(result['error'])
@@ -315,7 +319,7 @@ class CollectGuardTest(unittest.TestCase):
 
     def test_completion_marker_must_be_the_exact_last_nonblank_line_for_its_group(self):
         for name in ('wrong_run', 'wrong_prefix', 'leading_text', 'leading_space', 'trailing_text',
-                     'wrong_case', 'generic_marker', 'empty', 'hello_wrong_run', 'hello_daily_marker', 'hello_trailing_text'):
+                     'wrong_case', 'generic_marker', 'empty', 'invalid_elapsed', 'hello_wrong_run', 'hello_daily_marker', 'hello_trailing_text'):
             with self.subTest(name=name):
                 result = self.results[name]
                 self.assertIsNone(result['error'])

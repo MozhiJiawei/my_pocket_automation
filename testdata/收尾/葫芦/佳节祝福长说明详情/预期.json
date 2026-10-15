@@ -1,14 +1,4 @@
 {
-  "source": "debug-runs/20261014_114035/res/daily_20261014_114035_001_rewards_gourd_entry_not_verified.png",
-  "source_sha256": "e1ff64916c991d86964fbc4eeec85c1f1d3fd1c9c4ff5d5025685929f2a73164",
-  "review": {
-    "status": "reviewed",
-    "kind": "flow_controls",
-    "reviewer": "主 Agent",
-    "method": "independent_visual_review",
-    "reviewed_at": "2026-10-14",
-    "original_frame": "full_900x1600"
-  },
   "expected": {
     "state": "detail",
     "selected_category": null,

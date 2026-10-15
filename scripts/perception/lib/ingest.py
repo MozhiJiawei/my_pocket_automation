@@ -1,5 +1,6 @@
 """Import public pixels without inferring or overwriting answers."""
 import json
+import hashlib
 from pathlib import Path
 import cv2
 import numpy as np
@@ -61,9 +62,11 @@ def approve(case, proposal, reviewer, evidence):
     for name,old in corpus.read_answers(folder).get('预期',{}).items():
         if '用途' in old:document.setdefault('预期',{}).setdefault(name,{})['用途']=old['用途']
     previous=corpus.read_answers(folder)
-    history=folder/'审核.md'
-    record=f'\n{reviewer}: {evidence}\n'
-    if previous.get('正确') or previous.get('反例'):
-        record+='更正前答案：'+json.dumps({k:v for k,v in previous.items() if k in ('正确','反例')},ensure_ascii=False)+'\n'
-    with history.open('a',encoding='utf-8') as stream:stream.write(record)
+    if previous!=document and (previous.get('正确') or previous.get('反例') or
+            any(all(value is not None for key,value in entry.items() if key!='用途')
+                for entry in previous.get('预期',{}).values())):
+        content=(folder/'答案.json').read_bytes()
+        backup=corpus.ROOT.parent/'debug-runs/annotation-corrections'/case/(hashlib.sha256(content).hexdigest()+'.json')
+        backup.parent.mkdir(parents=True,exist_ok=True)
+        if not backup.exists():backup.write_bytes(content)
     (folder/'答案.json').write_text(json.dumps(document,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

@@ -1,6 +1,6 @@
 """Frozen reward screens exercise production flow-page recognition."""
-import hashlib
 import json
+import struct
 from pathlib import Path
 import unittest
 
@@ -25,21 +25,19 @@ class RewardsPagesTest(unittest.TestCase):
         self.addCleanup(runtime.close)
         return runtime, case['expected']
 
-    def test_frozen_originals_retain_independent_review_evidence(self):
+    def test_frozen_cases_contain_only_business_expectations(self):
         cases = sorted(CASES.glob('*/预期.json'))
         self.assertEqual(len(cases), 14)
         for path in cases:
             with self.subTest(case=path.parent.name):
                 case = json.loads(path.read_text(encoding='utf-8'))
-                self.assertEqual(case['review']['status'], 'reviewed')
-                self.assertEqual(case['review']['kind'], 'flow_controls')
+                self.assertEqual(set(case), {'expected'})
+                self.assertTrue(case['expected'])
                 original = path.parent / '画面.png'
-                self.assertEqual(hashlib.sha256(original.read_bytes()).hexdigest(),
-                                 case['source_sha256'])
-                audit = (path.parent / '审核.md').read_text(encoding='utf-8')
-                self.assertIn(case['source'], audit)
-                self.assertIn(case['source_sha256'], audit)
-                self.assertIn('主 Agent 独立目视核验', audit)
+                with original.open('rb') as stream:
+                    header = stream.read(24)
+                self.assertEqual(header[:8], b'\x89PNG\r\n\x1a\n')
+                self.assertEqual(struct.unpack('>II', header[16:24]), (900, 1600))
 
     def test_reviewed_pages_categories_and_bounded_cards(self):
         for path in sorted(CASES.glob('*/预期.json')):

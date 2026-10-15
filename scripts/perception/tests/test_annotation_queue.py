@@ -5,12 +5,16 @@ import json
 import tempfile
 import unittest
 import subprocess
+import warnings
 from contextlib import ExitStack
 from unittest.mock import ANY,patch
 from PIL import Image
 from scripts.perception.lib import annotation_queue as queue
 
 class AnnotationQueueTest(unittest.TestCase):
+    def assert_formal_case(self,target,images):
+        self.assertEqual({path.name for path in target.iterdir()},set(images)|{'答案.json'})
+
     def test_queue_contents_are_ignored_but_directory_placeholders_are_not(self):
         for name in ('未完成','已完成'):
             folder=queue.ROOT/'annotation-web'/name
@@ -27,12 +31,18 @@ class AnnotationQueueTest(unittest.TestCase):
         self.source=self.root/'source';self.source.mkdir()
         Image.new('RGB',(900,1600),(40,80,120)).save(self.source/'第01页.png')
     def test_capture_enters_pending_with_public_pixels_only(self):
-        identity=queue.enqueue(self.source,'师门','寻物','酒','输入')
-        self.assertEqual(queue.items('pending')[0]['id'],identity)
-        image=Image.open(queue.resolve('pending',identity)/'第01页.png')
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter('always')
+            identity=queue.enqueue(self.source,'师门','寻物','酒','输入')
+        self.assertEqual(emitted,[])
+        item=queue.items('pending')[0]
+        self.assertEqual(item['id'],identity)
+        self.assertEqual(set(item),{'id','task','kind','topic','name','pages'})
+        folder=queue.resolve('pending',identity)
+        image=Image.open(folder/'第01页.png')
         self.assertEqual(image.getpixel((0,0)),(0,0,0))
         self.assertEqual(image.getpixel((300,800)),(40,80,120))
-        self.assertFalse((queue.resolve('pending',identity)/'答案.json').exists())
+        self.assertEqual(list(folder.glob('*.json')),[])
     def test_partial_enqueue_is_not_visible(self):
         working=queue.PENDING/'.入队_test/item';working.mkdir(parents=True)
         Image.new('RGB',(900,1600)).save(working/'第01页.png')
@@ -44,7 +54,7 @@ class AnnotationQueueTest(unittest.TestCase):
                     queue.enqueue(self.source,'师门',kind,'测试','输入')
                 self.assertEqual(queue.items('pending'),[])
                 self.assertTrue((self.source/'第01页.png').is_file())
-    def test_conversation_confirmation_preserves_user_evidence(self):
+    def test_conversation_confirmation_requires_evidence_without_a_review_sidecar(self):
         identity=queue.enqueue(self.source,'师门','拼图','香炉','输入')
         document={'预期':{'第01页.png':{'puzzle_locations':[3,2,1,4]}}}
         folder=queue.resolve('pending',identity)
@@ -53,9 +63,16 @@ class AnnotationQueueTest(unittest.TestCase):
                 queue.confirm(identity,document,evidence=evidence)
             self.assertFalse((folder/'答案.json').exists())
         target=queue.confirm(identity,document,evidence='用户确认：本张顺序为3、2、1、4。')
-        note=(target/'审核.md').read_text(encoding='utf-8')
-        self.assertIn('用户确认：本张顺序为3、2、1、4。',note)
-        self.assertNotIn('点击',note)
+        self.assertFalse((target/'审核.md').exists())
+        self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
+    def test_agent_confirmation_requires_evidence_without_a_review_sidecar(self):
+        identity=queue.enqueue(self.source,'师门','拼图','香炉','输入')
+        document={'预期':{'第01页.png':{'puzzle_locations':[3,2,1,4]}}}
+        for reviewer,evidence in (('agent',None),('agent',' '),('unknown','依据')):
+            with self.assertRaises(ValueError):queue.confirm(identity,document,reviewer=reviewer,evidence=evidence)
+            self.assertFalse((queue.resolve('pending',identity)/'答案.json').exists())
+        target=queue.confirm(identity,document,reviewer='agent',evidence='用户授权最多3次设备检验；独立核对边缘连续。')
+        self.assertFalse((target/'审核.md').exists())
         self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
     def test_confirmation_deletion_does_not_replay_source(self):
         identity=queue.enqueue(self.source,'师门','寻物','酒','输入')
@@ -114,8 +131,7 @@ class AnnotationQueueTest(unittest.TestCase):
             target=queue.confirm(identity,{'预期':expected})
             self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),{'预期':expected})
             for name,pixels in original.items():self.assertEqual((target/name).read_bytes(),pixels)
-            note=(target/'审核.md').read_text(encoding='utf-8')
-            self.assertIn('恢复图左上、右上、左下、右下',note);self.assertIn('尚未写入正式测试真值',note)
+            self.assertFalse((target/'审核.md').exists())
             self.assertTrue((self.source/'第01页.png').is_file())
     def test_puzzle_partial_documents_are_strict_and_task_specific(self):
         images={'第01页.png':{'size':[900,1600]},'第02页.png':{'size':[900,1600]}}
@@ -145,20 +161,65 @@ class AnnotationQueueTest(unittest.TestCase):
             freeze.main()
             executor.return_value.__enter__.return_value.map.assert_called_once_with(freeze.prepare,[item['id'] for item in items],ANY)
 
+    def test_freeze_rejects_pending_answers_until_the_item_is_confirmed(self):
+        spec=importlib.util.spec_from_file_location('freeze_confirmed_only',queue.ROOT/'scripts/perception/freeze-annotations.py')
+        freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
+        identity=queue.enqueue(self.source,'师门','拼图','老虎','输入')
+        source=queue.resolve('pending',identity)
+        document={'预期':{'第01页.png':{'puzzle_locations':[3,2,4,1]}}}
+        (source/'答案.json').write_text(json.dumps(document),encoding='utf-8')
+        with self.assertRaises(ValueError):freeze.prepare(identity)
+        self.assertTrue(source.is_dir())
+
+    def test_freeze_requires_partial_flag_and_keeps_unmarked_regions_unknown(self):
+        spec=importlib.util.spec_from_file_location('freeze_partial',queue.ROOT/'scripts/perception/freeze-annotations.py')
+        freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
+        original_fixture=next(iter(sorted((queue.ROOT/'testdata/师门/寻物').rglob('第01页.png'))))
+        (self.source/'第01页.png').write_bytes(original_fixture.read_bytes())
+        Image.new('RGB',(900,1600),'red').save(self.source/'第02页.png')
+        identity=queue.enqueue(self.source,'师门','寻物','酒','输入')
+        document={'正确':{'酒':{'第01页.png':[[70,543,202,675]]}},'反例':{'酒':{}}}
+        source=queue.confirm(identity,document)
+        before=(source/'答案.json').read_bytes()
+        originals={p.name:p.read_bytes() for p in source.glob('*.png')}
+        with self.assertRaisesRegex(ValueError,'采集高度不足.*'+identity):freeze.prepare(identity)
+        prepared=freeze.prepare(identity,allow_partial=True)
+        self.assertEqual(prepared[1],document)
+        self.assertEqual((source/'答案.json').read_bytes(),before)
+        with patch.object(freeze,'ROOT',self.root),patch.object(queue,'ROOT',self.root),\
+             patch.object(freeze,'ProcessPoolExecutor') as executor,\
+             patch('sys.argv',['freeze-annotations.py','--allow-partial']),patch('builtins.print'):
+            executor.return_value.__enter__.return_value.map.return_value=[prepared]
+            freeze.main()
+        target=self.root/'testdata/师门/寻物/酒/第01轮'
+        self.assertFalse(source.exists())
+        self.assert_formal_case(target,originals)
+        self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
+        for name,pixels in originals.items():self.assertEqual((target/name).read_bytes(),pixels)
+        from scripts.perception.lib import corpus
+        with patch.object(corpus,'ROOT',self.root/'testdata'):cases=corpus.load_cases('shimen')
+        self.assertEqual(cases[0]['truth']['target_regions']['value'],document['正确']['酒']['第01页.png'])
+        self.assertFalse(cases[0]['truth']['target_regions_complete']['value'])
+        self.assertEqual(cases[1]['truth']['target_regions']['status'],'pending')
+        self.assertIsNone(cases[1]['truth']['target_regions']['value'])
+
     def test_wine_selection_prefers_taller_inputs_and_keeps_three_per_topic(self):
         spec=importlib.util.spec_from_file_location('freeze_selection',queue.ROOT/'scripts/perception/freeze-annotations.py')
         freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
-        items=[]
+        items=[];heights={}
         for topic in freeze.WINES:
             for index,height in enumerate((690,2622,2760,2760,1242)):
-                items.append({'task':'抓鬼','kind':'寻物','topic':topic,'id':f'抓鬼/寻物/{topic}/{index}',
-                    'capture_feedback':{'image_height':height}})
+                identity=f'抓鬼/寻物/{topic}/{index}'
+                items.append({'task':'抓鬼','kind':'寻物','topic':topic,'id':identity})
+                heights[identity]=height
         other={'task':'抓鬼','kind':'找鬼','topic':'牛头','id':'抓鬼/找鬼/牛头/输入'}
-        selected=freeze.select_items(items+[other],3)
+        with patch.object(queue,'resolve',side_effect=lambda stage,identity:Path(identity)),\
+             patch.object(freeze.capture_height,'height',side_effect=lambda folder,kind:heights[folder.as_posix()]):
+            selected=freeze.select_items(items+[other],3)
         self.assertEqual(len(selected),13);self.assertIn(other,selected)
         for topic in freeze.WINES:
             group=[item for item in selected if item['topic']==topic]
-            self.assertEqual([item['capture_feedback']['image_height'] for item in group],[2760,2760,2622])
+            self.assertEqual([heights[item['id']] for item in group],[2760,2760,2622])
 
     def test_freeze_merges_puzzle_originals_and_consumes_only_confirmed_input(self):
         spec=importlib.util.spec_from_file_location('freeze_puzzle_merge',queue.ROOT/'scripts/perception/freeze-annotations.py')
@@ -171,7 +232,6 @@ class AnnotationQueueTest(unittest.TestCase):
         Image.new('RGB',(900,1600),'red').save(target/'第01页.png')
         old={'预期':{'第01页.png':{'puzzle_locations':[2,4,3,1]}}}
         (target/'答案.json').write_text(json.dumps(old),encoding='utf-8')
-        (target/'审核.md').write_text('已有用户确认。',encoding='utf-8')
         with patch.object(freeze,'ROOT',self.root),patch.object(queue,'ROOT',self.root),\
              patch.object(freeze,'ProcessPoolExecutor') as executor,patch('sys.argv',['freeze-annotations.py']),patch('builtins.print'):
             executor.return_value.__enter__.return_value.map.return_value=[prepared]
@@ -181,7 +241,52 @@ class AnnotationQueueTest(unittest.TestCase):
         self.assertEqual(merged['预期']['第02页.png'],document['预期']['第01页.png'])
         self.assertFalse(source.exists())
         self.assertEqual(Image.open(target/'第01页.png').getpixel((300,800)),(255,0,0))
-        self.assertTrue((target/'采集反馈.json').is_file())
+        self.assert_formal_case(target,{'第01页.png','第02页.png'})
+
+    def test_freeze_replay_matches_originals_and_requires_update_for_changed_answers(self):
+        spec=importlib.util.spec_from_file_location('freeze_original_replay',queue.ROOT/'scripts/perception/freeze-annotations.py')
+        freeze=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze)
+        original_fixture=next(iter(sorted((queue.ROOT/'testdata/师门/寻物').rglob('第01页.png'))))
+        (self.source/'第01页.png').write_bytes(original_fixture.read_bytes())
+        document={'正确':{'酒':{'第01页.png':[[70,543,202,675]]}},'反例':{'酒':{}}}
+        changed={'正确':{'酒':{'第01页.png':[[226,543,358,675]]}},'反例':{'酒':{}}}
+        target=self.root/'testdata/师门/寻物/酒/第01轮'
+        with patch.object(freeze,'ROOT',self.root),patch.object(queue,'ROOT',self.root),\
+             patch.object(freeze,'ProcessPoolExecutor') as executor,patch('builtins.print'):
+            executor.return_value.__enter__.return_value.map.side_effect=lambda fn,identities,partial:[
+                fn(identity,allow_partial) for identity,allow_partial in zip(identities,partial)]
+            identity=queue.enqueue(self.source,'师门','寻物','酒','首次')
+            source=queue.confirm(identity,document)
+            original=(source/'第01页.png').read_bytes()
+            self.assertFalse((source/'审核.md').exists())
+            with patch('sys.argv',['freeze-annotations.py','--allow-partial']):freeze.main()
+            self.assertFalse(source.exists())
+            previous=(target/'答案.json').read_bytes()
+
+            identity=queue.enqueue(self.source,'师门','寻物','酒','同原图重放')
+            replay=queue.confirm(identity,document)
+            with patch('sys.argv',['freeze-annotations.py','--allow-partial']):freeze.main()
+            self.assertFalse(replay.exists())
+            self.assertEqual(list(target.parent.glob('第*轮')),[target])
+            self.assertEqual((target/'答案.json').read_bytes(),previous)
+            self.assertEqual((target/'第01页.png').read_bytes(),original)
+
+            identity=queue.enqueue(self.source,'师门','寻物','酒','同原图更正')
+            correction=queue.confirm(identity,changed)
+            with patch('sys.argv',['freeze-annotations.py','--allow-partial']),\
+                 self.assertRaisesRegex(ValueError,'--update'):freeze.main()
+            self.assertTrue(correction.exists())
+            self.assertEqual((target/'答案.json').read_bytes(),previous)
+            self.assertEqual(list(target.parent.glob('第*轮')),[target])
+            with patch('sys.argv',['freeze-annotations.py','--allow-partial','--update']):freeze.main()
+            self.assertFalse(correction.exists())
+        self.assertEqual(list(target.parent.glob('第*轮')),[target])
+        self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),changed)
+        self.assertEqual((target/'第01页.png').read_bytes(),original)
+        self.assert_formal_case(target,{'第01页.png'})
+        backups=list((self.root/'debug-runs').glob('*/annotation-corrections/**/答案.json'))
+        self.assertEqual(len(backups),1)
+        self.assertEqual(backups[0].read_bytes(),previous)
 
     def frozen_pair(self):
         import shutil
@@ -189,20 +294,39 @@ class AnnotationQueueTest(unittest.TestCase):
         document={'正确':{'酒':{'第01页.png':[[70,543,202,675]]}},'反例':{'酒':{}}}
         source=queue.confirm(identity,document)
         target=self.root/'testdata/师门/寻物/酒/第01轮'
-        shutil.copytree(source,target)
+        target.mkdir(parents=True)
+        for path in source.iterdir():
+            if path.suffix=='.png' or path.name=='答案.json':shutil.copyfile(path,target/path.name)
         return identity,source,target,document
 
     def test_consumed_annotation_is_removed_after_formal_originals_and_labels_match(self):
         identity,source,target,document=self.frozen_pair()
         document['正确']['酒']['第01页.png'].append([226,543,358,675])
         (target/'答案.json').write_text(json.dumps(document),encoding='utf-8')
-        (target/'采集反馈.json').unlink()
         with patch.object(queue,'ROOT',self.root):queue.remove_frozen(identity,target)
         self.assertFalse(source.exists())
         self.assertTrue((target/'第01页.png').is_file())
-        self.assertTrue((target/'采集反馈.json').is_file())
+        self.assert_formal_case(target,{'第01页.png'})
         self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
         self.assertEqual(queue.items('confirmed'),[])
+
+    def test_capture_check_is_read_only_and_reports_current_height(self):
+        spec=importlib.util.spec_from_file_location('check_capture',queue.ROOT/'annotation-web/check_capture.py')
+        check=importlib.util.module_from_spec(spec);spec.loader.exec_module(check)
+        identity=queue.enqueue(self.source,'师门','拼图','香炉','输入')
+        folder=queue.resolve('pending',identity)
+        for readable in (True,False):
+            if not readable:(folder/'第01页.png').write_bytes(b'broken png')
+            before={p.relative_to(self.root):(p.read_bytes(),p.stat().st_mtime_ns)
+                    for p in self.root.rglob('*') if p.is_file()}
+            with self.subTest(readable=readable),patch('sys.argv',['check_capture.py','--id',identity]),\
+                 patch('builtins.print') as output:
+                self.assertEqual(check.main(),0 if readable else 1)
+            self.assertEqual(json.loads(output.call_args.args[0]),{'items':[{
+                'id':identity,'height':1600 if readable else 0,'minimum':1600,'complete':readable}],
+                'passed':readable})
+            self.assertEqual({p.relative_to(self.root):(p.read_bytes(),p.stat().st_mtime_ns)
+                              for p in self.root.rglob('*') if p.is_file()},before)
 
     def test_changed_confirmed_answer_is_retained_instead_of_removed(self):
         identity,source,target,document=self.frozen_pair()
@@ -222,14 +346,15 @@ class AnnotationQueueTest(unittest.TestCase):
             queue.remove_frozen(identity,target)
         self.assertTrue(source.exists())
 
-    def test_outside_target_or_missing_audit_prevents_removal(self):
+    def test_outside_target_prevents_removal_but_review_sidecar_is_unnecessary(self):
         identity,source,target,_=self.frozen_pair()
         with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'testdata'):
             queue.remove_frozen(identity,self.source)
-        (target/'审核.md').unlink()
-        with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'审核'):
-            queue.remove_frozen(identity,target)
         self.assertTrue(source.exists())
+        self.assertFalse((target/'审核.md').exists())
+        with patch.object(queue,'ROOT',self.root):queue.remove_frozen(identity,target)
+        self.assertFalse(source.exists())
+        self.assert_formal_case(target,{'第01页.png'})
 
     def test_renamed_puzzle_original_is_matched_by_content_and_answer(self):
         import shutil
@@ -238,7 +363,6 @@ class AnnotationQueueTest(unittest.TestCase):
         source=queue.confirm(identity,{'预期':{'第01页.png':expected}})
         target=self.root/'testdata/师门/拼图/香炉';target.mkdir(parents=True)
         shutil.copyfile(source/'第01页.png',target/'画面.png')
-        shutil.copyfile(source/'审核.md',target/'审核.md')
         (target/'答案.json').write_text(json.dumps({'预期':{'画面.png':{'puzzle_locations':[1,2,3,4]}}}),encoding='utf-8')
         with patch.object(queue,'ROOT',self.root),self.assertRaisesRegex(ValueError,'拼图答案尚未固化'):
             queue.remove_frozen(identity,target)
@@ -246,3 +370,4 @@ class AnnotationQueueTest(unittest.TestCase):
         with patch.object(queue,'ROOT',self.root):queue.remove_frozen(identity,target)
         self.assertFalse(source.exists())
         self.assertTrue((target/'画面.png').is_file())
+        self.assert_formal_case(target,{'画面.png'})

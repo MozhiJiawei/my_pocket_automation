@@ -38,8 +38,8 @@ class FrontendTest(unittest.TestCase):
     def test_queue_refresh_cannot_unlock_confirmation(self):
         self.run_frontend('queue_refresh_cannot_unlock_confirmation')
 
-    def test_incomplete_capture_feedback_stays_visible_after_answer_confirmation(self):
-        self.run_frontend('incomplete_capture_feedback_stays_visible_after_answer_confirmation')
+    def test_capture_height_updates_with_round_and_preserves_confirmed_answers(self):
+        self.run_frontend('capture_height_updates_with_round_and_preserves_confirmed_answers')
 
-    def test_open_feedback_has_a_verification_result_instead_of_an_unknown_warning(self):
-        self.run_frontend('open_feedback_has_a_verification_result_instead_of_an_unknown_warning')
+    def test_capture_height_hides_on_the_existing_image_open_error(self):
+        self.run_frontend('capture_height_hides_on_the_existing_image_open_error')

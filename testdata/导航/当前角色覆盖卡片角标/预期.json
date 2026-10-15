@@ -1,0 +1,15 @@
+{
+  "feature": "common.assets.saved_role_current_tile",
+  "region": [
+    150,
+    330,
+    300,
+    500
+  ],
+  "anchor_region": [
+    184,
+    378,
+    236,
+    432
+  ]
+}

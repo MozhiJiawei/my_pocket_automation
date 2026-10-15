@@ -8,6 +8,33 @@ from tests.support.touchsprite_adapter import Screen
 ROOT=Path(__file__).resolve().parents[2]
 
 class NavigationRecognitionTest(unittest.TestCase):
+    def test_current_role_badge_is_an_alternative_tile_anchor(self):
+        folder=ROOT/'testdata/导航/当前角色覆盖卡片角标'
+        truth=json.loads((folder/'预期.json').read_text(encoding='utf-8'))
+        runtime=Runtime(Screen.read(folder/'画面.png'))
+        try:
+            feature=runtime.require(truth['feature'])
+            feature['region']=runtime.lua.table_from(truth['region'])
+            found=runtime.require('common.detector').find(feature)
+            self.assertIsNotNone(found)
+            x1,y1,x2,y2=truth['anchor_region']
+            self.assertTrue(x1<=found['x']<=x2 and y1<=found['y']<=y2)
+        finally:runtime.close()
+
+    def test_reviewed_stuck_settings_has_a_verified_return_target(self):
+        folder=ROOT/'testdata/导航/角色切换后遮罩设置页'
+        truth=json.loads((folder/'预期.json').read_text(encoding='utf-8'))
+        runtime=Runtime(Screen.read(folder/'画面.png'))
+        try:
+            for name in truth['features']:
+                feature=runtime.require(name)
+                found=runtime.require('common.detector').find(feature)
+                self.assertIsNotNone(found,name)
+                x1,y1,x2,y2=truth['tap_region']
+                self.assertTrue(x1<=found['x']+feature['tap_offset'][1]<=x2 and
+                                y1<=found['y']+feature['tap_offset'][2]<=y2,name)
+        finally:runtime.close()
+
     def test_loaded_role_tile_corners_remain_recognizable(self):
         folder=ROOT/'testdata/导航/角色卡片加载完成'
         truth=json.loads((folder/'预期.json').read_text(encoding='utf-8'))

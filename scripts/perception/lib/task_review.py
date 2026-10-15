@@ -88,12 +88,18 @@ def compose_rows(pages,image_resolver=None):
 def row_matches(left,right):
     # Each column must agree; a different item cannot be hidden by averaging
     # the other four cells. Empty loading rows are not overlap evidence.
-    pairs=zip(np.array_split(left,5,axis=1),np.array_split(right,5,axis=1))
-    return sum(p.std()>12 for p in np.array_split(left,5,axis=1))>=2 and all(np.abs(a-b).mean()<8 for a,b in pairs)
+    columns=np.array_split(left,5,axis=1)
+    return sum(p.std()>12 for p in columns)>=2 and _matching_columns(columns,right)
+
+
+def _matching_columns(columns,right):
+    return all(np.abs(a-b).mean()<8 for a,b in zip(columns,np.array_split(right,5,axis=1)))
 
 def matching_row(left,right):
-    if row_matches(left['sample'],right['sample']):return True
-    return any(row_matches(left['sample'],sample) for sample in right['shifted_samples'])
+    # The left row is unchanged across all vertical-shift candidates.
+    columns=np.array_split(left['sample'],5,axis=1)
+    if sum(p.std()>12 for p in columns)<2:return False
+    return any(_matching_columns(columns,sample) for sample in (right['sample'],*right['shifted_samples']))
 
 
 def rounds(cases):
@@ -118,6 +124,9 @@ def scroll_offset(previous, current):
     current = cv2.resize(np.asarray(current), (96, current.height)).astype(np.float32)
     height = min(len(previous), len(current))
     candidates = []
+    # Reuse scratch pixels across every candidate; keep the same float32
+    # subtraction, absolute value and mean without allocating two images each time.
+    difference = np.empty((max(0,height-12),previous.shape[1]-8)+previous.shape[2:],dtype=np.float32)
     for offset in range(-height + 32, height - 32):
         begin = max(0, offset)
         end = min(height, height + offset)
@@ -126,7 +135,10 @@ def scroll_offset(previous, current):
             continue
         left = previous[begin + 6:end - 6, 4:-4]
         right = current[begin - offset + 6:end - offset - 6, 4:-4]
-        error = float(np.mean(np.abs(left - right)))
+        scratch=difference[:len(left)]
+        np.subtract(left,right,out=scratch)
+        np.abs(scratch,out=scratch)
+        error = float(np.mean(scratch))
         candidates.append((error, offset, end - begin))
     error, offset, overlap = min(candidates)
     return {'offset': offset, 'overlap': overlap, 'error': round(error, 4),

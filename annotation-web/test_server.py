@@ -31,10 +31,20 @@ class QueueTest(unittest.TestCase):
         self.item.directory=self.directory;self.item.id=self.identity;self.item.stage='pending'
         self.item.images={'第01页.png':{'size':[900,1600],'path':self.directory/'第01页.png'}}
         self.item.strip=self.directory/'第01页.png';self.item.data={'id':self.identity}
+        self.item.source_manifest=web.source_manifest(self.directory)
         self.review=web.Review();self.review.cache[('pending',self.identity)]=self.item
+        self.review.output=self.root/'output'
         self.doc={'正确':{'酒':{'第01页.png':[[100,600,220,720]]}},'反例':{'酒':{'第01页.png':[[250,600,370,720]]}}}
-    def test_capture_negative_feedback_is_returned_without_clearing_confirmed_answers(self):
-        web.capture_feedback.write(self.directory,{'status':'incomplete','reasons':['缺少后续页面。'],'recoverable':False})
+    def inventory(self,folder,rows):
+        frame=np.full((1600,900,3),240,np.uint8)
+        for row in range(rows):
+            for column in range(5):
+                x,y=64+156*column,537+156*row
+                cv2.rectangle(frame,(x,y),(x+138,y+138),(180,190,205),2)
+                frame[y+8:y+128,x+8:x+128]=(40+row*30,50+column*35,80)
+        Image.fromarray(frame).save(folder/'第01页.png')
+    def test_changed_capture_height_is_returned_without_clearing_confirmed_answers(self):
+        self.inventory(self.directory,5)
         target=self.item.save(self.doc)
         self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),self.doc)
         server=ThreadingHTTPServer(('127.0.0.1',0),web.handler(self.review))
@@ -43,26 +53,34 @@ class QueueTest(unittest.TestCase):
         try:
             url=f'http://127.0.0.1:{server.server_port}/api/item?stage=confirmed&id='+quote(self.identity)
             with urlopen(url) as response:record=json.load(response)
-            self.assertEqual(record['capture_feedback']['status'],'verification_failed')
-            self.assertEqual(record['capture_feedback']['previous_feedback']['reasons'],['缺少后续页面。'])
-            self.assertFalse(record['capture_feedback']['recoverable'])
+            self.assertEqual((record['height'],record['minimum']),(690,2760))
+            self.assertNotIn('capture_feedback',record)
             self.assertEqual(record['initial'],self.doc)
-            Image.new('RGB',(900,1600),'red').save(target/'第01页.png')
+            previous=self.review.cache[('confirmed',self.identity)]
+            self.inventory(target,4)
             with urlopen(url) as response:changed=json.load(response)
-            self.assertEqual(changed['capture_feedback']['status'],'verification_failed')
-            self.assertTrue(changed['capture_feedback']['reasons'])
+            self.assertIsNot(previous,self.review.cache[('confirmed',self.identity)])
+            self.assertEqual((changed['height'],changed['minimum']),(552,2760))
+            self.assertEqual(changed['initial'],self.doc)
+            self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),self.doc)
         finally:server.shutdown();server.server_close();thread.join()
 
-    def test_opening_unknown_capture_runs_verification_and_persists_the_result(self):
-        web.capture_feedback.write(self.directory,{'status':'unverified','reasons':['尚未运行检查。']})
-        with patch.object(web.capture_feedback,'verify',wraps=web.capture_feedback.verify) as verify:
+    def test_opening_and_reloading_reuses_rendered_height_without_writing_queue_files(self):
+        self.inventory(self.directory,5);self.review.cache.clear()
+        original={p.name:p.read_bytes() for p in self.directory.iterdir()}
+        with patch.object(web,'compose_rows',wraps=web.compose_rows) as compose:
             item=self.review.get('pending',self.identity)
-            verify.assert_called_once_with(self.directory,'师门','寻物')
-        result=item.data['capture_feedback']
-        self.assertNotEqual(result['status'],'unverified')
-        self.assertTrue(result['reasons'])
-        self.assertEqual(web.capture_feedback.read(self.directory)['status'],result['status'])
-        self.assertEqual(result['previous_feedback']['reasons'],['尚未运行检查。'])
+            self.assertIs(self.review.get('pending',self.identity),item)
+            self.assertEqual(compose.call_count,1)
+        self.assertEqual((item.data['height'],item.data['minimum']),(690,2760))
+        self.assertEqual(item.data['strip']['size'][1],895,'Question pixels are excluded from capture height')
+        self.assertEqual({p.name:p.read_bytes() for p in self.directory.iterdir()},original)
+        self.assertEqual({p.name for p in self.review.output.rglob('*') if p.is_file()},{'长图.png'})
+        self.assertNotIn('capture_feedback',web.queue.items('pending')[0])
+    def test_unreadable_original_uses_the_existing_open_error(self):
+        self.review.cache.clear();(self.directory/'第01页.png').write_bytes(b'not an image')
+        with self.assertRaisesRegex(ValueError,'无效原图'):self.review.get('pending',self.identity)
+        self.assertEqual({p.name for p in self.directory.iterdir()},{'第01页.png'})
     def test_confirmation_moves_input_and_preserves_original_pixels(self):
         original=(self.directory/'第01页.png').read_bytes();target=self.item.save(self.doc)
         self.assertFalse(self.directory.exists())
@@ -210,6 +228,7 @@ class PuzzleTest(unittest.TestCase):
             with patch.object(web,'compose_rows',side_effect=AssertionError('拼图不得拼物品长图')),patch.object(web,'item_cells',side_effect=AssertionError('拼图不得识别物品格')):
                 item=self.get(identity)
             self.assertEqual(item['kind'],'拼图');self.assertTrue(item['annotatable'])
+            self.assertEqual((item['height'],item['minimum']),(1600,1600))
             self.assertEqual(item['puzzle']['field'],field)
             boxes=json.loads((web.ROOT/'testdata'/task/'拼图/格位.json').read_text(encoding='utf-8'))
             self.assertEqual(item['puzzle']['cells'],boxes)
@@ -224,6 +243,24 @@ class PuzzleTest(unittest.TestCase):
             with Image.open(folder/'第01页.png') as source:
                 restored=[source.crop(boxes[i-1]).getpixel((5,5)) for i in ([3,2,1,4] if isinstance(order,list) else [ord(c)-64 for c in order])]
             self.assertEqual(restored,[(0,0,255),(0,128,0),(255,0,0),(255,255,0)])
+    def test_puzzle_cache_tracks_original_bytes_names_and_minimum_height(self):
+        identity,folder=self.create()
+        first=self.review.get('pending',identity)
+        self.assertIs(self.review.get('pending',identity),first)
+        Image.new('RGB',(900,1280),'blue').save(folder/'第02页.png')
+        smaller=self.review.get('pending',identity)
+        self.assertIsNot(smaller,first);self.assertEqual(smaller.data['height'],1280)
+        self.assertEqual(smaller.data['images'][1]['size'],[900,1280])
+        self.assertFalse(smaller.data['annotatable'])
+        (folder/'第02页.png').rename(folder/'第03页.png')
+        renamed=self.review.get('pending',identity)
+        self.assertIsNot(renamed,smaller)
+        self.assertEqual([entry['name'] for entry in renamed.data['images']],['第01页.png','第03页.png'])
+        (folder/'第03页.png').unlink()
+        restored=self.review.get('pending',identity)
+        self.assertEqual(restored.data['height'],1600);self.assertTrue(restored.data['annotatable'])
+        self.assertEqual({path.name for path in folder.iterdir()},{'第01页.png'})
+        self.assertFalse(self.review.output.exists(),'Puzzle height reads must not create rendered or feedback files')
     def test_partial_suggestions_and_drafts_keep_unmarked_pages_unknown(self):
         identity,folder=self.create()
         suggestion={'预期':{'第01页.png':{'puzzle_locations':[3,2,1,4]}}}
@@ -271,7 +308,7 @@ class PuzzleTest(unittest.TestCase):
             for name,pixels in originals.items():self.assertEqual((target/name).read_bytes(),pixels)
             self.assertEqual(json.loads((target/'答案.json').read_text(encoding='utf-8')),document)
             self.assertFalse((target/'草稿.json').exists())
-            self.assertIn('四格拖动恢复顺序',(target/'审核.md').read_text(encoding='utf-8'))
+            self.assertFalse((target/'审核.md').exists())
             self.assertEqual(self.get(identity,'confirmed')['initial'],document)
             with self.assertRaisesRegex(ValueError,'只读'):self.review.get('confirmed',identity).save(document)
             with self.assertRaises(HTTPError) as failure:self.post(identity,document,'old-token')

@@ -119,7 +119,7 @@ function Collect-Runs {
             $lastLine = Get-Content -LiteralPath $main.Local | Where-Object { $_.Trim() } | Select-Object -Last 1
             $escapedRun = [regex]::Escape($main.Run)
             $finished = if ($main.Prefix -eq 'daily') {
-                $lastLine -cmatch "^\[daily\]\[$escapedRun\]\[finished\] script_(exited_normally|failed)$"
+                $lastLine -cmatch "^\[daily\]\[$escapedRun\](?:\[elapsed_ms=\d+\])?\[finished\] script_(exited_normally|failed)$"
             } else {
                 $lastLine -cmatch "^\[hello_world\]\[run=$escapedRun\] script_finished$"
             }

@@ -1,14 +1,4 @@
 {
-  "source": "debug-runs/20261014_113034/res/daily_20261014_113034_gourd_recovery.png",
-  "source_sha256": "e989feb459b5a740cd4cc3fb8715627b0a260508d2ce09fa4b4d3f8ad3fbc4b5",
-  "review": {
-    "status": "reviewed",
-    "kind": "flow_controls",
-    "reviewer": "主 Agent",
-    "method": "independent_visual_review",
-    "reviewed_at": "2026-10-14",
-    "original_frame": "full_900x1600"
-  },
   "expected": {
     "state": "inventory",
     "selected_category": "special",

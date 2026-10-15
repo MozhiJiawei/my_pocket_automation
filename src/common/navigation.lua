@@ -14,7 +14,14 @@ local function select_saved(ctx)
     local load_selector=loadfile(selector_path)
     if not load_selector then return false end
     local selector=load_selector()
-    if not detector.present(picker) or not detector.present(selector) then return false end
+    if not detector.present(picker) then return false end
+    if not detector.present(selector) then
+        local match=require('common.list_navigation').find(ctx,{name='saved_role_'..ctx.account.alias,
+            page=picker,view={35,330,850,1380},max_forward=6,
+            valid=function() return detector.present(picker) end,
+            inspect=function() if detector.present(selector) then return {kind='role'} end end})
+        if not match then return false end
+    end
     if detector.present(current_marker) then
         -- Only use the current marker when it belongs to the same calibrated tile.
         local selected, marker = detector.find(selector), detector.find(current_marker)
@@ -24,6 +31,19 @@ local function select_saved(ctx)
         end
     end
     return device.tap(ctx,selector,'select_saved_role')
+end
+-- Onboarding only: enter one reviewed saved tile and capture its home identity.
+-- No daily task is allowed until a separately calibrated home identity matches.
+function M.inspect_saved(ctx)
+    require('common.screen').init(0)
+    if not detector.present(picker) then
+        if not detector.present(home) or not device.tap(ctx,switch,'inspect_saved_role_picker') or
+            not device.wait(function() return detector.present(picker) end,20) then return false end
+    end
+    if not select_saved(ctx) then return false end
+    -- The old home can remain visible while a role change is in flight.
+    mSleep(5000)
+    return device.wait(function() return detector.present(home) and not detector.present(picker) end,60)
 end
 local function selector_for(account)
     local loader=loadfile('/storage/emulated/0/TouchSprite/res/daily_selector_'..account.alias..'.lua')
@@ -39,6 +59,7 @@ function M.verify_roster(ctx)
     end
     local seen,last,scrolls={},nil,0
     local tile=require('common.assets.saved_role_tile')
+    local selected_tile=require('common.assets.saved_role_current_tile')
     for page=1,7 do
         if not detector.present(picker) then return false end
         local anchors
@@ -51,7 +72,11 @@ function M.verify_roster(ctx)
                 for _=1,6 do
                     local f={}; for k,v in pairs(tile) do f[k]=v end
                     f.region={range[1],top,range[2],1340}
+                    local selected={};for k,v in pairs(selected_tile) do selected[k]=v end
+                    selected.region=f.region
                     local found=detector.find(f)
+                    local marked=detector.find(selected)
+                    if marked and (not found or marked.y<found.y) then found=marked end
                     if not found then break end
                     anchors[#anchors+1]=found
                     top=found.y+100
@@ -67,10 +92,15 @@ function M.verify_roster(ctx)
                     for index,anchor in ipairs(anchors) do
                         if math.abs(found.x-anchor.x)<220 and found.y-anchor.y>110 and found.y-anchor.y<240 then belongs=index end
                     end
-                    if not belongs or owners[belongs] then return false end
+                    if not belongs or owners[belongs] then
+                        log.write(ctx,'roster_match_blocked','alias='..account.alias..' x='..found.x..' y='..found.y..' tile='..tostring(belongs))
+                        return false
+                    end
                     owners[belongs]=account.alias
                     matched=matched+1
                     signature[#signature+1]=account.alias..':'..found.x..':'..found.y
+                else
+                    log.write(ctx,'roster_not_visible',account.alias)
                 end
             end
             return #anchors>0 and matched==#anchors
@@ -114,6 +144,10 @@ return_home=function(ctx)
     local pages = require('tasks.dungeon.pages')
     for _=1,4 do
         if not M.dismiss_overlays(ctx) then return false end
+        if detector.present(require('common.assets.settings_page')) then
+            if not device.tap(ctx,require('common.assets.settings_back'),'return_home_from_settings') or
+                not device.wait(function() return detector.present(home) end,20) then return false end
+        end
         if detector.present(home) then return true end
         local state=pages.state()
         log.write(ctx,'navigation_state','return_home dungeon='..state)
@@ -149,7 +183,21 @@ return_home=function(ctx)
             local ghost=require('tasks.zhuagui.pages')
             local gs=ghost.state()
             log.write(ctx,'navigation_state','return_home ghost='..gs)
-            if gs=='quota_dialogue' then
+            local shimen=require('tasks.shimen.pages')
+            local ss=shimen.state()
+            if ss=='puzzle_retry' or ss=='ready' then
+                local back=ss=='puzzle_retry' and require('tasks.shimen.assets.rest_back') or shimen.features.back
+                if not device.tap(ctx,back,'shimen_rest_before_identity_check',function()
+                    return shimen.state()==ss
+                end) or not device.wait(function()
+                    local state=shimen.state()
+                    return state=='task_list' or state=='completed_card' or state=='home' or state=='catch' or state=='go'
+                end,20) then return false end
+            elseif ss=='catch' or ss=='go' then
+                if not device.tap(ctx,require('common.assets.home_tab'),'shimen_home_without_cancel',function()
+                    return shimen.state()==ss
+                end) or not device.wait(function() return detector.present(home) end,20) then return false end
+            elseif gs=='quota_dialogue' then
                 if not device.tap(ctx,ghost.features.quota_dialogue,'close_completed_ghost_dialogue') or
                     not device.wait(function() return ghost.state()=='task_list' or ghost.state()=='quota_completed_card' end,20) then return false end
             elseif gs=='task_list' or gs=='quota_completed_card' then
@@ -164,9 +212,13 @@ return_home=function(ctx)
     return detector.present(home)
 end
 M.return_home=return_home
-function M.prepare_recorded(ctx)
-    -- Authentication is manual; this only enters the already selected saved role.
+local function enter_pocket(ctx,restarted)
     require('common.screen').init(1)
+    if restarted and not device.wait(function() return detector.present(entry) or detector.present(confirm) end,360) then
+        require('common.screen').init(0)
+        log.write(ctx,'account_blocked','restarted_login_entry_not_verified')
+        return false
+    end
     if detector.present(confirm) then
         if not device.tap(ctx, confirm, 'pocket_confirm') then return false end
     elseif detector.present(entry) then
@@ -175,6 +227,22 @@ function M.prepare_recorded(ctx)
         if not device.tap(ctx, confirm, 'pocket_confirm') then return false end
     end
     require('common.screen').init(0)
+    return true
+end
+local function restart_pocket(ctx)
+    log.write(ctx,'entry_recovery','restart_game_for_saved_role')
+    closeApp('com.netease.mhxyhtb')
+    mSleep(1500)
+    runApp('com.netease.mhxyhtb')
+    mSleep(8000)
+    return enter_pocket(ctx,true)
+end
+function M.prepare_recorded(ctx)
+    -- Authentication is manual; this only enters the already selected saved role.
+    require('common.screen').init(0)
+    if detector.present(require('common.assets.settings_page')) and not return_home(ctx) then
+        if not restart_pocket(ctx) then return false end
+    elseif not enter_pocket(ctx,false) then return false end
     -- Entering Pocket may briefly show the picker while the saved role loads.
     if detector.present(picker) and not device.wait(function() return detector.present(home) end,10) then
         if not select_saved(ctx) then return false end
@@ -192,9 +260,15 @@ function M.prepare_recorded(ctx)
             log.write(ctx,'account_blocked','configured_saved_role_not_found')
             return false
         end
-        if not device.wait(function() return detector.present(home) and detector.present(identity) end,60) then
-            log.write(ctx, 'account_blocked', 'saved_role_does_not_match_configured_identity')
-            return false
+        if not device.wait(function() return detector.present(home) and detector.present(identity) end,10) then
+            -- The saved-role picker can update the login selection while the
+            -- Pocket home retains the previous session. Re-enter once, then
+            -- require the real home identity before accepting any task.
+            if not detector.present(home) or not restart_pocket(ctx) or
+                not device.wait(function() return detector.present(home) and detector.present(identity) end,60) then
+                log.write(ctx, 'account_blocked', 'saved_role_does_not_match_configured_identity')
+                return false
+            end
         end
     end
     ctx.identity_verified = true

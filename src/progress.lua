@@ -1,5 +1,4 @@
--- Observations and retry counters live only in this invocation.
--- Game pages remain the authority for resuming and completing tasks.
+-- Observations/retries stay in memory; only audited daily booleans persist.
 local M = {}
 local function records(ctx)
     ctx.task_state = ctx.task_state or {}
@@ -10,7 +9,7 @@ end
 function M.read(ctx, task)
     local record=records(ctx)[task]
     if record and record.business_date~=(ctx.config and ctx.config.business_date) then return nil end
-    return record
+    return record or require('completion').read(ctx,task)
 end
 function M.write(ctx, task, status, stage, counters)
     local record = {status=status, stage=stage or ''}
@@ -18,6 +17,7 @@ function M.write(ctx, task, status, stage, counters)
     record.status, record.stage = status, stage or ''
     record.business_date = ctx.config and ctx.config.business_date
     records(ctx)[task] = record
+    require('completion').write(ctx,task,status,stage)
     return record
 end
 return M

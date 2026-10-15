@@ -1,14 +1,4 @@
 {
-  "source": "debug-runs/20261014_114530/res/daily_20261014_114530_003_rewards_special_empty.png",
-  "source_sha256": "677dcd9b8bd31a4ee8742ec309476a078fe0b3ccd31b443a770bca64b81630e7",
-  "review": {
-    "status": "reviewed",
-    "kind": "flow_controls",
-    "reviewer": "主 Agent",
-    "method": "independent_visual_review",
-    "reviewed_at": "2026-10-14",
-    "original_frame": "full_900x1600"
-  },
   "expected": {
     "state": "inventory",
     "selected_category": "special",

@@ -5,6 +5,7 @@ import sys
 import time
 import unittest
 import io
+import os
 from concurrent.futures import ProcessPoolExecutor
 from collections import Counter
 
@@ -131,7 +132,12 @@ def tooling_tests(groups):
 def recognition_tests(groups):
     # Its GPU worker pool stays separate from unit-test mocks and tool patches.
     suite=unittest.TestLoader().loadTestsFromName(CORPUS_PREFIX+RECOGNITION_METHOD)
-    return run_captured(select_tests(suite,groups,recognition=True))
+    selected=select_tests(suite,groups,recognition=True)
+    from tests.support.lua_runtime import freeze_module_versions
+    # Reuse processes and GPU contexts across categories, keeping every check.
+    with ProcessPoolExecutor(max_workers=min(8,max(1,(os.cpu_count() or 1)-4)),initializer=freeze_module_versions) as pool:
+        for test in flatten(selected):test.executor=pool
+        return run_captured(selected)
 
 
 def main():

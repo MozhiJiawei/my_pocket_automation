@@ -30,7 +30,7 @@ class MultiRoleTest(unittest.TestCase):
                 package.preload['tasks.'..name..'.task']=function() return {run=function(c)
                     assert(c.identity_verified)
                     calls[#calls+1]={c.account.alias,task,c.account.claim_dungeon_rewards}
-                    return {status=c.account.alias==failed_role and 'paused' or 'done',reason='fixture'}
+                    return {status=c.account.alias==failed_role and (incomplete_status or 'paused') or 'done',reason='fixture'}
                 end} end
             end
         ''')
@@ -81,6 +81,22 @@ class MultiRoleTest(unittest.TestCase):
                          [(alias,task) for alias in ('first','second') for task in ('shimen','zhuagui','dungeon','rewards')])
         self.assertIn(('summary','scope=roles roles_expected=2 roles_completed=2 all_roles_done=true selected_done=true daily_done=true'),events)
 
+    def test_five_roles_resume_completed_tasks_after_identity_checks(self):
+        self.lua.execute('''
+            ctx.config.tasks={'shimen','zhuagui','dungeon','rewards'}
+            for i=3,5 do ctx.config.accounts[i]={alias='role'..i} end
+            package.preload['completion']=function() return {
+                read=function(c,task)
+                    assert(c.identity_verified)
+                    if task=='shimen' and c.account.alias~='second' then return {status='done'} end
+                end
+            } end
+        ''')
+        events=self.run_daily()
+        self.assertEqual(list(self.lua.globals().visits.values()),['first','second','role3','role4','role5'])
+        self.assertEqual(len(list(self.lua.globals().calls.values())),16)
+        self.assertIn(('summary','scope=roles roles_expected=5 roles_completed=5 all_roles_done=true selected_done=true daily_done=true'),events)
+
     def test_selected_modules_keep_fixed_order_without_adding_missing_tasks(self):
         self.lua.execute("ctx.config.tasks={'rewards','shimen'};ctx.config.selected_accounts={'second'}")
         events=self.run_daily()
@@ -120,11 +136,17 @@ class MultiRoleTest(unittest.TestCase):
         self.run_daily()
         self.assertEqual(len(self.lua.globals().calls),0)
 
-    def test_wrong_identity_has_no_task_actions_and_next_role_is_attempted(self):
+    def test_wrong_identity_stops_before_switching_to_another_role(self):
         self.lua.execute("bad_identity='first'")
         self.run_daily()
-        self.assertEqual(list(self.lua.globals().visits.values()),['first','second'])
-        self.assertEqual([c[1] for c in self.lua.globals().calls.values()],['second','second'])
+        self.assertEqual(list(self.lua.globals().visits.values()),['first'])
+        self.assertEqual(len(self.lua.globals().calls),0)
+
+    def test_running_task_cannot_start_next_task_or_role(self):
+        self.lua.execute("failed_role='first';incomplete_status='running'")
+        self.run_daily()
+        self.assertEqual(list(self.lua.globals().visits.values()),['first'])
+        self.assertEqual([(c[1],c[2]) for c in self.lua.globals().calls.values()],[('first','zhuagui')])
 
     def test_unconfigured_roster_blocks_all_paid_actions(self):
         self.lua.execute('roster=false')
@@ -137,6 +159,18 @@ class MultiRoleTest(unittest.TestCase):
         events=self.run_daily()
         self.assertEqual(list(self.lua.globals().visits.values()),['first'])
         self.assertIn(('summary','all_roles_done=false selected_done=false daily_done=false reason=return_home_not_verified'),events)
+
+    def test_failed_return_home_stops_even_if_a_later_attempt_would_succeed(self):
+        self.lua.execute('''
+            finishes=0
+            require('common.navigation').finish_account=function()
+                finishes=finishes+1
+                return finishes>1
+            end
+        ''')
+        self.run_daily()
+        self.assertEqual(list(self.lua.globals().visits.values()),['first'])
+        self.assertEqual(self.lua.globals().finishes,1)
 
 
 if __name__=='__main__': unittest.main()
