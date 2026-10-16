@@ -214,6 +214,14 @@ class ScreenCaptureInitializationTest(unittest.TestCase):
         self.assertEqual(list(self.lua.globals().calls.values()),
                          ['init:0', 'init:1', 'init:2', 'init:0'])
 
+    def test_restart_refreshes_capture_after_previous_portrait_initialization(self):
+        self.lua.execute("resetScreen=function() table.insert(calls,'reset') end")
+        self.screen.init(0)
+        self.screen.init(1, True)
+        self.screen.init(0)
+        self.assertEqual(list(self.lua.globals().calls.values()),
+                         ['reset', 'init:0', 'reset', 'init:1', 'init:0'])
+
 
 if __name__ == '__main__':
     unittest.main()

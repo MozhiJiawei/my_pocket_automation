@@ -32,8 +32,9 @@ class CatalogTest(unittest.TestCase):
                     assert(feature=='retry' or feature=='dialogue' or feature=='depart','candidate/accept clicks forbidden')
                     table.insert(taps,feature); state=delayed_open and 'unknown' or feature=='dialogue' and 'depart' or 'find'; return true
                 end,
-                swipe=function(c,feature)
+                swipe=function(c,feature,label,start,finish)
                     assert(feature=='find_title'); swipes=swipes+1
+                    assert(start[2]-finish[2]==400,'capture must retain overlapping complete rows')
                     if expire_page then state='retry'; return false end
                     if expire_after_swipe then state='retry'; return true end
                     return not break_page

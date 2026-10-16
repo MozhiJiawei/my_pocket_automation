@@ -213,21 +213,36 @@ return_home=function(ctx)
 end
 M.return_home=return_home
 local function enter_pocket(ctx,restarted)
-    require('common.screen').init(1)
-    if restarted and not device.wait(function() return detector.present(entry) or detector.present(confirm) end,360) then
-        require('common.screen').init(0)
-        log.write(ctx,'account_blocked','restarted_login_entry_not_verified')
+    local screen=require('common.screen')
+    -- A restarted game changes from portrait Pocket to landscape login.
+    screen.init(1,restarted)
+    local function finish(ok,reason)
+        screen.init(0)
+        if reason then log.write(ctx,'account_blocked',reason) end
+        return ok
+    end
+    local action,observed=nil,false
+    local entered=device.wait(function()
+        for _,target in ipairs({{confirm,'pocket_confirm'},{entry,'pocket_entry'}}) do
+            if detector.present(target[1]) then
+                observed=true
+                -- A false tap sent no input: the animated target changed during
+                -- revalidation. Wait for it again; never repeat a sent tap.
+                if device.tap(ctx,target[1],target[2]) then action=target[2];return true end
+            end
+        end
         return false
+    end,restarted and 360 or 1)
+    if not entered then
+        if restarted or observed then return finish(false,'pocket_entry_not_actionable') end
+        return finish(true)
     end
-    if detector.present(confirm) then
-        if not device.tap(ctx, confirm, 'pocket_confirm') then return false end
-    elseif detector.present(entry) then
-        if not device.tap(ctx, entry, 'pocket_entry') then return false end
-        if not device.wait(function() return detector.present(confirm) end, 20) then return false end
-        if not device.tap(ctx, confirm, 'pocket_confirm') then return false end
+    if action=='pocket_entry' and not device.wait(function()
+        return detector.present(confirm) and device.tap(ctx,confirm,'pocket_confirm')
+    end,20) then
+        return finish(false,'pocket_confirmation_not_verified')
     end
-    require('common.screen').init(0)
-    return true
+    return finish(true)
 end
 local function restart_pocket(ctx)
     log.write(ctx,'entry_recovery','restart_game_for_saved_role')

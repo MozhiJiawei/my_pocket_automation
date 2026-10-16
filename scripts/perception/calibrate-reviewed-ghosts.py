@@ -21,16 +21,24 @@ def main():
            'skeleton':'抓鬼/找鬼/骷髅怪/第01轮/第01页.png'}
     lines=['-- Generated from verified answers; see calibrate-reviewed-ghosts.py.','return {']
     evidence=[]
+    ghost_topics={'wild':'野鬼','horse':'马面','bull':'牛头','zombie':'僵尸','skeleton':'骷髅怪'}
     for name,cid in seeds.items():
-        case=cases[cid];truth=case['truth']['target_regions']
-        assert truth['status'] in VERIFIED and case['capture']['split']=='calibration'
-        frame=cv2.imdecode(np.fromfile(validate(case),dtype=np.uint8),1)
+        topic=ghost_topics.get(name)
+        additions=[case for key,case in sorted(cases.items(),reverse=True)
+                   if topic and key!=cid and key.startswith('抓鬼/找鬼/'+topic+'/')
+                   and case['capture']['split']=='calibration'
+                   and case['truth'].get('target_regions',{}).get('status') in VERIFIED
+                   and case['truth']['target_regions'].get('value')]
         lines.append('['+json.dumps(name)+']={')
-        for box in truth['value']:
-            x1,y1,x2,y2=box;points=sampler.sample(frame[y1:y2,x1:x2]);ax,ay,base=points[0]
-            offsets=','.join(f'{x-ax}|{y-ay}|0x{color:06x}' for x,y,color in points[1:])
-            lines.append('{width=900,height=1600,base=0x%06x,offsets=%s,degree=90,region={65,540,825,1405},tap_offset={%d,%d},calibration_id=%s},'%(base,json.dumps(offsets),(x2-x1)//2-ax,(y2-y1)//2-ay,json.dumps(cid,ensure_ascii=False)))
-            evidence.append({'name':name,'case_id':cid,'region':box,'source':truth['source']})
+        for case in additions+[cases[cid]]:
+            truth=case['truth']['target_regions']
+            assert truth['status'] in VERIFIED and case['capture']['split']=='calibration'
+            frame=cv2.imdecode(np.fromfile(validate(case),dtype=np.uint8),1)
+            for box in truth['value']:
+                x1,y1,x2,y2=box;points=sampler.sample(frame[y1:y2,x1:x2]);ax,ay,base=points[0]
+                offsets=','.join(f'{x-ax}|{y-ay}|0x{color:06x}' for x,y,color in points[1:])
+                lines.append('{width=900,height=1600,base=0x%06x,offsets=%s,degree=90,region={65,540,825,1405},tap_offset={%d,%d},calibration_id=%s},'%(base,json.dumps(offsets),(x2-x1)//2-ax,(y2-y1)//2-ay,json.dumps(case['id'],ensure_ascii=False)))
+                evidence.append({'name':name,'case_id':case['id'],'region':box,'source':truth['source']})
         lines.append('},')
     lines.append('}')
     folder=ROOT/'src/tasks/zhuagui/assets'

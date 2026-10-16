@@ -7,6 +7,27 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class ShimenPuzzleTest(unittest.TestCase):
+    def test_unfinished_entry_moves_independently_of_the_first_card(self):
+        import numpy as np
+        from tests.support.touchsprite_adapter import Screen
+        from tests.support.lua_runtime import Runtime
+        folder=ROOT/'testdata/师门/页面/师门入口位置变化'
+        original=Screen.read(folder/'画面.png').frame
+        for shift in (0,150,300):
+            with self.subTest(scroll_pixels=shift):
+                frame=original.copy()
+                frame[304:1420]=np.roll(original[304:1420],-shift,axis=0)
+                runtime=Runtime(Screen(frame))
+                try:
+                    pages=runtime.require('tasks.shimen.pages')
+                    self.assertEqual(pages.state(),'task_list')
+                    found=runtime.require('common.detector').find(pages.features.task_card)
+                    self.assertIsNotNone(found)
+                    self.assertTrue(620-shift<=found['y']<=690-shift)
+                    offset=found['tap_offset'] or pages.features.task_card.tap_offset
+                    self.assertTrue(620-shift<=found['y']+offset[2]<=880-shift)
+                finally:runtime.close()
+
     def test_reviewed_completed_card_remains_identifiable_at_scroll_positions(self):
         import numpy as np
         from scripts.perception.lib.corpus import read_answers
@@ -151,7 +172,7 @@ class ShimenPuzzleTest(unittest.TestCase):
     def test_imported_resources_have_four_bounded_features_each(self):
         lua=LuaRuntime(unpack_returned_tuples=True)
         data=lua.execute((ROOT/'src/tasks/shimen/assets/legacy_puzzles.lua').read_text(encoding='utf-8'))
-        self.assertEqual(len(list(data.families.keys())),37)
+        self.assertEqual(len(list(data.families.keys())),38)
         self.assertIn('老虎',data.families)
         self.assertIn('地狱战神',data.families)
         self.assertIn('雨师',data.families)
@@ -162,6 +183,7 @@ class ShimenPuzzleTest(unittest.TestCase):
         self.assertIn('蛟龙',data.families)
         self.assertIn('巡游天神',data.families)
         self.assertIn('绿发蝶翼少女',data.families)
+        self.assertIn('金发披甲男子',data.families)
         for features in data.families.values():
             self.assertEqual(len(features),4)
             for feature in features.values():

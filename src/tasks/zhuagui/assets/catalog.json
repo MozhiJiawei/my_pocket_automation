@@ -1,28 +1,12 @@
 {
   "counts": {
-    "黄纸": {
-      "expanded": 64,
-      "retained": 8
-    },
-    "酒": {
-      "expanded": 256,
-      "retained": 56
-    },
     "tiger_wine": {
       "expanded": 24,
       "retained": 8
     },
-    "黄金": {
-      "expanded": 168,
+    "书画": {
+      "expanded": 128,
       "retained": 24
-    },
-    "香": {
-      "expanded": 64,
-      "retained": 8
-    },
-    "兵器": {
-      "expanded": 224,
-      "retained": 176
     },
     "snake_wine": {
       "expanded": 32,
@@ -32,56 +16,72 @@
       "expanded": 24,
       "retained": 8
     },
-    "plum_wine": {
-      "expanded": 24,
+    "蜡烛": {
+      "expanded": 32,
       "retained": 8
+    },
+    "黄金": {
+      "expanded": 168,
+      "retained": 24
     },
     "书籍": {
       "expanded": 272,
       "retained": 72
     },
-    "书画": {
-      "expanded": 128,
-      "retained": 24
-    },
-    "蜡烛": {
-      "expanded": 32,
+    "黄纸": {
+      "expanded": 64,
       "retained": 8
+    },
+    "香": {
+      "expanded": 64,
+      "retained": 8
+    },
+    "酒": {
+      "expanded": 256,
+      "retained": 56
+    },
+    "plum_wine": {
+      "expanded": 24,
+      "retained": 8
+    },
+    "兵器": {
+      "expanded": 224,
+      "retained": 176
     },
     "牛头": {
       "expanded": 8,
       "retained": 8
     },
-    "horse": {
-      "expanded": 8,
+    "incense": {
+      "expanded": 16,
       "retained": 8
     },
     "bull": {
       "expanded": 8,
       "retained": 8
     },
-    "zombie": {
-      "expanded": 8,
-      "retained": 8
-    },
     "wild": {
-      "expanded": 8,
-      "retained": 8
-    },
-    "skeleton": {
-      "expanded": 8,
+      "expanded": 24,
       "retained": 8
     },
     "paper": {
       "expanded": 8,
       "retained": 8
     },
-    "candle": {
+    "skeleton": {
+      "expanded": 16,
+      "retained": 8
+    },
+    "zombie": {
       "expanded": 8,
       "retained": 8
     },
-    "incense": {
-      "expanded": 16,
+    "horse": {
+      "expanded": 32,
+      "retained": 8
+    },
+    "candle": {
+      "expanded": 8,
       "retained": 8
     }
   },

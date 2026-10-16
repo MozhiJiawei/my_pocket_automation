@@ -163,6 +163,22 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assertEqual(list(self.lua.globals().taps.values()),['retry']*3)
         self.assert_no_accept()
 
+    def test_failed_find_dialogue_has_the_same_three_retry_limit(self):
+        self.prepare_weapon_retry(failure_state='dialogue')
+        self.lua.execute("local previous=require('common.device').tap;require('common.device').tap=function(c,f,label) local ok=previous(c,f,label);if f=='dialogue_next' then state='find' end;return ok end")
+        self.assertEqual(self.run_task()['reason'],'find_retry_limit')
+        self.assertEqual(self.lua.globals().solve_calls,4)
+        self.assertEqual(list(self.lua.globals().taps.values()),['dialogue_next']*3)
+        self.assertEqual(self.lua.globals().record.find_retries,3)
+        self.assert_no_accept()
+
+    def test_failed_find_dialogue_can_retry_and_deliver(self):
+        self.prepare_weapon_retry(success_after=2,failure_state='dialogue')
+        self.lua.execute("local previous=require('common.device').tap;require('common.device').tap=function(c,f,label) local ok=previous(c,f,label);if f=='dialogue_next' then state='find' end;return ok end")
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(list(self.lua.globals().taps.values()),['dialogue_next'])
+        self.assert_no_accept()
+
     def test_retry_limit_is_retained_within_this_invocation(self):
         self.prepare_weapon_retry(retries=3)
         self.lua.execute("state='retry'")

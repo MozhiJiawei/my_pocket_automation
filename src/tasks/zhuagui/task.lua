@@ -211,7 +211,10 @@ local function drive(ctx,stop_after_one)
                 if not retryable then return result('paused',reason) end
                 record.find_retry_pending=1
                 progress.write(ctx,'zhuagui','running','find_recognition_failed',record)
-                if not device.wait(function() return pages.state()=='retry' end,120,300) then
+                if not device.wait(function()
+                    local next_state=pages.state()
+                    return next_state=='retry' or next_state=='dialogue'
+                end,120,300) then
                     return result('paused',reason)
                 end
                 log.write(ctx,'find_retry_pending','reason=' .. reason)
@@ -230,7 +233,7 @@ local function drive(ctx,stop_after_one)
             else
                 actions=actions+1
                 if actions>12 then snapshot.capture(ctx,'action_limit'); return result('paused','action_limit') end
-                if state=='retry' then
+                if state=='retry' or (state=='dialogue' and record.find_retry_pending==1) then
                     if record.find_retry_pending~=1 then
                         snapshot.capture(ctx,'unexpected_retry_page')
                         return result('paused','retry_without_recognition_failure')

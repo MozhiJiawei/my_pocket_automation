@@ -103,6 +103,13 @@ class DeviceDiagnosticsTest(unittest.TestCase):
         self.lua.execute("config.step='browse'")
         self.assertTrue(any(event=='screen_resume' for event,_ in self.execute()))
 
+    def test_single_step_recovers_visible_ghost_dialogue_without_navigation(self):
+        self.configure_owned_ghost_recovery(False)
+        self.lua.execute("config.step='advance'")
+        events=self.execute()
+        self.assertTrue(any(event=='screen_resume' for event,_ in events))
+        self.assertFalse(any('account status=blocked' in detail for _,detail in events))
+
     def test_ghost_recovers_visible_dialogue_without_old_state(self):
         self.configure_owned_ghost_recovery(False)
         self.assertTrue(any(event=='screen_resume' for event,_ in self.execute()))
@@ -118,6 +125,24 @@ class DeviceDiagnosticsTest(unittest.TestCase):
         events=self.execute()
         self.assertTrue(any(event=='screen_resume' for event,_ in events))
         self.assertFalse(any(event=='failed' for event,_ in events))
+
+    def test_shimen_idle_pages_verify_identity_before_task_execution(self):
+        for state in ('ready', 'completed_card'):
+            with self.subTest(state=state):
+                self.setUp()
+                self.lua.globals().idle_state=state
+                self.lua.execute('''
+                    config.step='complete';config.task='shimen';config.verify_role=true
+                    package.preload['tasks.shimen.pages']=function() return {state=function() return idle_state end} end
+                    package.preload['common.navigation']=function() return {prepare_recorded=function(ctx)
+                        ctx.identity_verified=true;return true end} end
+                    package.preload['tasks.shimen.task']=function() return {run=function(ctx)
+                        assert(ctx.identity_verified,'idle page must verify home identity first')
+                        return {status='done',reason='verified'} end} end
+                ''')
+                events=self.execute()
+                self.assertIn(('task_result', 'shimen status=done reason=verified'), events)
+                self.assertFalse(any(event in ('failed','screen_resume') for event,_ in events))
 
 
 if __name__ == '__main__':

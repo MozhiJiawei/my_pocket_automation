@@ -127,6 +127,45 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertTrue(self.lua.globals().ctx.identity_verified)
         self.assertEqual(self.lua.globals().restarts,1)
 
+    def test_restarted_login_disappearing_after_wait_is_not_accepted(self):
+        self.lua.execute('''
+            scene='settings';blocked_settings=true;entry_reads=0
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if f.kind=='entry' then
+                    entry_reads=entry_reads+1
+                    return scene=='entry' and entry_reads==1
+                end
+                return present(f)
+            end
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if f.kind=='entry' then return false end
+                return tap(c,f,label)
+            end
+        ''')
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(bool(self.lua.globals().ctx.identity_verified))
+        self.assertEqual(self.lua.globals().logs[len(self.lua.globals().logs)][2],
+                         'pocket_entry_not_actionable')
+
+    def test_restarted_login_retries_only_targets_that_changed_before_input(self):
+        self.lua.execute('''
+            scene='settings';blocked_settings=true;entry_attempts=0;selected='second'
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if f.kind=='entry' then
+                    entry_attempts=entry_attempts+1
+                    if entry_attempts<3 then return false end
+                end
+                return tap(c,f,label)
+            end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertEqual(self.lua.globals().entry_attempts,3)
+        self.assertEqual(list(self.lua.globals().taps.values()).count('pocket_entry'),1)
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+
     def test_incident_close_requires_verified_disappearance(self):
         self.lua.execute("""
             scene='home';incident_visible=true

@@ -41,8 +41,11 @@ local ok, err = pcall(function()
                 local active=config.task~='rewards' and (ghost and ({battle=true,go=true,depart=true,dialogue=true,find=true,retry=true,puzzle=true,puzzle_retry=true})[state]
                     or not ghost and (state=='battle' or state=='loading' or state==(config.dungeon or 'wuji')..'_active')
                 )
-                if shimen then active=state~='unknown' and state~='home' and state~='task_list' end
-                local recovery=config.step=='complete' or (ghost and config.step=='browse') or (shimen and config.step=='advance')
+                if shimen then
+                    active=state~='unknown' and state~='home' and state~='task_list' and
+                        state~='ready' and state~='completed_card'
+                end
+                local recovery=config.step=='complete' or (ghost and config.step=='browse') or ((ghost or shimen) and config.step=='advance')
                 if recovery and active then
                     log.write(ctx,'screen_resume','task='..config.task..' state='..state..' identity_unverified_no_new_accept_or_reward_claim')
                 elseif not require('common.navigation').prepare_recorded(ctx) then

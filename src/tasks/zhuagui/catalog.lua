@@ -10,7 +10,8 @@ function M.capture(ctx,prefix)
     local captured=1
     for page=2,7 do
         -- Each saved page is the next swipe's before evidence.
-        if not device.swipe(ctx,pages.features.find_title,prefix .. 'scroll_' .. page,{730,1350},{730,750},
+        -- Keep multiple complete rows overlapping; a longer drag can skip faded rows.
+        if not device.swipe(ctx,pages.features.find_title,prefix .. 'scroll_' .. page,{730,1350},{730,950},
             {capture_before=false,capture_after=false,settle_ms=350}) or pages.state()~='find' then
             snapshot.capture(ctx,prefix .. 'incomplete')
             return {status='paused',reason='catalog_page_changed',pages=captured}
