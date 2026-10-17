@@ -41,9 +41,9 @@ class ProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             base=Path(folder).as_posix()
             lua.execute(f"ctx={{run_id='fake',config={{}},log_path='{base}/debug.log',error_path='{base}/error.log',profile_path='{base}/profile.log'}};nLog=function() end")
-            lua.execute("ctx.profile={started=100,clock=function() return 350 end};local l=require('dfx.log');l.write(ctx,'state','battle');l.write(ctx,'tap','noise');l.write(ctx,'error','fault');l.write(ctx,'profile','timing');require('dfx.snapshot').capture(ctx,'before','debug')")
-            self.assertIn('battle',Path(folder,'debug.log').read_text())
-            self.assertIn('[elapsed_ms=250][state] battle',Path(folder,'debug.log').read_text())
+            lua.execute("ctx.profile={started=100,clock=function() return 350 end};local l=require('dfx.log');l.write(ctx,'task_start','dungeon');l.write(ctx,'state','battle');l.write(ctx,'tap','noise');l.write(ctx,'error','fault');l.write(ctx,'profile','timing');require('dfx.snapshot').capture(ctx,'before','debug')")
+            self.assertIn('[elapsed_ms=250][task_start] dungeon',Path(folder,'debug.log').read_text())
+            self.assertNotIn('battle',Path(folder,'debug.log').read_text())
             self.assertNotIn('noise',Path(folder,'debug.log').read_text())
             self.assertIn('fault',Path(folder,'error.log').read_text())
             self.assertIn('timing',Path(folder,'profile.log').read_text())

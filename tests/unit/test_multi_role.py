@@ -115,6 +115,30 @@ class MultiRoleTest(unittest.TestCase):
         self.assertEqual(list(self.lua.globals().visits.values()),['first'])
         self.assertTrue(any('all_roles_done=false' in detail for event,detail in events if event=='summary'))
 
+    def test_returned_failure_evidence_prevents_a_duplicate_outer_capture(self):
+        self.lua.execute('''
+            captures={}
+            package.preload['dfx.snapshot']=function() return {capture=function(c,label)
+                captures[#captures+1]=label;return label..'.png' end} end
+            package.preload['tasks.zhuagui.task']=function() return {run=function(c)
+                return {status='paused',reason='find_icon_not_found',
+                    failure_evidence=require('dfx.snapshot').capture(c,'find_icon_not_found')}
+            end} end
+        ''')
+        events=self.run_daily()
+        self.assertEqual(list(self.lua.globals().captures.values()),['find_icon_not_found'])
+        self.assertIn(('task_result','zhuagui status=paused reason=find_icon_not_found'),events)
+        self.assertFalse(any(event=='account_result' for event,_ in events))
+
+    def test_missing_task_failure_evidence_still_gets_an_outer_capture(self):
+        self.lua.execute('''
+            captures={};failed_role='first'
+            package.preload['dfx.snapshot']=function() return {capture=function(c,label)
+                captures[#captures+1]=label end} end
+        ''')
+        self.run_daily()
+        self.assertEqual(list(self.lua.globals().captures.values()),['task_zhuagui_incomplete'])
+
     def test_configured_role_subset_and_task_subset_are_respected(self):
         self.lua.execute("ctx.config.accounts[3]={alias='third'};ctx.config.selected_accounts={'first','third'};ctx.config.tasks={'dungeon'}")
         events=self.run_daily()

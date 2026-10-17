@@ -4,12 +4,13 @@ local device=require('common.device')
 local progress=require('progress')
 local log=require('dfx.log')
 local snapshot=require('dfx.snapshot')
+local materials=require('dfx.materials')
 local list=require('common.list_navigation')
 local FIND_ATTEMPT_LIMIT=4 -- First attempt plus at most three free retries.
-local function result(status,reason) return {status=status,reason=reason} end
+local function result(status,reason,evidence) return {status=status,reason=reason,failure_evidence=evidence} end
 local function stop(ctx,reason,status)
-    snapshot.capture(ctx,reason)
-    return result(status or 'paused',reason)
+    materials.keep(ctx,reason)
+    return result(status or 'paused',reason,snapshot.capture(ctx,reason))
 end
 local function open_list_card(ctx)
     local spec={name='shimen_entry_or_completed',page=pages.features.task_list,
@@ -33,7 +34,8 @@ local function audit_existing_completion(ctx)
         ctx.config.business_date~=os.date('%Y%m%d') or pages.state()~='completed_card' then
         return stop(ctx,'shimen_existing_completion_not_verified','blocked')
     end
-    snapshot.capture(ctx,'shimen_existing_completion_card')
+    snapshot.capture(ctx,'shimen_existing_completion_card','debug')
+    materials.clear(ctx)
     progress.write(ctx,'shimen','done','completion_card_verified')
     log.write(ctx,'shimen_completed','completion_card=true business_date='..ctx.config.business_date)
     return result('done','completion_card_verified')
@@ -75,21 +77,46 @@ local function find(ctx,record)
     record.find_retry_pending=1
     progress.write(ctx,'shimen','running','find_attempt_reserved',record)
     log.write(ctx,'shimen_find_attempt','attempt='..record.find_attempts..'/'..FIND_ATTEMPT_LIMIT)
+    local prepared,prepare_reason=materials.prepare(ctx,'shimen','find')
+    if not prepared then return stop(ctx,prepare_reason) end
     local ok,reason=require('tasks.shimen.find').solve(ctx)
     if not ok then
-        snapshot.capture(ctx,reason)
+        materials.keep(ctx,reason)
+        local evidence=snapshot.capture(ctx,reason)
         progress.write(ctx,'shimen','running','find_recognition_failed',record)
         log.write(ctx,'annotation_required','task=shimen reason='..reason)
-        if record.find_attempts>=FIND_ATTEMPT_LIMIT then return stop(ctx,'find_retry_limit_reached','blocked') end
-        return result('paused',reason)
+        if record.find_attempts>=FIND_ATTEMPT_LIMIT then return result('blocked','find_retry_limit_reached',evidence) end
+        return result('paused',reason,evidence)
     end
     record.find_retry_pending=0
     progress.write(ctx,'shimen','running','find_exit_requires_delivery_verification',record)
     return result('paused','one_minigame_completed')
 end
+local function browse(ctx)
+    -- Only a verified free retry guarantees a fresh first screen. Never sample
+    -- a current find page whose scroll position and selected items are unknown.
+    if pages.state()~='retry' then return stop(ctx,'shimen_catalog_retry_required') end
+    if not device.tap(ctx,pages.actions.retry,'shimen_catalog_free_retry',function()
+        return pages.state()=='retry'
+    end) or not device.wait(function()
+        local state=pages.state()
+        return state=='find' or state=='prepare_find'
+    end,20) then return stop(ctx,'shimen_catalog_retry_not_verified') end
+    if pages.state()=='prepare_find' then
+        if not device.tap(ctx,pages.actions.prepare_find,'shimen_catalog_prepare_find',function()
+            return pages.state()=='prepare_find'
+        end) or not device.wait(function() return pages.state()=='find' end,20) then
+            return stop(ctx,'shimen_catalog_find_not_open')
+        end
+    end
+    log.write(ctx,'catalog_round','task=shimen target='..tostring(require('tasks.shimen.find').identify())..
+        ' candidate_taps=0 new_accepts=0')
+    return require('tasks.zhuagui.catalog').capture(ctx,'shimen_catalog_')
+end
 function M.run(ctx)
     if ctx.config.step=='observe' then M.observe(ctx);return result('paused','observation_only') end
     if ctx.config.step=='enter' then return enter(ctx) end
+    if ctx.config.step=='browse' then return browse(ctx) end
     local record=progress.read(ctx,'shimen')
     local step=ctx.config.step
     local initial=pages.state()
@@ -118,13 +145,21 @@ function M.run(ctx)
             return stop(ctx,'puzzle_game_result_not_verified')
         elseif state=='puzzle' then
             puzzle_attempted=true
+            local prepared,prepare_reason=materials.prepare(ctx,'shimen','puzzle')
+            if not prepared then return stop(ctx,prepare_reason) end
             local solved,reason=require('tasks.shimen.puzzle').solve(ctx,ctx.config.shimen_puzzle_family or 'auto')
             if not solved then return stop(ctx,reason) end
             progress.write(ctx,'shimen','running','puzzle_exit_requires_delivery_verification',record)
             if step=='advance' then return result('paused','one_minigame_completed') end
         elseif state=='find' then
             local outcome=find(ctx,record)
-            if outcome.reason~='one_minigame_completed' or step=='advance' then return outcome end
+            if outcome.reason=='one_minigame_completed' then
+                if step=='advance' then return outcome end
+            elseif step~='advance' and outcome.status~='blocked' and
+                ({find_icon_not_found=true,find_target_unknown=true,find_time_expired=true})[outcome.reason] and
+                device.wait(function() return pages.state()=='retry' end,120,300) then
+                log.write(ctx,'find_retry_pending','task=shimen reason='..outcome.reason)
+            else return outcome end
         elseif state=='story_dialogue' then
             actions=actions+1
             if actions>12 then return stop(ctx,'shimen_action_limit') end
@@ -153,6 +188,7 @@ function M.run(ctx)
                     return stop(ctx,'role_identity_not_verified','blocked')
                 end
             else
+                materials.clear(ctx)
                 progress.write(ctx,'shimen','running','delivery_verified',record)
                 log.write(ctx,'shimen_delivery','idle_page=true')
                 snapshot.capture(ctx,'shimen_completion_evidence','debug')
@@ -195,6 +231,7 @@ function M.run(ctx)
             end
         elseif state=='idle' then
             if not ctx.identity_verified then return stop(ctx,'role_identity_not_verified','blocked') end
+            materials.clear(ctx)
             progress.write(ctx,'shimen','paused','one_task_completed',record)
             snapshot.capture(ctx,'shimen_completion_evidence','debug')
             return result('paused','one_task_completed')

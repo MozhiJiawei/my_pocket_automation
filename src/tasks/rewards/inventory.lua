@@ -6,8 +6,7 @@ local snapshot=require('dfx.snapshot')
 local M={}
 local function result(status,reason) return {status=status,reason=reason} end
 local function stop(ctx,reason)
-    snapshot.capture(ctx,reason)
-    return result('paused',reason)
+    return {status='paused',reason=reason,failure_evidence=snapshot.capture(ctx,reason)}
 end
 function M.clear(ctx,category)
     if not pages.select_category(ctx,category) then return stop(ctx,'rewards_category_not_verified') end
@@ -18,7 +17,7 @@ function M.clear(ctx,category)
         local state=pages.state()
         if state=='inventory' then
             if pages.empty_category() then
-                snapshot.capture(ctx,'rewards_'..category..'_empty')
+                snapshot.capture(ctx,'rewards_'..category..'_empty','debug')
                 log.write(ctx,'rewards_category_empty','category='..category)
                 return result('done','category_empty')
             end

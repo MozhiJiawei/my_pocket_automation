@@ -27,6 +27,11 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                 return record and record.attempts or 0
             end} end
             package.preload['dfx.log']=function() return {write=function() end} end
+            material_events={}
+            package.preload['dfx.materials']=function() return {
+                prepare=function(c,task,kind) material_events[#material_events+1]='prepare_'..kind;return true end,
+                keep=function(c,reason) material_events[#material_events+1]='keep_'..reason end,
+                clear=function() material_events[#material_events+1]='clear' end} end
             package.preload['dfx.snapshot']=function() return {capture=function() end} end
             package.preload['common.detector']=function() return {present=function(feature)
                 if feature=='task_card' then
@@ -93,6 +98,16 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().record.stage,'completion_card_verified')
         self.assertIsNone(self.lua.globals().record.attempts)
         self.assert_no_accept()
+
+    def test_incomplete_materials_stop_before_solver_or_paid_retry(self):
+        self.lua.execute('''
+            ctx.config.step='advance';state='find'
+            require('dfx.materials').prepare=function() return false,'catalog_first_frame_not_restored' end
+            package.preload['tasks.zhuagui.find']=function() return {solve=function()
+                error('must not solve without full originals') end} end
+        ''')
+        self.assertEqual(self.run_task()['reason'],'catalog_first_frame_not_restored')
+        self.assertEqual(len(self.lua.globals().taps),0)
 
     def assert_no_accept(self):
         self.assertNotIn('accept', list(self.lua.globals().taps.values()))

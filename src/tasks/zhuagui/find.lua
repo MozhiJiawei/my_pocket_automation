@@ -9,6 +9,9 @@ local expired=require('tasks.zhuagui.assets.find_time_expired')
 local M={}
 local matcher=require('common.find_items')
 local function collect_failure(ctx,name,category,reason)
+    if ctx.recognition_materials and ctx.recognition_materials.captured then
+        return false,reason,category
+    end
     log.write(ctx,'find_collection','target=' .. tostring(name) .. ' category=' .. tostring(category) ..
         ' reason=' .. reason .. ' matching_started=false candidate_taps=0')
     local captured=require('tasks.zhuagui.catalog').capture(ctx,'find_unmatched_')

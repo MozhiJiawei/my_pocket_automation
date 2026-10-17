@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import time
 import re
+import sys
 
 from build import ROOT, build
 from dfx_device import Device, command
@@ -81,6 +82,8 @@ def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tas
         expected_pause=mode=='run'
     if task=='shimen' and step=='advance':
         expected_pause=mode=='run' and reason in ('one_minigame_completed','one_task_completed')
+    if task=='shimen' and step=='browse':
+        expected_pause=mode=='run' and reason=='find_catalog_observation_only'
     if task=='rewards':
         expected_pause=mode=='run' and reason in {
             'enter': ('rewards_inventory_observed',),
@@ -125,6 +128,12 @@ def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tas
                                and summary.get('roles_completed')==str(len(expected_aliases)))
         acceptable=script=='succeeded' and selected_complete and not any(item['status']!='done' for item in tasks)
         if not acceptable and business=='done': business,reason='incomplete','all_roles_not_verified'
+    if step=='launch-game':
+        acceptable = (mode=='run' and script=='succeeded' and business=='done' and len(tasks)==1
+                      and tasks[0]==dict(account=None,task='startup',status='done',reason='game_entry_verified')
+                      and summary.get('scope')=='application_startup' and summary.get('daily_done')=='false')
+        if not acceptable and business=='done':
+            business,reason='incomplete','application_entry_not_verified'
     return {'script_status': script, 'business_status': business, 'termination_reason': reason,
             'tasks': tasks, 'device_summary': summary, 'selected_complete':selected_complete,
             'daily_complete': bool(selected_complete and summary.get('daily_done')=='true'),
@@ -133,6 +142,9 @@ def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tas
 
 def run_once(args, accounts, max_seconds, run_id, archive):
     """A single attempt; never retry a launch, even when its response is lost."""
+    if args.step=='launch-game' and (args.mode!='run' or getattr(args,'task','dungeon')!='dungeon'
+            or accounts or getattr(args,'account',None) or getattr(args,'select_accounts',None)):
+        raise ValueError('Application startup requires run mode without role or task selection')
     validate_rewards_options(args)
     if getattr(args, 'task', None)=='rewards' and args.mode=='run':
         selected=[item for item in accounts if item['alias']==args.account]
@@ -162,7 +174,7 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         pending.replace(result_path)
 
     shell = shutil.which('pwsh') or 'powershell'
-    device = Device(args.device)
+    device = Device(args.device, adb=args.adb) if getattr(args, 'adb', None) else Device(args.device)
     failure = None
     persist()
 
@@ -181,6 +193,14 @@ def run_once(args, accounts, max_seconds, run_id, archive):
             print(command([shell, '-NoProfile', '-File', str(ROOT / 'scripts/device/collect-debug.ps1'),
                            '-AdbPath', device.adb, '-Device', args.device, '-RunId', run_id], timeout=600, env=env), flush=True)
             record['collection_status'] = 'complete'
+            # Diagnostic assembly cannot change the game's completion evidence.
+            try:
+                if str(ROOT) not in sys.path:
+                    sys.path.insert(0, str(ROOT))
+                from scripts.perception.lib.failure_materials import assemble
+                record['recognition_materials'] = assemble(archive)
+            except Exception as exc:
+                record['material_assembly_error_type'] = type(exc).__name__
         except Exception as exc:
             record['collection_status'] = 'failed'
             record['collection_error_type'] = type(exc).__name__
@@ -332,7 +352,7 @@ def main():
     p.add_argument('--shimen-needed',type=int,default=2)
     p.add_argument('--shimen-puzzle-family',help='Explicit family for one visible legacy-puzzle attempt; no new task or automatic retry')
     p.add_argument('--routine-screenshots',action='store_true',help='Archive before/after frames for device debugging')
-    p.add_argument('--verbose-logs',action='store_true',help='Record individual guarded taps and swipes')
+    p.add_argument('--verbose-logs',action='store_true',help='Include DEBUG state, recognition and individual input logs')
     p.add_argument('--dungeons',default='wuji,chechi',help='Selected daily dungeons, comma-separated')
     p.add_argument('--browse-rounds',type=int,default=1,help='Observation-only retries of the existing find task (1–60)')
     p.add_argument('--browse-until-no-new-topics',action='store_true',help='Collect wine-only 10-round cycles until one cycle has no new question topics (maximum 60 rounds)')
@@ -340,7 +360,7 @@ def main():
     p.add_argument('--account', help='One configured role for bounded recovery; full daily runs still verify the roster')
     p.add_argument('--select-accounts',nargs='+',help='Configured roles to run in daily mode; verify the full saved roster first')
     p.add_argument('--tasks', default=','.join(DAILY_TASK_ORDER), help='Daily selected task modules, comma-separated; run in Shimen, ZhuaGui, dungeon, rewards order')
-    p.add_argument('--step', choices=['select-role', 'enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
+    p.add_argument('--step', choices=['launch-game', 'select-role', 'enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
     args = p.parse_args()
     validate_rewards_options(args)
     if not 1<=args.shimen_needed<=10:raise ValueError('Invalid Shimen item count')
@@ -361,6 +381,15 @@ def main():
         raise ValueError('Multiple browse rounds require ZhuaGui observation-only browse mode')
     if args.browse_until_no_new_topics and (args.task!='zhuagui' or args.step!='browse' or args.mode!='run' or args.browse_rounds!=10):
         raise ValueError('Topic cycles require wine sampling in 10-round ZhuaGui browse mode')
+    if args.step=='launch-game':
+        if args.accounts:
+            raise ValueError('Application startup does not use saved-role configuration')
+        max_seconds=args.max_seconds if args.max_seconds is not None else 150
+        if max_seconds<=0:
+            raise ValueError('Wait limit must be positive')
+        run_id=datetime.now().strftime('%Y%m%d_%H%M%S')
+        run_once(args,[],max_seconds,run_id,ROOT/'debug-runs'/run_id)
+        return
     accounts_path=args.accounts or Path.home() / '.my_pocket_automation/daily-accounts.json'
     if not accounts_path.exists() and not args.accounts:
         accounts_path.parent.mkdir(parents=True,exist_ok=True)

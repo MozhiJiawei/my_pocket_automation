@@ -29,6 +29,12 @@ def log_for(status='done', reason='completed', summary='dungeon_done=true daily_
 
 
 class RuntimeResultTest(unittest.TestCase):
+    def test_shimen_capture_is_observation_only_not_daily_completion(self):
+        text='[account] current\n[task_result] shimen status=paused reason=find_catalog_observation_only\n[summary] daily_done=false\n[finished] script_exited_normally'
+        result=runner.runtime_result(text,'run','browse','shimen',[{'alias':'current'}])
+        self.assertTrue(result['expectation_met'])
+        self.assertFalse(result['daily_complete'])
+
     def test_long_run_refreshes_expiring_transport_authorization(self):
         from dfx_device import Device
         device=Device('offline');device.port='123';device.auth='fixture';device.auth_deadline=10

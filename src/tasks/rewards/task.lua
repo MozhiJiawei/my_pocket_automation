@@ -9,8 +9,7 @@ local list=require('common.list_navigation')
 local M={}
 local function result(status,reason) return {status=status,reason=reason} end
 local function stop(ctx,reason,status)
-    snapshot.capture(ctx,reason)
-    return result(status or 'paused',reason)
+    return {status=status or 'paused',reason=reason,failure_evidence=snapshot.capture(ctx,reason)}
 end
 function M.observe(ctx)
     log.write(ctx,'rewards_observe','state='..pages.state()..' no_actions=true')
@@ -76,7 +75,7 @@ function M.run(ctx)
             local cards=pages.cards()
             if not cards or not cards[1] or not device.tap(ctx,cards[1],'rewards_inspect_gourd') then return stop(ctx,'rewards_gourd_entry_not_verified') end
         end
-        snapshot.capture(ctx,'rewards_inventory_observed')
+        snapshot.capture(ctx,'rewards_inventory_observed','evidence')
         return result('paused','rewards_inventory_observed')
     end
     if not ({complete=true,daily=true,advance=true})[ctx.config.step] then return stop(ctx,'rewards_step_invalid','blocked') end

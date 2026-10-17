@@ -20,6 +20,8 @@ python scripts/perception/render_task_review.py --topic 兵器
 
 `render_task_review.py` 按原图内容去除滚动重叠，生成带正式答案框的任务长图；拼接坐标只存在于生成过程，不作为另一份真值。`prepare-zhuagui-breakpoint.py` 展示尚未导入的设备断点。
 
+`lib/failure_materials.py:assemble(debug-runs/<轮次>)` 由运行器自动调用，按 Lua 保留的单题素材复用 `compose_rows()`，生成含题干的去重长图；原图不改写，路径及完整性检查保存在 `result.json.recognition_materials`。缺页、未知起点、重复末屏、裁切及高度不足均不能进入完整用例；达标仍需目视检查首尾和接缝，确认后再经 `annotation_queue.enqueue()` 入队。
+
 导入一张或多张新截图，必须指定可读用例目录和公开区域；默认待审核，不覆盖已有用例：
 
 ```powershell

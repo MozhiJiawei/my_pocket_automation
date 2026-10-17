@@ -104,9 +104,25 @@ local function finish(ctx, id)
         if previous and previous.stage=='reward_claimed' then return result('done','reward_already_claimed') end
         if state==id..'_done' then
             local button=require('tasks.dungeon.assets.overview_claim')
-            if not device.tap(ctx,button,id..'_open_sealed_gourd') or
-                not device.wait(function() return pages.state()==id..'_reward_sealed' end,20) then
-                return result('paused','sealed_reward_entry_requires_calibration')
+            local opened=device.tap(ctx,button,id..'_open_sealed_gourd')
+            if opened then device.wait(function() return pages.state()==id..'_reward_sealed' end,20) end
+            state=pages.state()
+            if state~=id..'_reward_sealed' then
+                -- A completed overview can ignore its first free opening tap.
+                -- Re-enter once through home; never repeat a claim request.
+                if state~=id..'_done' or not navigation.return_home(ctx) then
+                    return result('paused','sealed_reward_entry_requires_calibration')
+                end
+                log.write(ctx,'dungeon_recovery',id..' reenter_sealed_reward_once')
+                if not navigation.open_dungeon(ctx) or not device.wait(function()
+                    local landed=pages.state()
+                    return landed:match('^list_') or landed==id..'_reward_sealed' or landed==id..'_done'
+                end,20) then return result('paused','sealed_reward_entry_requires_calibration') end
+                if pages.state():match('^list_') then
+                    local entered=enter(ctx,id)
+                    if entered.status=='done' then return entered end
+                    if entered.status~='running' then return entered end
+                end
             end
             state=pages.state()
         end
@@ -125,7 +141,7 @@ local function finish(ctx, id)
         if not device.tap(ctx,pages.features.claim_confirm_button,id..'_confirm_claim_100',function()
             return ctx.identity_verified and pages.state()==id..'_claim_confirm'
         end) then return result('paused','claim_confirmation_target_changed') end
-        snapshot.capture(ctx,id..'_reward_claim_result')
+        snapshot.capture(ctx,id..'_reward_claim_result','evidence')
         return finish_claim(ctx,id)
     end
     progress.write(ctx, id, 'done', 'reward_intentionally_unclaimed')

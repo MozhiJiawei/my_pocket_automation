@@ -48,12 +48,13 @@ function M.run(ctx)
         else
             for _,name in ipairs(selected) do
                 local cached=require('completion').read(ctx,name)
+                log.write(ctx,'task_start',name..' cached='..tostring(not not cached))
                 local outcome=cached and {status='done',reason='daily_completion_ledger_verified'} or
                     require('tasks.'..name..'.task').run(ctx)
                 log.write(ctx,'task_result',name..' status='..outcome.status..' reason='..(outcome.reason or ''))
                 if outcome.status~='done' then
                     log.write(ctx,'error','task='..name..' status='..outcome.status..' reason='..(outcome.reason or ''))
-                    snapshot.capture(ctx,'task_'..name..'_incomplete')
+                    if not outcome.failure_evidence then snapshot.capture(ctx,'task_'..name..'_incomplete') end
                     log.write(ctx,'summary','all_roles_done=false selected_done=false daily_done=false reason='..name..'_'..outcome.status)
                     return
                 end

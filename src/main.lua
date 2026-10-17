@@ -15,11 +15,17 @@ local ok, err = pcall(function()
     else
         assert(config.mode == 'run', 'invalid mode')
         assert(config.allow_reward_claim == false, 'debug policy must forbid reward claims')
+        if config.step=='launch-game' then
+            local result=require('common.application').start(ctx)
+            log.write(ctx,'task_result','startup status='..result.status..' reason='..result.reason)
+            log.write(ctx,'summary','daily_done=false scope=application_startup')
+            return
+        end
         if config.step=='select-role' then
             assert(#config.accounts==1,'select-role requires one configured role')
             ctx.account=config.accounts[1]
             assert(require('common.navigation').inspect_saved(ctx),'saved role inspection failed')
-            snapshot.capture(ctx,'saved_role_identity_review')
+            snapshot.capture(ctx,'saved_role_identity_review','evidence')
             log.write(ctx,'task_result','identity status=done reason=home_captured_for_review')
             log.write(ctx,'summary','daily_done=false scope=identity_review')
             return
@@ -45,7 +51,7 @@ local ok, err = pcall(function()
                     active=state~='unknown' and state~='home' and state~='task_list' and
                         state~='ready' and state~='completed_card'
                 end
-                local recovery=config.step=='complete' or (ghost and config.step=='browse') or ((ghost or shimen) and config.step=='advance')
+                local recovery=config.step=='complete' or ((ghost or shimen) and (config.step=='browse' or config.step=='advance'))
                 if recovery and active then
                     log.write(ctx,'screen_resume','task='..config.task..' state='..state..' identity_unverified_no_new_accept_or_reward_claim')
                 elseif not require('common.navigation').prepare_recorded(ctx) then
@@ -61,6 +67,7 @@ local ok, err = pcall(function()
             end
             local task_names = config.step=='daily' and {'shimen', 'zhuagui', 'dungeon', 'rewards'} or {config.task or 'dungeon'}
             for _, name in ipairs(task_names) do
+                log.write(ctx,'task_start',name)
                 local result = require('tasks.' .. name .. '.task').run(ctx)
                 log.write(ctx, 'task_result', name .. ' status=' .. result.status .. ' reason=' .. (result.reason or ''))
                 if name=='dungeon' then dungeon_done=result.status=='done' end
@@ -81,6 +88,10 @@ local ok, err = pcall(function()
             ' dungeon_done=' .. tostring(dungeon_done) .. ' daily_done=false placeholders=' .. missing)
     end
 end)
+-- A single-step exit or exception may precede game delivery confirmation.
+if ctx.recognition_materials then
+    pcall(function() require('dfx.materials').keep(ctx,ok and 'delivery_not_verified' or 'script_failed') end)
+end
 if not ok then
     -- One diagnostic failure must not prevent the other channel or final record.
     local error_logged = pcall(log.write, ctx, 'failed', tostring(err))

@@ -24,6 +24,8 @@ python scripts/device/run-daily.py --device <设备> --task shimen --mode run --
 
 执行时只搜索本轮尚需的答案数量，支持跨滚动页选择；点击前在原匹配锚点附近重验证完整特征，滚动后等待画面稳定。未找齐时退出题框判为失败。设备日志中的完成结果须结合实际“寻找成功”画面核验，不能以题框消失代替业务证据。流程控件仅覆盖已采集页面；免费重试分支及未见题型尚未全部设备验证，未知页面停止；禁止电脑端代操作。
 
+识别素材由 `src/dfx/materials.lua` 在作答前临时采集：寻物保留同题首屏与全部候选，拼图保留操作前完整原图。交付核验成功后清理，失败或待验收时保留；运行器自动去重拼接，原图和长图路径见 `result.json.recognition_materials`，缺页不能入队固化。此采集流程尚待设备复测。
+
 正式寻物输入在 `testdata/师门/寻物/`。资源从用户确认的正例校准，方向展开与去重在电脑端完成；全量数据用于校准，离线通过只证明已标样本覆盖，不证明未见图标或设备业务完成。未知题目不跨类别兜底。
 
 ```powershell
@@ -35,4 +37,4 @@ python scripts/test.py --group 师门
 
 校准中间文件保存在 `.tmp/`，正式资源只有题干与物品特征。题目、原图和真值沿用公共读取、原图映射、增强和评分；不读取标注队列或网上参考图。寻物失败及未确认拼图进入标注器，由 AGENT 完成还原与独立自查，依据用户授权直接固化、校准和回归，再以设备运行检验；同题型最多3次尝试，仍失败才交人类确认。审核过程和依据保存在 `debug-runs/`，并区分 AGENT 自查与人类确认。寻物失败时 Lua 在本次运行的免费重试上限内先重试绕过，等待 AGENT 独立标注与审核。流程截图由 AGENT 自主核对并直接固化，不进入待标注队列。
 
-只读观察入口为 `scripts/device/inspect-device.py`；采集所需的页面操作必须通过 Lua 状态机。识别题失败原图按任务和题目进入标注器，流程失败现场由 AGENT 自主处理。已有任务可用 `run-daily.py --mode run --task shimen --step advance --account current --shimen-needed 2` 执行设备识物，调试时增加 `--routine-screenshots --verbose-logs` 保留点击前后画面。采集过程和评测报告保存在 `debug-runs/`。
+只读观察入口为 `scripts/device/inspect-device.py`；采集所需的页面操作必须通过 Lua 状态机。`--task shimen --step browse --account <别名>` 仅从师门免费重试页重开一题，调用共享 `catalog.capture()` 完整采集首屏及后续候选，不点答案、不接新任务；滚动位置未知的现有题页、待接页和其它页面拒绝采集。识别题经完整去重拼接及首尾、接缝检查后进入标注器，流程失败现场由 AGENT 自主处理。已有任务可用 `run-daily.py --mode run --task shimen --step advance --account current --shimen-needed 2` 执行设备识物，调试时增加 `--routine-screenshots --verbose-logs` 保留点击前后画面。采集过程和评测报告保存在 `debug-runs/`。

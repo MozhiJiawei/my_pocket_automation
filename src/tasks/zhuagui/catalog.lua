@@ -4,19 +4,47 @@ local device=require('common.device')
 local snapshot=require('dfx.snapshot')
 local log=require('dfx.log')
 local M={}
-function M.capture(ctx,prefix)
+-- Normalize a live question without touching answers or opening another round.
+function M.question_key()
+    -- Exclude the countdown bar and selected-item counter.
+    return require('common.list_navigation').fingerprint({60,335,580,420})
+end
+function M.to_top(ctx,question,expected_first)
+    local fingerprint=require('common.list_navigation').fingerprint
+    local view={60,535,840,1405}
+    question=question or M.question_key()
+    local unchanged=0
+    for attempt=1,12 do
+        if pages.state()~='find' or M.question_key()~=question then return nil,'catalog_question_changed' end
+        local before=fingerprint(view)
+        local x=attempt%2==0 and 810 or 730
+        if not device.swipe(ctx,pages.features.find_title,'catalog_to_top',{x,750},{x,1350},
+            {capture_before=false,capture_after=false,settle_ms=350}) then return nil,'catalog_scroll_not_verified' end
+        if pages.state()~='find' or M.question_key()~=question then return nil,'catalog_question_changed' end
+        local after=fingerprint(view)
+        if expected_first~=nil and after==expected_first then return after,nil,question end
+        unchanged=after==before and unchanged+1 or 0
+        if unchanged>=2 then return after,nil,question end
+    end
+    return nil,'catalog_top_not_verified'
+end
+function M.capture(ctx,prefix,options)
+    options=options or {}
+    local save=options.save or function(label) return snapshot.capture(ctx,label,'evidence') end
+    local valid=options.valid or function() return true end
     if pages.state()~='find' then return {status='paused',reason='catalog_find_not_open',pages=0} end
-    snapshot.capture(ctx,prefix .. 'p01')
+    if not valid() then return {status='paused',reason='catalog_question_changed',pages=0} end
+    save(prefix .. 'p01')
     local captured=1
     for page=2,7 do
         -- Each saved page is the next swipe's before evidence.
         -- Keep multiple complete rows overlapping; a longer drag can skip faded rows.
         if not device.swipe(ctx,pages.features.find_title,prefix .. 'scroll_' .. page,{730,1350},{730,950},
-            {capture_before=false,capture_after=false,settle_ms=350}) or pages.state()~='find' then
+            {capture_before=false,capture_after=false,settle_ms=350}) or pages.state()~='find' or not valid() then
             snapshot.capture(ctx,prefix .. 'incomplete')
             return {status='paused',reason='catalog_page_changed',pages=captured}
         end
-        snapshot.capture(ctx,prefix .. string.format('p%02d',page))
+        save(prefix .. string.format('p%02d',page))
         captured=page
     end
     return {status='paused',reason='find_catalog_observation_only',pages=captured}

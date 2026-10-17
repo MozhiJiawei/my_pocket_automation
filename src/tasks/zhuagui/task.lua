@@ -3,9 +3,10 @@ local pages = require('tasks.zhuagui.pages')
 local device = require('common.device')
 local log = require('dfx.log')
 local snapshot = require('dfx.snapshot')
+local materials=require('dfx.materials')
 local progress = require('progress')
 local list=require('common.list_navigation')
-local function result(status,reason) return {status=status,reason=reason} end
+local function result(status,reason,evidence) return {status=status,reason=reason,failure_evidence=evidence} end
 local function act(ctx,feature,label)
     return device.tap(ctx,feature,label)
 end
@@ -25,6 +26,7 @@ local function finish_completed(ctx)
         snapshot.capture(ctx,'zhuagui_completion_not_verified')
         return result('blocked','completion_card_not_verified')
     end
+    materials.clear(ctx)
     progress.write(ctx,'zhuagui','done','completion_card_verified',progress.read(ctx,'zhuagui'))
     snapshot.capture(ctx,'zhuagui_completion_card','debug')
     log.write(ctx,'zhuagui_completed','completion_card=true')
@@ -151,11 +153,13 @@ local function drive(ctx,stop_after_one)
                 return finish_completed(ctx)
             end
             if state=='quota_idle' then
+                materials.clear(ctx)
                 if not act(ctx,pages.features.cancel,'zhuagui_close_final_detail') then
                     return result('paused','completion_list_entry_not_verified')
                 end
             else
                 if record.status=='running' then
+                    materials.clear(ctx)
                     progress.write(ctx,'zhuagui','paused','one_task_completed',record)
                     record.status='paused'
                     log.write(ctx,'zhuagui_delivery','idle_page=true')
@@ -188,6 +192,7 @@ local function drive(ctx,stop_after_one)
         elseif state=='battle' then
             mSleep(1000)
         elseif state=='puzzle_retry' then
+            materials.keep(ctx,'puzzle_game_result_not_verified')
             if (record.puzzle_retries or 0)>=1 then
                 snapshot.capture(ctx,'puzzle_retry_not_authorized')
                 return result('paused','puzzle_retry_not_authorized')
@@ -197,18 +202,23 @@ local function drive(ctx,stop_after_one)
             log.write(ctx,'puzzle_retry','attempt='..record.attempts..' retry=1 no_new_accept=true')
             if not act(ctx,pages.features.puzzle.retry_button,'resume_visible_puzzle') then return result('paused','puzzle_retry_target_changed') end
         elseif state=='puzzle' then
+            local prepared,prepare_reason=materials.prepare(ctx,'zhuagui','puzzle')
+            if not prepared then return result('paused',prepare_reason) end
             local solved,reason=require('tasks.zhuagui.puzzle').solve(ctx)
-            if not solved then snapshot.capture(ctx,reason);return result('paused',reason) end
+            if not solved then materials.keep(ctx,reason);return result('paused',reason,snapshot.capture(ctx,reason)) end
             log.write(ctx,'puzzle_solved','attempt='..record.attempts)
         elseif state=='find' then
+            local prepared,prepare_reason=materials.prepare(ctx,'zhuagui','find')
+            if not prepared then return result('paused',prepare_reason) end
             local solved,reason,category=require('tasks.zhuagui.find').solve(ctx)
             if not solved then
+                materials.keep(ctx,reason)
                 log.write(ctx,'error','task=zhuagui attempt='..record.attempts..' reason='..reason..' category='..tostring(category))
-                snapshot.capture(ctx,reason)
+                local evidence=snapshot.capture(ctx,reason)
                 local retryable=({find_icon_not_found=true,find_time_expired=true,find_target_unknown=true,
                     find_click_not_confirmed=true,wine_requires_specific_calibration=true,
                     find_target_requires_calibration=true,catalog_page_changed=true})[reason]
-                if not retryable then return result('paused',reason) end
+                if not retryable then return result('paused',reason,evidence) end
                 record.find_retry_pending=1
                 progress.write(ctx,'zhuagui','running','find_recognition_failed',record)
                 if not device.wait(function()

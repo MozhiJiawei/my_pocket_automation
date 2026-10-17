@@ -27,6 +27,8 @@
 
 - **Lua 是推进游戏任务的唯一执行者。** 入口恢复、角色切换、导航、识别、交互、重试和收尾均由 Lua 完成。
 - AGENT 负责查看画面与日志、修改源码、回归、发布和复测；禁止通过 MuMu、ADB 或电脑端工具操作游戏。
+- **环境启动入口：** `python scripts/device/start-emulator.py --vm-index 5 --apps`（5为模拟器实例索引）。电脑端启动或复用指定 MuMu 实例、等待其动态 ADB 连接并启动触动精灵，再由 Lua 启动互通版；省略 `--apps` 仅启动模拟器。
+- 启动须确认触动精灵空闲、核验游戏进程与入口画面，停在入口；片头、进程存在或请求成功不算入口就绪，也不算日常完成。忙碌时不发布，超时留证停止，不重复发送启动请求；源码、结果及必要验收图归档到 `debug-runs/`。单独启动游戏及参数见 [设备脚本说明](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>)。
 - **最终目标是 Lua 脱离 AGENT 独立完成配置范围内的每日任务。** 身份核验、状态审计、中断恢复和完成验收必须落实在脚本中。
 - Lua 操作前验证状态，操作后验证结果；等待与重试有上限，无法判断时保存现场并停止。允许持久化按角色、身份绑定与业务日隔离的师门、抓鬼、两个副本和开葫芦完成布尔状态；仅在 Lua 核验游戏最终状态后写入。任务内部进度、次数、重试和中间阶段只保留在内存中；未完成任务从游戏页面恢复。本次运行已核验状态直接复用，仅在缺失、失效或动作预期状态变化时重新获取，避免重复导航核验。配置、识别资源及调试证据可以保存；除上述完成布尔状态外，不能作为下一次运行的业务状态。任务以游戏明确完成状态验收，不设置费用预算，不核对任务数量。
 - 完成须由 Lua 核对角色、业务日与游戏最终业务状态；接取次数、点击发送或脚本退出不能单独证明完成。
@@ -34,6 +36,7 @@
 - 副本点击“开始”后由游戏自动完成。战斗过程中 Lua 只检查完成、中断和超时，不逐关点击继续或下一关，不循环操作倍速；已有中断现场可在入口核验后恢复。
 - 副本列表中，乌鸡国显示“进入宝库”（额外宝库待领取）、车迟斗法卡片打绿色勾，分别证明普通副本葫芦已领取。本次运行复用核验结果，不重复进入；任务入口“2/7”用于汇总查看，重启时从具体副本游戏标记恢复。
 - AGENT 按“读取证据 → 复现失败 → 修改 → 回归 → 发布 → 设备复测”持续推进。使用现有入口，发布前确认空闲并校验产物，每轮保留源码版本与运行证据。
+- INFO 仅保留角色、任务起止、验收、恢复重试和最终结果；页面、识别、输入与等待细节归 DEBUG。默认不归档常规过程和成功页面；识别题完整素材先临时采集，交付核验成功后清理，仅失败、待验收、领奖收据及显式采集保留，已有失败证据不重复截图。
 - 开发时运行相关类别测试，交付前运行全量回归；离线通过不能替代设备验收，单次成功不能宣称稳定。
 
 ## 3. 识别题与人工协作
@@ -42,7 +45,7 @@
 - **拼图自行标注、自测。** 完整原图经 `scripts/perception/lib/annotation_queue.py:enqueue()` 入队，AGENT 实际操作标注器还原、自查拼接连续性；用 `confirm(..., reviewer='agent', evidence=...)` 归档，禁止把算法建议或 AGENT 自查记成人类确认。标注器入口：`python annotation-web/server.py`。
 - 拼图固化：`python scripts/perception/freeze-annotations.py --id <ID>`；师门审核特征写入 `src/tasks/shimen/assets/reviewed_puzzles.json` 后运行 `scripts/perception/import-shimen-puzzles.py`，抓鬼运行 `scripts/perception/calibrate-puzzles.py`。对应类别回归通过后，用 `scripts/device/run-daily.py --mode run --task <shimen|zhuagui> --step advance --account <别名> --device <设备>` 受控复测，再由 Lua 核验游戏成功及交付；退出拼图不单独证明成功。
 - 同题型方案最多检验3次，失败由 AGENT 修正、回归再测，仍失败才请人类确认；重启不清零本次检验次数，交付跟进不算新尝试。原图、还原图、依据及检验记录留在 `debug-runs/`，不写业务账本；已有确认不重复询问。
-- **识物失败必须完整采集、拼接后归档。** 从同题首屏逐页保存题干及全部候选，调用 `src/tasks/zhuagui/catalog.lua:capture(ctx, prefix)` 采集、`scripts/perception/lib/task_review.py:compose_rows()` 去重拼接，再经 `annotation_queue.enqueue()` 入队。禁止归档失败末屏、超时截图或零散操作截图；不同题目／重试轮次不能混拼。
-- 抓鬼采集命令：`python scripts/device/run-daily.py --device <设备> --mode run --task zhuagui --step browse --account <别名> --max-seconds 180`，原图自动回收到 `debug-runs/<轮次>/res/`。师门在自身 Lua 流程恢复首屏后复用 `capture()`；当前没有师门 `browse` 入口，不能套用抓鬼重试动作。采集不点候选、不付费；任务只在免费重试上限内绕过失败题。
+- **识别失败须保留完整本题素材。** 入口 `src/dfx/materials.lua:prepare(ctx, task, kind)`：寻物先核验首屏，调用 `src/tasks/zhuagui/catalog.lua:capture()` 临时采全题干及候选，回到已核验首屏再作答；拼图保留操作前完整原图。失败或待交付验收用 `keep()` 保留，游戏交付成功用 `clear()` 清理。运行器自动调用 `scripts/perception/lib/failure_materials.py:assemble()`，复用 `task_review.py:compose_rows()` 去重拼接，结果见 `result.json.recognition_materials`。完整性及视觉核验通过后才经 `annotation_queue.enqueue()` 入队；末屏、超时缺页和跨题／跨重试素材不得作为完整用例。
+- 补采命令：`python scripts/device/run-daily.py --device <设备> --mode run --task <zhuagui|shimen> --step browse --account <别名> --max-seconds 180`，原图回收到 `debug-runs/<轮次>/res/`。手动补采师门仅从自身已核验的免费重试页重开一轮，再复用 `capture()`；拒绝从滚动位置未知的题页采集，不套用抓鬼重试动作。新题不能补作旧失败题的原图；采集不点候选、不付费，任务只在免费重试上限内绕过失败题。
 - 标注器复用上述拼接能力；用 `python annotation-web/check_capture.py --stage pending --id <ID>` 检查高度：识物去重物品区≥2760像素、拼图原图≥1600像素。AGENT 还须核对首尾、接缝和缺行，7页或高度达标不单独证明完整；缺页须补采，无法补采则不保留识物标注归档，禁止用 `--allow-partial` 绕过。高度检查只在内存／标准输出展示，不生成反馈侧车文件。
 - 未标区域保持未知；识别器输出不能自证真值。仅在核验全部所选角色与任务后报告完成，单次成功不宣称稳定。

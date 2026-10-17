@@ -18,7 +18,8 @@ class DungeonGuardTest(unittest.TestCase):
             getColor=function() return (position or 0)*0x001010 end
             package.preload['dfx.log']=function() return {write=function() end} end
             package.preload['dfx.snapshot']=function() return {capture=function() return 'fake.png' end} end
-            package.preload['common.navigation']=function() return {open_dungeon=function() return false end} end
+            package.preload['common.navigation']=function() return {
+                open_dungeon=function() return false end,return_home=function() return false end} end
             package.preload['common.assets.home_dungeon']=function() return {} end
             package.preload['common.detector']=function() return {present=function(f) return f=='claim' and verified_claim_cost==true end} end
             package.preload['tasks.dungeon.assets.claim_cost_100']=function() return 'claim' end
@@ -255,6 +256,54 @@ class DungeonGuardTest(unittest.TestCase):
         self.lua.execute("state='wuji_done'; ctx.account.claim_dungeon_rewards=true; records.wuji={status='done',stage='reward_intentionally_unclaimed'}")
         self.assertEqual(self.run_task()['reason'],'sealed_reward_entry_requires_calibration')
         self.assertEqual(list(self.lua.globals().taps.values()),['open_claim'])
+
+    def configure_sealed_reentry(self, destination):
+        self.lua.globals().reentry_destination=destination
+        self.lua.execute('''
+            state='wuji_done';ctx.config.step='finish';ctx.account.claim_dungeon_rewards=true
+            verified_claim_cost=true;home_returns=0;reentries=0
+            local navigation=require('common.navigation')
+            navigation.return_home=function()
+                home_returns=home_returns+1;state='home';return true
+            end
+            navigation.open_dungeon=function()
+                reentries=reentries+1;state=reentry_destination;return true
+            end
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                local ok=tap(c,f,label)
+                if f=='confirm_claim' then state='list_wuji';claimed={wuji=true} end
+                return ok
+            end
+        ''')
+
+    def test_unchanged_completed_overview_reenters_once_before_claiming(self):
+        self.configure_sealed_reentry('wuji_reward_sealed')
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(list(self.lua.globals().taps.values()),['open_claim','claim','confirm_claim'])
+        self.assertEqual(self.lua.globals().home_returns,1)
+        self.assertEqual(self.lua.globals().reentries,1)
+        self.assertEqual(self.lua.globals().records.wuji.stage,'reward_claimed')
+
+    def test_reentry_still_on_overview_stops_without_second_open_or_claim(self):
+        self.configure_sealed_reentry('wuji_done')
+        self.assertEqual(self.run_task()['reason'],'sealed_reward_entry_requires_calibration')
+        self.assertEqual(list(self.lua.globals().taps.values()),['open_claim'])
+        self.assertEqual(self.lua.globals().reentries,1)
+        self.assertIsNone(self.lua.globals().records.wuji)
+
+    def test_unknown_opening_result_cannot_trigger_reentry_or_claim(self):
+        self.configure_sealed_reentry('wuji_reward_sealed')
+        self.lua.execute('''
+            require('common.device').tap=function(c,f,label)
+                taps[#taps+1]=f;state='unknown';return true
+            end
+        ''')
+        self.assertEqual(self.run_task()['reason'],'sealed_reward_entry_requires_calibration')
+        self.assertEqual(list(self.lua.globals().taps.values()),['open_claim'])
+        self.assertEqual(self.lua.globals().home_returns,0)
+        self.assertEqual(self.lua.globals().reentries,0)
+        self.assertIsNone(self.lua.globals().records.wuji)
 
     def test_cold_list_marks_skip_both_completed_dungeons_without_entering(self):
         self.lua.execute("state='list_wuji';claimed={wuji=true,chechi=true};ctx.config.step='daily';ctx.account.claim_dungeon_rewards=true")

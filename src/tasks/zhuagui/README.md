@@ -43,6 +43,8 @@ python scripts/device/run-daily.py --device emulator-5562 --task zhuagui --mode 
 
 酒类系统采集使用 `--step browse --browse-rounds 10 --browse-until-no-new-topics`。Lua 每十轮统计新增题目类别，一个完整周期没有新类别时停止；未知题干或非酒类题目停止，不能算作“无新增”。最多六个周期，达到上限也不冒充收敛。每轮原图进入待标注区；题目类别收敛不代表所有候选已采全或答案已确认，不改变正常任务的运行期重试计数。
 
+识别素材共用 `src/dfx/materials.lua`：作答前临时采集完整本题，游戏交付成功后清理，失败或待验收时保留；寻物复用 `catalog.capture()`，拼图保留操作前原图。运行器自动去重拼接，原图与长图路径见 `result.json.recognition_materials`，缺页或跨重试素材不能固化。此采集流程尚待设备复测。
+
 抓鬼模块不领取或开启葫芦；使用900×1600校准布局。跨游戏日界线的恢复不属于已支持范围。
 
 ## 审核特征

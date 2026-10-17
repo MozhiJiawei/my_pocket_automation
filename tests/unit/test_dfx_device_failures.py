@@ -126,6 +126,17 @@ class DeviceDiagnosticsTest(unittest.TestCase):
         self.assertTrue(any(event=='screen_resume' for event,_ in events))
         self.assertFalse(any(event=='failed' for event,_ in events))
 
+    def test_shimen_sampling_keeps_verified_retry_page_for_own_collector(self):
+        self.lua.execute('''
+            config.step='browse';config.task='shimen';config.verify_role=true
+            package.preload['common.navigation']=function() return {prepare_recorded=function()
+                error('must not navigate away from Shimen free retry') end} end
+            package.preload['tasks.shimen.pages']=function() return {state=function() return 'retry' end} end
+        ''')
+        events=self.execute()
+        self.assertTrue(any(event=='screen_resume' for event,_ in events))
+        self.assertFalse(any(event=='failed' for event,_ in events))
+
     def test_shimen_idle_pages_verify_identity_before_task_execution(self):
         for state in ('ready', 'completed_card'):
             with self.subTest(state=state):

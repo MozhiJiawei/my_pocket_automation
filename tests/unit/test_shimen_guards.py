@@ -27,8 +27,13 @@ class ShimenGuardTest(unittest.TestCase):
                 present=function(feature) return feature=='task_card' and state=='task_list' end
             } end
             package.preload['dfx.log']=function() return {write=function() end} end
+            material_events={}
+            package.preload['dfx.materials']=function() return {
+                prepare=function(c,task,kind) material_events[#material_events+1]='prepare_'..kind;return true end,
+                keep=function(c,reason) material_events[#material_events+1]='keep_'..reason end,
+                clear=function() material_events[#material_events+1]='clear' end} end
             package.preload['dfx.snapshot']=function() return {capture=function(c,label)
-                table.insert(captures,label) end} end
+                table.insert(captures,label);return label..'.png' end} end
             package.preload['progress']=function() return {
                 read=function(c,task,date) return date and previous or saved end,
                 write=function(c,task,status,stage,record,date)
@@ -51,6 +56,48 @@ class ShimenGuardTest(unittest.TestCase):
 
     def run_task(self):
         return self.task.run(self.lua.globals().ctx)
+
+    def configure_catalog(self, prepare=False):
+        self.lua.execute('''
+            ctx.config.step='browse';state='retry';catalog_calls=0
+            require('tasks.shimen.pages').actions.prepare_find='prepare_find'
+            require('tasks.shimen.find').identify=function() return '长柄武器' end
+            package.preload['tasks.zhuagui.catalog']=function() return {capture=function(c,prefix)
+                assert(state=='find' and prefix=='shimen_catalog_')
+                catalog_calls=catalog_calls+1
+                return {status='paused',reason='find_catalog_observation_only',pages=7}
+            end} end
+            require('common.device').tap=function(c,feature,label,guard)
+                assert(guard())
+                assert(feature=='retry' or feature=='prepare_find','no candidate or paid accept')
+                taps=taps+1;state=prepare_catalog and feature=='retry' and 'prepare_find' or 'find'
+                return true
+            end
+        ''')
+        self.lua.globals().prepare_catalog=prepare
+
+    def test_catalog_retries_own_shimen_page_once_then_uses_shared_capture(self):
+        self.configure_catalog()
+        self.assertEqual(self.run_task()['reason'],'find_catalog_observation_only')
+        self.assertEqual(self.lua.globals().taps,1)
+        self.assertEqual(self.lua.globals().catalog_calls,1)
+        self.assertEqual(self.lua.globals().solves,0)
+        self.assertEqual(self.lua.globals().saved.stage,None)
+
+    def test_catalog_may_use_only_verified_free_prepare_find_action(self):
+        self.configure_catalog(prepare=True)
+        self.assertEqual(self.run_task()['reason'],'find_catalog_observation_only')
+        self.assertEqual(self.lua.globals().taps,2)
+        self.assertEqual(self.lua.globals().catalog_calls,1)
+
+    def test_catalog_rejects_partial_current_page_and_paid_accept_page(self):
+        for state in ('find','ready','home','unknown'):
+            with self.subTest(state=state):
+                self.configure_catalog()
+                self.lua.globals().state=state
+                self.assertEqual(self.run_task()['reason'],'shimen_catalog_retry_required')
+                self.assertEqual(self.lua.globals().taps,0)
+                self.assertEqual(self.lua.globals().catalog_calls,0)
 
     def test_story_dialogue_advances_through_changed_text(self):
         self.lua.execute("""
@@ -187,6 +234,71 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(result['status'],'blocked')
         self.run_task()
         self.assertEqual(self.lua.globals().solves,4)
+
+    def configure_automatic_find_retry(self, always_fail=False):
+        self.lua.globals().always_fail=always_fail
+        self.lua.execute('''
+            ctx.config.step='complete';state='find';retry_waits=0
+            require('tasks.shimen.find').solve=function()
+                solves=solves+1
+                if always_fail or solves==1 then return false,'find_icon_not_found' end
+                state='completed_card';return true,'find_completed'
+            end
+            require('common.device').wait=function(predicate,attempts,interval)
+                if predicate() then return true end
+                assert(attempts==120 and interval==300)
+                retry_waits=retry_waits+1;state='retry';return predicate()
+            end
+            require('common.device').tap=function(c,feature)
+                assert(feature=='retry','must never accept another paid task on retry')
+                taps=taps+1;state='find';return true
+            end
+        ''')
+
+    def test_complete_waits_for_own_free_retry_then_verifies_completion(self):
+        self.configure_automatic_find_retry()
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(self.lua.globals().solves,2)
+        self.assertEqual(self.lua.globals().taps,1)
+        self.assertEqual(self.lua.globals().retry_waits,1)
+        self.assertEqual(self.lua.globals().saved.stage,'completion_card_verified')
+
+    def test_complete_automatic_retry_stops_after_first_and_three_free_retries(self):
+        self.configure_automatic_find_retry(always_fail=True)
+        outcome=self.run_task()
+        self.assertEqual(outcome['reason'],'find_retry_limit_reached')
+        self.assertEqual(outcome['failure_evidence'],'find_icon_not_found.png')
+        self.assertEqual(list(self.lua.globals().captures.values()),['find_icon_not_found']*4)
+        self.assertEqual(self.lua.globals().solves,4)
+        self.assertEqual(self.lua.globals().taps,3)
+        self.assertEqual(self.lua.globals().retry_waits,3)
+
+    def test_advance_keeps_single_attempt_without_automatic_free_retry(self):
+        self.configure_automatic_find_retry(always_fail=True)
+        self.lua.execute("ctx.config.step='advance'")
+        self.assertEqual(self.run_task()['reason'],'find_icon_not_found')
+        self.assertEqual(self.lua.globals().solves,1)
+        self.assertEqual(self.lua.globals().taps,0)
+        self.assertEqual(self.lua.globals().retry_waits,0)
+
+    def test_leaving_find_page_does_not_clear_originals_before_game_delivery(self):
+        self.lua.execute('success=true')
+        self.assertEqual(self.run_task()['reason'],'one_minigame_completed')
+        self.assertEqual(list(self.lua.globals().material_events.values()),['prepare_find'])
+
+    def test_incomplete_materials_stop_before_solver_or_candidate_actions(self):
+        self.lua.execute("require('dfx.materials').prepare=function() return false,'catalog_first_frame_not_restored' end")
+        self.assertEqual(self.run_task()['reason'],'catalog_first_frame_not_restored')
+        self.assertEqual(self.lua.globals().solves,0)
+        self.assertEqual(self.lua.globals().taps,0)
+
+    def test_unknown_click_result_is_never_automatically_retried(self):
+        self.configure_automatic_find_retry()
+        self.lua.execute("require('tasks.shimen.find').solve=function() solves=solves+1;return false,'find_target_changed' end")
+        self.assertEqual(self.run_task()['reason'],'find_target_changed')
+        self.assertEqual(self.lua.globals().solves,1)
+        self.assertEqual(self.lua.globals().taps,0)
+        self.assertEqual(self.lua.globals().retry_waits,0)
 
     def test_find_preparation_cannot_open_a_fifth_opportunity(self):
         self.lua.execute("""
