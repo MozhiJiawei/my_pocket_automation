@@ -34,6 +34,7 @@ class RoleNavigationTest(unittest.TestCase):
                     if f.kind=='entry' then return scene=='entry' end
                     if f.kind=='confirm' then return scene=='confirm' end
                     if f.kind=='home' then return scene=='home' end
+                    if f.kind=='switch' then return scene=='home' end
                     if f.kind=='picker' then return scene=='picker' end
                     if f.kind=='identity' then return scene=='home' and f.alias==selected and not identity_mismatch end
                     if f.kind=='selector' then return scene=='picker' and f.alias~=missing_selector end
@@ -236,6 +237,34 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertFalse(bool(self.lua.globals().ctx.identity_verified))
         self.assertEqual(self.lua.globals().logs[len(self.lua.globals().logs)][2],
                          'pocket_home_not_verified')
+        self.assertEqual(list(self.lua.globals().taps.values()),['pocket_entry','pocket_confirm'])
+
+    def test_entry_rejects_partial_home_until_upper_role_control_is_visible(self):
+        self.lua.execute('''
+            scene='entry';selected='second';portrait_refreshes=0
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if f.kind=='confirm' then
+                    taps[#taps+1]=label;scene='partial_home';return true
+                end
+                assert(scene~='partial_home','role navigation on an incomplete portrait frame')
+                return tap(c,f,label)
+            end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if f.kind=='home' and scene=='partial_home' then return true end
+                return present(f)
+            end
+            resetScreen=function()
+                if scene=='partial_home' then
+                    portrait_refreshes=portrait_refreshes+1
+                    if portrait_refreshes==3 then scene='home' end
+                end
+            end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertEqual(self.lua.globals().portrait_refreshes,3)
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
         self.assertEqual(list(self.lua.globals().taps.values()),['pocket_entry','pocket_confirm'])
 
     def test_incident_close_requires_verified_disappearance(self):

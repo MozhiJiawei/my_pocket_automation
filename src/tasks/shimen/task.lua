@@ -156,7 +156,8 @@ function M.run(ctx)
             if outcome.reason=='one_minigame_completed' then
                 if step=='advance' then return outcome end
             elseif step~='advance' and outcome.status~='blocked' and
-                ({find_icon_not_found=true,find_target_unknown=true,find_time_expired=true,catalog_page_changed=true})[outcome.reason] and
+                ({find_icon_not_found=true,find_target_unknown=true,find_time_expired=true,
+                    find_page_changed=true,catalog_page_changed=true})[outcome.reason] and
                 device.wait(function() return pages.state()=='retry' end,120,300) then
                 log.write(ctx,'find_retry_pending','task=shimen reason='..outcome.reason)
             else return outcome end

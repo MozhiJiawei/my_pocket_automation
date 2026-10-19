@@ -319,6 +319,32 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().solves, 1)
         self.assertEqual(self.lua.globals().taps, 0)
 
+    def test_search_page_expiry_waits_for_verified_free_retry(self):
+        self.configure_automatic_find_retry()
+        self.lua.execute('''
+            require('tasks.shimen.find').solve=function()
+                solves=solves+1
+                if solves==1 then state='unknown';return false,'find_page_changed' end
+                state='completed_card';return true,'find_completed'
+            end
+        ''')
+        self.assertEqual(self.run_task()['status'], 'done')
+        self.assertEqual(self.lua.globals().solves, 2)
+        self.assertEqual(self.lua.globals().taps, 1)
+        self.assertEqual(self.lua.globals().retry_waits, 1)
+
+    def test_search_page_change_without_free_retry_stops_without_input(self):
+        self.configure_automatic_find_retry()
+        self.lua.execute('''
+            require('tasks.shimen.find').solve=function()
+                solves=solves+1;state='task_list';return false,'find_page_changed'
+            end
+            require('common.device').wait=function(predicate) return predicate() end
+        ''')
+        self.assertEqual(self.run_task()['reason'], 'find_page_changed')
+        self.assertEqual(self.lua.globals().solves, 1)
+        self.assertEqual(self.lua.globals().taps, 0)
+
     def test_advance_keeps_single_attempt_without_automatic_free_retry(self):
         self.configure_automatic_find_retry(always_fail=True)
         self.lua.execute("ctx.config.step='advance'")

@@ -252,7 +252,9 @@ local function enter_pocket(ctx,restarted)
     -- while waiting, so a stale landscape stride cannot drive home navigation.
     if not device.wait(function()
         screen.init(0,true)
-        return detector.present(home) or detector.present(picker)
+        -- The lower home landmark can appear before Android finishes rotating.
+        -- Require the upper role control too before using portrait coordinates.
+        return (detector.present(home) and detector.present(switch)) or detector.present(picker)
     end,60) then
         return finish(false,'pocket_home_not_verified')
     end
