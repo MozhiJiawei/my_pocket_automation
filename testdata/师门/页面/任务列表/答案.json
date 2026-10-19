@@ -2,6 +2,9 @@
   "预期": {
     "画面.png": {
       "page": "task_list"
+    },
+    "第02页.png": {
+      "page": "task_list"
     }
   }
 }

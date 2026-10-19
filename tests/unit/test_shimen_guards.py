@@ -7,6 +7,26 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class ShimenGuardTest(unittest.TestCase):
+    def test_task_card_title_variant_follows_its_visible_row(self):
+        from tests.support.lua_runtime import Runtime
+        from tests.support.touchsprite_adapter import Screen
+        import numpy as np
+        original = Screen.read(ROOT / 'testdata/师门/页面/任务列表/第02页.png').frame
+        card = original[915:1178, 50:850].copy()
+        for top in (315, 615, 915):
+            with self.subTest(top=top):
+                frame = original.copy()
+                frame[300:1420] = (215, 204, 185)
+                frame[top:top + card.shape[0], 50:850] = card
+                runtime = Runtime(Screen(np.ascontiguousarray(frame)))
+                try:
+                    feature = runtime.require('tasks.shimen.pages').features.task_card
+                    self.assertTrue(runtime.plan_tap(runtime.lua.table(), feature, 'shimen_entry'))
+                    x, y = runtime.actions[-1]['point']
+                    self.assertTrue(50 <= x <= 850 and top <= y <= top + card.shape[0], (x, y))
+                finally:
+                    runtime.close()
+
     def setUp(self):
         self.lua=LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
@@ -272,6 +292,32 @@ class ShimenGuardTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().solves,4)
         self.assertEqual(self.lua.globals().taps,3)
         self.assertEqual(self.lua.globals().retry_waits,3)
+
+    def test_expiry_during_collection_retries_only_after_free_retry_is_verified(self):
+        self.configure_automatic_find_retry()
+        self.lua.execute('''
+            require('tasks.shimen.find').solve=function()
+                solves=solves+1
+                if solves==1 then state='task_list';return false,'catalog_page_changed' end
+                state='completed_card';return true,'find_completed'
+            end
+        ''')
+        self.assertEqual(self.run_task()['status'], 'done')
+        self.assertEqual(self.lua.globals().solves, 2)
+        self.assertEqual(self.lua.globals().taps, 1)
+        self.assertEqual(self.lua.globals().retry_waits, 1)
+
+    def test_collection_page_change_without_free_retry_stops_without_input(self):
+        self.configure_automatic_find_retry()
+        self.lua.execute('''
+            require('tasks.shimen.find').solve=function()
+                solves=solves+1;state='task_list';return false,'catalog_page_changed'
+            end
+            require('common.device').wait=function(predicate) return predicate() end
+        ''')
+        self.assertEqual(self.run_task()['reason'], 'catalog_page_changed')
+        self.assertEqual(self.lua.globals().solves, 1)
+        self.assertEqual(self.lua.globals().taps, 0)
 
     def test_advance_keeps_single_attempt_without_automatic_free_retry(self):
         self.configure_automatic_find_retry(always_fail=True)

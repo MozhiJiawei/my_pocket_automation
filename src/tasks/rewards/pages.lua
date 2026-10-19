@@ -2,20 +2,32 @@ local detector=require('common.detector')
 local device=require('common.device')
 local M={features={}}
 for _,name in ipairs({'inventory','task_tab','task_tab_selected','dungeon_tab','dungeon_tab_selected',
-    'special_tab','special_tab_selected','treasury_tab','detail_title','detail_back','open_one','discard','discard_confirm','empty','card_corner'}) do
+    'special_tab','special_tab_selected','treasury_tab','detail_title','detail_back','open_one','discard','discard_confirm','bonus_receipt','empty','card_corner'}) do
     M.features[name]=require('tasks.rewards.assets.'..name)
 end
+M.features.bonus_receipt.variants={require('tasks.rewards.assets.fragment_notice')}
 for _,category in ipairs({'task','dungeon','special'}) do
     M.features[category..'_tab'].variants={M.features[category..'_tab_selected']}
 end
 function M.state()
+    if detector.present(M.features.bonus_receipt) then return 'bonus_receipt' end
     if M.features.discard_confirm and detector.present(M.features.discard_confirm) then return 'discard_confirm' end
     if detector.present(M.features.detail_title) then return 'detail' end
     if detector.present(M.features.inventory) then return 'inventory' end
     if detector.present(require('common.assets.home_dungeon')) then return 'home' end
     return 'unknown'
 end
+function M.close_receipt(ctx)
+    if M.state()~='bonus_receipt' then return true end
+    return device.tap(ctx,M.features.bonus_receipt,'rewards_close_bonus_receipt',function()
+        return M.state()=='bonus_receipt'
+    end) and device.wait(function()
+        local state=M.state()
+        return state=='detail' or state=='inventory'
+    end,20)
+end
 function M.close_detail(ctx)
+    if not M.close_receipt(ctx) then return false end
     if M.state()~='detail' then return M.state()=='inventory' end
     return device.tap(ctx,M.features.detail_back,'rewards_close_detail') and
         device.wait(function() return M.state()=='inventory' end,20)

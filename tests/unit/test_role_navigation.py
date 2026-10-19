@@ -102,6 +102,37 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertEqual(list(self.lua.globals().taps.values()),['close_incident_notice'])
         self.assertFalse(self.lua.globals().incident_visible)
 
+    def test_bonus_receipt_is_closed_before_underlying_home_is_accepted(self):
+        self.lua.execute('''
+            scene='home';receipt_visible=true
+            local rewards=require('tasks.rewards.pages')
+            rewards.features.bonus_receipt={kind='bonus_receipt'}
+            rewards.close_receipt=function()
+                taps[#taps+1]='close_bonus_receipt';receipt_visible=false;return true
+            end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if f.kind=='bonus_receipt' then return receipt_visible end
+                return present(f)
+            end
+        ''')
+        self.assertTrue(self.module.return_home(self.lua.globals().ctx))
+        self.assertEqual(list(self.lua.globals().taps.values()), ['close_bonus_receipt'])
+
+    def test_stuck_bonus_receipt_cannot_accept_underlying_home(self):
+        self.lua.execute('''
+            scene='home'
+            local rewards=require('tasks.rewards.pages')
+            rewards.features.bonus_receipt={kind='bonus_receipt'}
+            rewards.close_receipt=function() return false end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                return f.kind=='bonus_receipt' or present(f)
+            end
+        ''')
+        self.assertFalse(self.module.return_home(self.lua.globals().ctx))
+        self.assertEqual(len(self.lua.globals().taps), 0)
+
     def test_stuck_settings_restarts_only_game_then_checks_identity(self):
         self.lua.execute('''
             scene='settings';blocked_settings=true;restarts={}
@@ -165,6 +196,47 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().entry_attempts,3)
         self.assertEqual(list(self.lua.globals().taps.values()).count('pocket_entry'),1)
         self.assertTrue(self.lua.globals().ctx.identity_verified)
+
+    def test_entry_waits_for_portrait_capture_after_confirmation(self):
+        self.lua.execute('''
+            scene='entry';selected='second';portrait_refreshes=0
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if f.kind=='confirm' then
+                    taps[#taps+1]=label;scene='rotating';return true
+                end
+                assert(scene~='rotating','navigation before portrait was verified')
+                return tap(c,f,label)
+            end
+            resetScreen=function()
+                if scene=='rotating' then
+                    portrait_refreshes=portrait_refreshes+1
+                    if portrait_refreshes==2 then scene='home' end
+                end
+            end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertEqual(self.lua.globals().portrait_refreshes,2)
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(list(self.lua.globals().taps.values()),['pocket_entry','pocket_confirm'])
+
+    def test_entry_stops_when_portrait_destination_never_loads(self):
+        self.lua.execute('''
+            scene='entry'
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if f.kind=='confirm' then
+                    taps[#taps+1]=label;scene='rotating';return true
+                end
+                assert(scene~='rotating','navigation before portrait was verified')
+                return tap(c,f,label)
+            end
+        ''')
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(bool(self.lua.globals().ctx.identity_verified))
+        self.assertEqual(self.lua.globals().logs[len(self.lua.globals().logs)][2],
+                         'pocket_home_not_verified')
+        self.assertEqual(list(self.lua.globals().taps.values()),['pocket_entry','pocket_confirm'])
 
     def test_incident_close_requires_verified_disappearance(self):
         self.lua.execute("""

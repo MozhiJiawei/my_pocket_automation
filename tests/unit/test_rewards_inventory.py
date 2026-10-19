@@ -34,6 +34,7 @@ class RewardsInventoryTest(unittest.TestCase):
                     page_state='detail'
                 end
                 if unknown_after_action then page_state='unknown' end
+                if bonus_after_action then receipt_return=page_state;page_state='bonus_receipt' end
             end
             package.preload['tasks.rewards.pages']=function() return {
                 features={open_one='open_one',discard='discard',discard_confirm='discard_confirm'},
@@ -54,7 +55,12 @@ class RewardsInventoryTest(unittest.TestCase):
                     end
                     return cards
                 end,
-                state=function() return page_state end
+                state=function() return page_state end,
+                close_receipt=function()
+                    receipts_closed=(receipts_closed or 0)+1
+                    if receipt_close_failed then return false end
+                    page_state=receipt_return;return true
+                end
             } end
             package.preload['common.detector']=function() return {
                 present=function(feature)
@@ -238,6 +244,21 @@ class RewardsInventoryTest(unittest.TestCase):
         self.globals.missing_action_button = True
         self.assert_paused(self.clear(), 'rewards_action_result_not_verified')
         self.assertEqual(self.input_buttons(), ['open_one'])
+
+    def test_bonus_receipts_are_closed_before_opening_another_gourd(self):
+        self.globals.bonus_after_action = True
+        result = self.clear('dungeon')
+        self.assertEqual(result['status'], 'done')
+        self.assertEqual(self.input_buttons(), ['open_one'] * 6)
+        self.assertEqual(self.globals.receipts_closed, 6)
+        self.assertEqual(self.globals.page_state, 'inventory')
+
+    def test_bonus_receipt_close_failure_stops_without_another_open(self):
+        self.globals.bonus_after_action = True
+        self.globals.receipt_close_failed = True
+        self.assert_paused(self.clear(), 'rewards_bonus_receipt_not_closed')
+        self.assertEqual(self.input_buttons(), ['open_one'])
+        self.assertEqual(self.globals.receipts_closed, 1)
 
     def test_open_action_cannot_accept_a_discard_confirmation(self):
         self.globals.unexpected_confirmation = True

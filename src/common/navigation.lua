@@ -129,6 +129,12 @@ function M.verify_roster(ctx)
     return false
 end
 function M.dismiss_overlays(ctx)
+    local rewards=require('tasks.rewards.pages')
+    if rewards.features and rewards.features.bonus_receipt and detector.present(rewards.features.bonus_receipt) then
+        if not rewards.close_receipt(ctx) then
+            log.write(ctx,'account_blocked','rewards_bonus_receipt_not_closed');return false
+        end
+    end
     for _,spec in ipairs({{'incident_notice','close_incident_notice'},{'chat_expanded','collapse_chat'}}) do
         local feature=require('common.assets.'..spec[1])
         if detector.present(feature) then
@@ -241,6 +247,14 @@ local function enter_pocket(ctx,restarted)
         return detector.present(confirm) and device.tap(ctx,confirm,'pocket_confirm')
     end,20) then
         return finish(false,'pocket_confirmation_not_verified')
+    end
+    -- Confirmation rotates Android after the tap returns. Refresh the capture
+    -- while waiting, so a stale landscape stride cannot drive home navigation.
+    if not device.wait(function()
+        screen.init(0,true)
+        return detector.present(home) or detector.present(picker)
+    end,60) then
+        return finish(false,'pocket_home_not_verified')
     end
     return finish(true)
 end

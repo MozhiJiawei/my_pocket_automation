@@ -14,7 +14,8 @@ local function collect_failure(ctx,name,category,reason)
     end
     log.write(ctx,'find_collection','target=' .. tostring(name) .. ' category=' .. tostring(category) ..
         ' reason=' .. reason .. ' matching_started=false candidate_taps=0')
-    local captured=require('tasks.zhuagui.catalog').capture(ctx,'find_unmatched_')
+    local captured=require('dfx.materials').collect_find(ctx) or
+        require('tasks.zhuagui.catalog').capture(ctx,'find_unmatched_')
     log.write(ctx,'find_collection_done','target=' .. tostring(name) .. ' pages=' .. captured.pages ..
         ' reason=' .. captured.reason .. ' coverage_verified=false candidate_taps=0')
     if captured.reason~='find_catalog_observation_only' then return false,captured.reason,category end
@@ -56,7 +57,9 @@ function M.solve(ctx)
         return collect_failure(ctx,name,category,'find_target_requires_calibration')
     end
     log.write(ctx,'find_search','target=' .. name .. ' features=' .. #features .. ' category=' .. category)
-    for pass=1,6 do
+    for pass=1,7 do
+        local captured,capture_reason=require('dfx.materials').capture_find(ctx,pass)
+        if not captured then return false,capture_reason,category end
         snapshot.capture(ctx,'find_catalog_page_' .. pass, 'debug')
         local started=os.time()
         local feature,scan_reason=matcher.scan(features,title,expired)
@@ -74,7 +77,8 @@ function M.solve(ctx)
             end
             return true,'find_clicked'
         end
-        if pass<6 and not device.swipe(ctx,title,'zhuagui_find_scroll',{730,1350},{730,750}) then
+        if pass<7 and not device.swipe(ctx,title,'zhuagui_find_scroll',{730,1350},{730,950},
+            {settle_ms=350}) then
             return false,'find_page_changed',category
         end
     end

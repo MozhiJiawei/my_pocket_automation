@@ -10,7 +10,7 @@ class CatalogTest(unittest.TestCase):
         self.lua=LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
         self.lua.execute('''
-            state='retry'; taps={}; swipes=0; shots={}
+            state='retry'; taps={}; swipes=0; shots={};mSleep=function() end
             ctx={config={browse_rounds=2}}
             package.preload['tasks.zhuagui.pages']=function() return {
                 state=function() return state end,features={retry='retry',find_title='find_title',dialogue_next='dialogue',depart='depart'}

@@ -27,6 +27,18 @@ function M.scan(features,title,expired,all,limit)
                         if not duplicate then
                             -- Keep the exact matching anchor for guarded device clicks.
                             feature.region={found.x,found.y,found.x,found.y}
+                            -- Artwork can rotate after releasing the held scan.
+                            -- Revalidate compiled orientations of this signature
+                            -- within the same target center, never another cell.
+                            feature.variants={}
+                            for _,variant in ipairs(features) do
+                                if variant.base==candidate.base then
+                                    local offset=variant.tap_offset
+                                    feature.variants[#feature.variants+1]={width=variant.width,height=variant.height,
+                                        base=variant.base,offsets=variant.offsets,degree=variant.degree,
+                                        tap_offset=offset,region={x-offset[1]-4,y-offset[2]-4,x-offset[1]+4,y-offset[2]+4}}
+                                end
+                            end
                             matches[#matches+1]={x=x,y=y,feature=feature}
                             if #matches>=(limit or 30) then return matches end
                         end

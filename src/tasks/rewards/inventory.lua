@@ -30,9 +30,12 @@ function M.clear(ctx,category)
         if not device.tap(ctx,button,discard and 'rewards_discard' or 'rewards_open') then return stop(ctx,'rewards_action_not_verified') end
         if not device.wait(function()
             local after=pages.state()
-            return after=='inventory' or after=='discard_confirm' or
+            return after=='inventory' or after=='discard_confirm' or (not discard and after=='bonus_receipt') or
                 (after=='detail' and detector.present(button))
         end,20) then return stop(ctx,'rewards_action_result_not_verified') end
+        if pages.state()=='bonus_receipt' and not pages.close_receipt(ctx) then
+            return stop(ctx,'rewards_bonus_receipt_not_closed')
+        end
         if pages.state()=='discard_confirm' then
             if not discard or not device.tap(ctx,pages.features.discard_confirm,'rewards_confirm_discard') or
                 not device.wait(function() return pages.state()=='detail' or pages.state()=='inventory' end,20) then

@@ -24,6 +24,7 @@ M.features = {
     task_tutorial=require('tasks.zhuagui.assets.task_tutorial'),
     calendar_tutorial=require('tasks.zhuagui.assets.calendar_tutorial'),
 }
+M.features.depart.variants={require('tasks.zhuagui.assets.depart_current')}
 function M.state()
     if detector.present(M.features.gourd_prompt) then return 'unknown' end
     if detector.present(M.features.quota_dialogue) then return 'quota_dialogue' end

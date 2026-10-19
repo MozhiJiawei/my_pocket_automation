@@ -9,20 +9,67 @@ function M.question_key()
     -- Exclude the countdown bar and selected-item counter.
     return require('common.list_navigation').fingerprint({60,335,580,420})
 end
-function M.to_top(ctx,question,expected_first)
+local function frame_key()
     local fingerprint=require('common.list_navigation').fingerprint
-    local view={60,535,840,1405}
-    question=question or M.question_key()
+    -- Item artwork rotates and the scroll thumb fades. Fixed cell borders stay
+    -- unchanged; accept their row phase only after the upward boundary is proven.
+    return fingerprint({62,535,66,1405})
+end
+local function verified_find(ctx,valid)
+    -- A live recognition read may straddle rendering frames. Reobserve without
+    -- input before declaring a different page or question; never accept a new key.
+    for attempt=1,3 do
+        local state=pages.state()
+        local matches=state=='find' and (not valid or valid())
+        if matches then return true end
+        log.write(ctx,'catalog_guard','attempt='..attempt..' state='..state..' question_matches='..tostring(matches))
+        if attempt<3 then mSleep(100) end
+    end
+    return false
+end
+function M.verify_question(ctx,question)
+    local function same_question()
+        local actual=M.question_key()
+        if actual~=question then
+            log.write(ctx,'catalog_question','expected='..question..' actual='..actual)
+        end
+        return actual==question
+    end
+    return verified_find(ctx,same_question)
+end
+function M.wait_still(ctx,question)
+    local fingerprint=require('common.list_navigation').fingerprint
+    local previous,count=nil,0
+    for _=1,16 do
+        if not (question and M.verify_question(ctx,question) or not question and verified_find(ctx)) then
+            return false,'catalog_page_changed'
+        end
+        local actual=M.question_key()
+        local key=actual..':'..frame_key()..':'..fingerprint({825,530,831,1405})
+        count=key==previous and count+1 or 1
+        if count>=3 then return true,nil,actual end
+        previous=key
+        mSleep(100)
+    end
+    return false,'catalog_scroll_not_stable'
+end
+function M.to_top(ctx,question,expected_first)
+    if not question then
+        local stable,reason,observed=M.wait_still(ctx)
+        if not stable then return nil,reason end
+        question=observed
+    end
     local unchanged=0
     for attempt=1,12 do
-        if pages.state()~='find' or M.question_key()~=question then return nil,'catalog_question_changed' end
-        local before=fingerprint(view)
+        if not M.verify_question(ctx,question) then return nil,'catalog_question_changed' end
+        local before=frame_key()
         local x=attempt%2==0 and 810 or 730
         if not device.swipe(ctx,pages.features.find_title,'catalog_to_top',{x,750},{x,1350},
-            {capture_before=false,capture_after=false,settle_ms=350}) then return nil,'catalog_scroll_not_verified' end
-        if pages.state()~='find' or M.question_key()~=question then return nil,'catalog_question_changed' end
-        local after=fingerprint(view)
-        if expected_first~=nil and after==expected_first then return after,nil,question end
+            {capture_before=false,capture_after=ctx.config and ctx.config.routine_screenshots==true,
+             settle_ms=350}) then return nil,'catalog_scroll_not_verified' end
+        if not M.verify_question(ctx,question) then return nil,'catalog_question_changed' end
+        local after=frame_key()
+        log.write(ctx,'catalog_top','attempt='..attempt..' before='..before..' after='..after..' expected='..tostring(expected_first))
         unchanged=after==before and unchanged+1 or 0
         if unchanged>=2 then return after,nil,question end
     end
@@ -32,7 +79,7 @@ function M.capture(ctx,prefix,options)
     options=options or {}
     local save=options.save or function(label) return snapshot.capture(ctx,label,'evidence') end
     local valid=options.valid or function() return true end
-    if pages.state()~='find' then return {status='paused',reason='catalog_find_not_open',pages=0} end
+    if not verified_find(ctx) then return {status='paused',reason='catalog_find_not_open',pages=0} end
     if not valid() then return {status='paused',reason='catalog_question_changed',pages=0} end
     save(prefix .. 'p01')
     local captured=1
@@ -40,7 +87,7 @@ function M.capture(ctx,prefix,options)
         -- Each saved page is the next swipe's before evidence.
         -- Keep multiple complete rows overlapping; a longer drag can skip faded rows.
         if not device.swipe(ctx,pages.features.find_title,prefix .. 'scroll_' .. page,{730,1350},{730,950},
-            {capture_before=false,capture_after=false,settle_ms=350}) or pages.state()~='find' or not valid() then
+            {capture_before=false,capture_after=false,settle_ms=350}) or not verified_find(ctx,valid) then
             snapshot.capture(ctx,prefix .. 'incomplete')
             return {status='paused',reason='catalog_page_changed',pages=captured}
         end

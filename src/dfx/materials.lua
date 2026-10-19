@@ -2,6 +2,11 @@
 local snapshot=require('dfx.snapshot')
 local log=require('dfx.log')
 local M={}
+local function save(ctx,material,label)
+    local path=snapshot.capture(ctx,label,'buffer')
+    material.paths[#material.paths+1]=path
+    return path
+end
 function M.keep(ctx,reason)
     local material=ctx.recognition_materials
     if not material then return end
@@ -29,13 +34,8 @@ function M.prepare(ctx,task,kind)
         paths={},from_first=false,captured=false,
         prefix=string.format('%s_%s_r%03d_',task,kind,ctx.material_sequence)}
     ctx.recognition_materials=material
-    local function save(label)
-        local path=snapshot.capture(ctx,label,'buffer')
-        material.paths[#material.paths+1]=path
-        return path
-    end
     if kind=='puzzle' then
-        save(material.prefix..'p01')
+        save(ctx,material,material.prefix..'p01')
         material.from_first=true;material.captured=true
         return true
     end
@@ -44,16 +44,35 @@ function M.prepare(ctx,task,kind)
     local first,reason,question=catalog.to_top(ctx)
     if not first then M.keep(ctx,reason);return false,reason end
     material.from_first=true
-    local capture=catalog.capture(ctx,material.prefix,{save=save,valid=function()
-        return catalog.question_key()==question
-    end})
-    material.captured=capture.reason=='find_catalog_observation_only'
-    if not material.captured then M.keep(ctx,capture.reason);return false,capture.reason end
-    local restored,restore_reason=catalog.to_top(ctx,question,first)
-    if restored~=first then
-        reason=restore_reason or 'catalog_first_frame_not_restored'
-        M.keep(ctx,reason);return false,reason
-    end
+    material.question=question
     return true
+end
+-- Called by the solver immediately before searching each current page.
+function M.capture_find(ctx,page)
+    local material=ctx.recognition_materials
+    if not material then return true end
+    assert(material.kind=='find' and page>=1 and page<=7,'invalid find material page')
+    if material.account~=(ctx.account and ctx.account.alias or 'none') then
+        M.keep(ctx,'catalog_page_changed');return false,'catalog_page_changed'
+    end
+    if page<=#material.paths then return true end
+    assert(page==#material.paths+1,'find material page skipped')
+    local stable,reason=require('tasks.zhuagui.catalog').wait_still(ctx,material.question)
+    if not stable then M.keep(ctx,reason);return false,reason end
+    save(ctx,material,material.prefix..string.format('p%02d',page))
+    material.captured=page==7
+    return true
+end
+-- An unknown topic still gets one read-only traversal, without a solving pass.
+function M.collect_find(ctx)
+    local material=ctx.recognition_materials
+    if not material then return nil end
+    assert(material.kind=='find' and #material.paths==0,'find collection already started')
+    local catalog=require('tasks.zhuagui.catalog')
+    local capture=catalog.capture(ctx,material.prefix,{save=function(label)
+        return save(ctx,material,label)
+    end,valid=function() return catalog.question_key()==material.question end})
+    material.captured=capture.reason=='find_catalog_observation_only'
+    return capture
 end
 return M

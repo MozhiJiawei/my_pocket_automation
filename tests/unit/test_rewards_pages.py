@@ -27,7 +27,7 @@ class RewardsPagesTest(unittest.TestCase):
 
     def test_frozen_cases_contain_only_business_expectations(self):
         cases = sorted(CASES.glob('*/预期.json'))
-        self.assertEqual(len(cases), 14)
+        self.assertEqual(len(cases), 16)
         for path in cases:
             with self.subTest(case=path.parent.name):
                 case = json.loads(path.read_text(encoding='utf-8'))
@@ -71,6 +71,41 @@ class RewardsPagesTest(unittest.TestCase):
                         x, y = found['x'] + offset[1], found['y'] + offset[2]
                         self.assertTrue(region[0] <= x <= region[2] and
                                         region[1] <= y <= region[3], (index, x, y, region))
+
+    def test_bonus_receipt_returns_with_left_button_and_verifies_destination(self):
+        for closes in (True, False):
+            with self.subTest(closes=closes):
+                runtime, _ = self.runtime('额外奖励收据')
+                def tap(x, y):
+                    runtime.actions.append((x, y))
+                    if closes:
+                        runtime.screen = Screen.read(CASES / '副本空库存' / '画面.png')
+                runtime.lua.globals().tap = tap
+                pages = runtime.require('tasks.rewards.pages')
+                self.assertEqual(pages.close_receipt(runtime.lua.table()), closes)
+                self.assertEqual(len(runtime.actions), 1)
+                x, y = runtime.actions[0]
+                self.assertTrue(34 <= x <= 420 and 1334 <= y <= 1433, (x, y))
+                self.assertEqual(pages.state(), 'inventory' if closes else 'bonus_receipt')
+
+    def test_receipt_close_does_not_tap_normal_inventory(self):
+        runtime, _ = self.runtime('副本空库存')
+        self.assertTrue(runtime.require('tasks.rewards.pages').close_receipt(runtime.lua.table()))
+        self.assertEqual(runtime.actions, [])
+
+    def test_fragment_notice_closes_with_acknowledge_without_navigation_or_preferences(self):
+        runtime, _ = self.runtime('树苗碎片提示')
+        pages = runtime.require('tasks.rewards.pages')
+        self.assertEqual(pages.state(), 'bonus_receipt')
+        def tap(x, y):
+            runtime.actions.append((x, y))
+            runtime.screen = Screen.read(CASES / '副本空库存' / '画面.png')
+        runtime.lua.globals().tap = tap
+        self.assertTrue(pages.close_receipt(runtime.lua.table()))
+        self.assertEqual(len(runtime.actions), 1)
+        x, y = runtime.actions[0]
+        self.assertTrue(27 <= x <= 281 and 1325 <= y <= 1425, (x, y))
+        self.assertEqual(pages.state(), 'inventory')
 
     def test_detail_title_geometry_allows_two_pixels_of_match_tolerance(self):
         title_y = []

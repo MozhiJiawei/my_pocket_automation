@@ -7,6 +7,36 @@ from tests.support.lua_runtime import Runtime
 from tests.support.touchsprite_adapter import Screen
 
 class FindItemsTest(unittest.TestCase):
+    def rotation_revalidation(self, moved):
+        first=np.zeros((1600,900,3),dtype=np.uint8)
+        first[450,50]=[255,255,255]
+        first[700,100]=[10,30,210];first[700,101]=[0,255,0]
+        current=first.copy();current[700,101]=0;current[700,100]=0
+        x=300 if moved else 100
+        current[700,x]=[10,30,210];current[701,x]=[0,255,0]
+        runtime=Runtime(Screen(first))
+        self.addCleanup(runtime.close)
+        runtime.lua.globals().keepScreen=lambda held: None if held else setattr(runtime,'screen',Screen(current))
+        features=runtime.lua.eval('''{
+            {width=900,height=1600,base=0xd21e0a,offsets="1|0|0x00ff00",region={65,535,829,1410},tap_offset={0,0}},
+            {width=900,height=1600,base=0xd21e0a,offsets="0|1|0x00ff00",region={65,535,829,1410},tap_offset={0,0}}
+        }''')
+        title=runtime.lua.eval('{width=900,height=1600,base=0xffffff,offsets="1|0|0x000000",region={50,450,50,450}}')
+        points,reason=runtime.require('common.find_items').scan(features,title,None,True,1)
+        self.assertIsNone(reason)
+        clicked=runtime.require('common.device').tap(runtime.lua.table(),points[1]['feature'],'rotating_item')
+        return clicked,runtime.actions
+
+    def test_rotated_target_is_revalidated_in_the_same_cell(self):
+        clicked,actions=self.rotation_revalidation(False)
+        self.assertTrue(clicked)
+        self.assertEqual(actions,[{'kind':'tap','point':[100,700]}])
+
+    def test_rotated_signature_in_another_cell_cannot_redirect_the_click(self):
+        clicked,actions=self.rotation_revalidation(True)
+        self.assertFalse(clicked)
+        self.assertEqual(actions,[])
+
     def test_shimen_defaults_to_two_answers_across_pages(self):
         runtime=Runtime(Screen(np.zeros((1600,900,3),dtype=np.uint8)))
         runtime.lua.execute("""
@@ -26,7 +56,8 @@ class FindItemsTest(unittest.TestCase):
             package.preload['common.device']=function() return {
                 tap=function() taps=taps+1;visible=taps<2;return true end,
                 swipe=function(ctx,title,label,from,to,options)
-                    assert(taps==1 and visible and options==nil)
+                    assert(taps==1 and visible and options.settle_ms==350)
+                    assert(from[2]-to[2]==400,'preserve overlapping complete rows')
                     page=page+1;return true
                 end,
                 wait=function(predicate)
