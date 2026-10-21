@@ -292,11 +292,14 @@ function M.prepare_recorded(ctx)
             return false
         end
         if not device.wait(function() return detector.present(home) and detector.present(identity) end,10) then
+            -- A connection overlay can hide both landmarks after selection.
+            -- Let the home settle before deciding whether its session is stale.
+            local settled=device.wait(function() return detector.present(home) end,60)
             -- The saved-role picker can update the login selection while the
             -- Pocket home retains the previous session. Re-enter once, then
             -- require the real home identity before accepting any task.
-            if not detector.present(home) or not restart_pocket(ctx) or
-                not device.wait(function() return detector.present(home) and detector.present(identity) end,60) then
+            if not settled or (not detector.present(identity) and (not restart_pocket(ctx) or
+                not device.wait(function() return detector.present(home) and detector.present(identity) end,60))) then
                 log.write(ctx, 'account_blocked', 'saved_role_does_not_match_configured_identity')
                 return false
             end

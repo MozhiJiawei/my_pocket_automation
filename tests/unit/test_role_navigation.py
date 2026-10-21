@@ -159,6 +159,45 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertTrue(self.lua.globals().ctx.identity_verified)
         self.assertEqual(self.lua.globals().restarts,1)
 
+    def test_slow_role_connection_settles_before_identity_is_checked(self):
+        self.lua.execute('''
+            scene='home';selected='first';connection_ticks=0;restarts=0
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if label=='select_saved_role' then scene='connecting';return true end
+                return tap(c,f,label)
+            end
+            local wait=require('common.device').wait
+            require('common.device').wait=function(predicate,timeout)
+                if scene~='connecting' then return wait(predicate,timeout) end
+                for _=1,timeout do
+                    if predicate() then return true end
+                    connection_ticks=connection_ticks+1
+                    if connection_ticks==15 then scene='home';selected='second' end
+                end
+                return false
+            end
+            runApp=function() restarts=restarts+1 end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().connection_ticks,15)
+        self.assertEqual(self.lua.globals().restarts,0)
+
+    def test_unresolved_role_connection_stops_without_restarting_or_verifying(self):
+        self.lua.execute('''
+            scene='home';selected='first';restarts=0
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if label=='select_saved_role' then scene='connecting';return true end
+                return tap(c,f,label)
+            end
+            runApp=function() restarts=restarts+1 end
+        ''')
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(bool(self.lua.globals().ctx.identity_verified))
+        self.assertEqual(self.lua.globals().restarts,0)
+
     def test_restarted_login_disappearing_after_wait_is_not_accepted(self):
         self.lua.execute('''
             scene='settings';blocked_settings=true;entry_reads=0

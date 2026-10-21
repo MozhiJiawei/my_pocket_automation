@@ -336,6 +336,40 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assertEqual(list(self.lua.globals().taps.values()).count('swipe'),1)
         self.assert_no_accept()
 
+    def test_entry_waits_when_notice_hides_card_before_guarded_tap(self):
+        self.lua.execute('''
+            ctx.config.step='enter';state='home';activation_attempts=0
+            require('common.device').wait=function(predicate,attempts)
+                for _=1,attempts do if predicate() then return true end end
+                return false
+            end
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if label=='zhuagui_open_detail' then
+                    activation_attempts=activation_attempts+1
+                    if activation_attempts<3 then return false end
+                end
+                return tap(c,f,label)
+            end
+        ''')
+        self.assertEqual(self.run_task()['status'],'running')
+        self.assertEqual(self.lua.globals().activation_attempts,3)
+        self.assertEqual(list(self.lua.globals().taps.values()).count('task_card'),1)
+        self.assert_no_accept()
+
+    def test_entry_target_staying_hidden_stops_without_sending_a_tap(self):
+        self.lua.execute('''
+            ctx.config.step='enter';state='home'
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if label=='zhuagui_open_detail' then return false end
+                return tap(c,f,label)
+            end
+        ''')
+        self.assertEqual(self.run_task()['reason'],'task_list_changed')
+        self.assertNotIn('task_card',list(self.lua.globals().taps.values()))
+        self.assert_no_accept()
+
     def test_reservation_precedes_single_accept(self):
         self.lua.execute('ctx.config.zhuagui_budget=3')
         self.assertEqual(self.run_task()['status'], 'running')
@@ -421,6 +455,33 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assertEqual(self.run_task()['reason'], 'completed_card_not_found')
         self.assertEqual(self.lua.globals().record['completed_count'], 24)
         self.assertEqual(list(self.lua.globals().taps.values()), ['swipe'] * 24)
+
+    def test_completion_scan_returning_to_ready_verifies_delivery_without_accepting(self):
+        self.lua.execute('''
+            ctx.config.step='advance';state='task_list';record={status='running'}
+            local sleep=mSleep
+            mSleep=function(ms)
+                sleep(ms)
+                if ms==150 then state='ready_cost_three' end
+            end
+        ''')
+        self.assertEqual(self.run_task()['reason'],'one_task_completed')
+        self.assertEqual(self.lua.globals().record.stage,'one_task_completed')
+        self.assertEqual(len(self.lua.globals().taps),0)
+        self.assertIn('clear',list(self.lua.globals().material_events.values()))
+
+    def test_completion_scan_leaving_for_an_unknown_page_still_stops(self):
+        self.lua.execute('''
+            ctx.config.step='advance';state='task_list';record={status='running'}
+            local sleep=mSleep
+            mSleep=function(ms)
+                sleep(ms)
+                if ms==150 then state='unknown' end
+            end
+        ''')
+        self.assertEqual(self.run_task()['reason'],'completion_list_changed')
+        self.assertEqual(len(self.lua.globals().taps),0)
+        self.assertNotEqual(self.lua.globals().record.status,'done')
 
     def test_idle_return_is_partial_and_does_not_finish_the_daily_task(self):
         self.lua.execute("ctx.config.step='advance'; visible_count=0; record={status='running',attempts=1,completed_count=0,reserved_energy=3}")

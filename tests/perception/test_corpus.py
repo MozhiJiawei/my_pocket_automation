@@ -61,8 +61,8 @@ class CorpusTest(unittest.TestCase):
 
     def test_shimen_frozen_scope_and_all_positive_scoring(self):
         cases=[c for c in load_cases('shimen') if c['truth'].get('page',{}).get('value')=='find']
-        self.assertEqual(len(cases),752)
-        self.assertEqual(len({c['capture']['group'] for c in cases}),109)
+        self.assertEqual(len(cases),815)
+        self.assertEqual(len({c['capture']['group'] for c in cases}),118)
         self.assertEqual(len({c['truth']['question']['value']['target'] for c in cases}),22)
         self.assertTrue(all((Path(__file__).resolve().parents[2]/'testdata'/c['image']).is_file() for c in cases))
 

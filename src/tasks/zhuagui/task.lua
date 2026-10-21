@@ -46,7 +46,11 @@ local function open_list_card(ctx)
         end}
     local match,reason=list.find(ctx,spec)
     if not match then return false,reason=='target_not_found' and 'task_card_not_found_after_scroll' or 'task_list_changed' end
-    if not list.activate(ctx,spec,match,'zhuagui_open_detail') then return false,'task_list_changed' end
+    -- A notice can cover the card after scanning. Failed guarded taps send no
+    -- input, so wait for an actionable card without repeating a sent tap.
+    if not device.wait(function() return list.activate(ctx,spec,match,'zhuagui_open_detail') end,20) then
+        return false,'task_list_changed'
+    end
     return true
 end
 local function enter(ctx)
@@ -184,9 +188,17 @@ local function drive(ctx,stop_after_one)
                     inspect=function() if pages.state()=='quota_completed_card' then return {kind='completed'} end end}
                 local match,reason=list.find(ctx,spec)
                 if not match then
-                    reason=reason=='target_not_found' and 'completed_card_not_found' or 'completion_list_changed'
-                    snapshot.capture(ctx,reason)
-                    return result('paused',reason)
+                    local current=pages.state()
+                    if reason=='list_changed' and (is_active(current) or current=='ready_cost_three' or
+                        current=='quota_idle' or current=='quota_dialogue' or current=='quota_completed_card') then
+                        -- Delivery can settle on the NPC while the list scanner
+                        -- is stabilizing. Re-enter the guarded task loop there.
+                        log.write(ctx,'screen_resume','zhuagui completion_scan state='..current)
+                    else
+                        reason=reason=='target_not_found' and 'completed_card_not_found' or 'completion_list_changed'
+                        snapshot.capture(ctx,reason)
+                        return result('paused',reason)
+                    end
                 end
             end
         elseif state=='battle' then

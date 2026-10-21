@@ -1,4 +1,4 @@
-"""Demo: start one existing MuMu VM, optionally TouchSprite and the game via Lua."""
+"""Start one existing MuMu VM with bounded ADB recovery and optional Lua startup."""
 import argparse
 from datetime import datetime
 import hashlib
@@ -17,9 +17,11 @@ from dfx_device import ADB, Device, command
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def start(mumu_dir, vm_index, timeout, report):
+def start(mumu_dir, vm_index, timeout, report, max_restarts=3):
     if vm_index < 0 or not math.isfinite(timeout) or timeout <= 0:
         raise ValueError('A nonnegative VM index and positive timeout are required')
+    if type(max_restarts) is not int or not 0 <= max_restarts <= 3:
+        raise ValueError('At most three emulator restarts are allowed')
     report = Path(report)
     if report.exists():
         raise ValueError('Startup evidence already exists')
@@ -31,6 +33,7 @@ def start(mumu_dir, vm_index, timeout, report):
     manager = Path(mumu_dir) / 'MuMuManager.exe'
     adb = Path(mumu_dir) / 'adb.exe'
     record = dict(status='starting', phase='preflight', vm_index=vm_index, launch_status='not_requested',
+                  timeout_seconds=timeout, max_restarts=max_restarts, restart_count=0, attempts=[],
                   source_sha256=hashlib.sha256(source.read_bytes()).hexdigest())
 
     def persist():
@@ -50,7 +53,7 @@ def start(mumu_dir, vm_index, timeout, report):
         if vm.get('error_code') != 0 or str(vm.get('index')) != str(vm_index):
             raise ValueError('Requested VM was not found or its identity was not verified')
         return {key: vm[key] for key in ('index', 'name', 'android_version', 'is_process_started',
-                                        'is_android_started', 'adb_port') if key in vm}
+                                        'is_android_started', 'adb_port', 'pid') if key in vm}
 
     try:
         persist()
@@ -58,54 +61,98 @@ def start(mumu_dir, vm_index, timeout, report):
             raise FileNotFoundError('MuMuManager.exe and adb.exe are required in --mumu-dir')
         record['mumu_version'] = json.loads(call([manager, 'version']))['version']
         record['before'] = info()
-        if not record['before'].get('is_process_started'):
-            record.update(phase='launching', launch_status='requested')
-            persist()  # A lost reply must never cause a second launch request.
-            print(f'[emulator] Launching VM {vm_index}', flush=True)
-            try:
-                call([manager, 'control', '--vmindex', vm_index, 'launch'])
-                record['launch_status'] = 'returned'
-            except (RuntimeError, subprocess.TimeoutExpired) as exc:
-                record.update(launch_status='unknown', launch_error_type=type(exc).__name__)
-        else:
-            record['launch_status'] = 'reused'
-        record['phase'] = 'waiting_android_adb'
-        persist()
-        print(f'[emulator] Waiting for VM {vm_index} Android/ADB', flush=True)
-        endpoint, next_connect = None, 0
-        while time.monotonic() < deadline:
-            try:
-                vm = info()
-                record['after'] = vm
-                port = vm.get('adb_port')
-                if vm.get('is_process_started') and vm.get('is_android_started') and port:
-                    port = int(port)
-                    if not 1 <= port <= 65535:
-                        raise ValueError('Invalid VM ADB port')
-                    target = f'127.0.0.1:{port}'
-                    if target != endpoint or time.monotonic() >= next_connect:
-                        call([adb, 'connect', target])
-                        endpoint = target
-                        next_connect = time.monotonic() + 10
-                    record['device'] = endpoint
-                    if call([adb, '-s', endpoint, 'get-state']) == 'device':
-                        boot = call([adb, '-s', endpoint, 'shell', 'getprop', 'sys.boot_completed'])
-                        record['boot_completed'] = boot
-                        if boot == '1':
-                            android = call([adb, '-s', endpoint, 'shell', 'getprop', 'ro.build.version.release'])
-                            package = call([adb, '-s', endpoint, 'shell', 'pm', 'path', 'android'])
-                            if android.split('.')[0] != vm['android_version'].split('.')[0]:
-                                raise ValueError('Connected Android version differs from selected VM')
-                            if package.startswith('package:'):
-                                record.update(status='ready', phase='ready', android_version=android,
-                                              package_manager_ready=True)
-                                persist()
-                                return record
-            except (RuntimeError, subprocess.TimeoutExpired, ValueError) as exc:
-                record['last_wait_error_type'] = type(exc).__name__
+        for restart in range(max_restarts + 1):
+            attempt_started = time.monotonic() if restart else started
+            deadline = attempt_started + timeout
+            before = info() if restart else record['before']
+            attempt = dict(number=restart + 1, before=before, status='starting', connect_requests=0)
+            record['attempts'].append(attempt)
+            for key in ('device', 'boot_completed', 'adb_state', 'package_manager_ready', 'android_version'):
+                record.pop(key, None)
+            action = None
+            if restart:
+                action = 'restart'
+            elif not before.get('is_process_started'):
+                action = 'launch'
+            record['restart_count'] = restart
+            if action:
+                record.update(phase='restarting' if restart else 'launching', launch_status='requested')
+                attempt.update(action=action, request_status='requested')
+                persist()  # One request per timeout window, even when its reply is lost.
+                print(f'[emulator] {action} VM {vm_index}; restart {restart}/{max_restarts}', flush=True)
+                try:
+                    call([manager, 'control', '--vmindex', vm_index, action])
+                    record['launch_status'] = attempt['request_status'] = 'returned'
+                except (RuntimeError, subprocess.TimeoutExpired, TimeoutError) as exc:
+                    record['launch_status'] = attempt['request_status'] = 'unknown'
+                    attempt['request_error_type'] = type(exc).__name__
+            else:
+                record['launch_status'] = 'reused'
+                attempt.update(action='reuse', request_status='not_requested')
+            record['phase'] = 'waiting_android_adb'
             persist()
-            time.sleep(max(0, min(2, deadline - time.monotonic())))
-        raise TimeoutError('Selected VM did not reach Android/ADB readiness')
+            print(f'[emulator] Waiting for VM {vm_index} Android/ADB (attempt {restart + 1})', flush=True)
+            endpoint, next_connect, connected = None, 0, False
+            restart_observed = restart == 0
+            while time.monotonic() < deadline:
+                try:
+                    vm = info()
+                    record['after'] = attempt['after'] = vm
+                    # A restart request can return while the old VM is still online.
+                    # Wait for shutdown or a new process before trusting its ADB.
+                    if not vm.get('is_process_started') or not vm.get('is_android_started'):
+                        restart_observed = True
+                    elif before.get('pid') and vm.get('pid') and before['pid'] != vm['pid']:
+                        restart_observed = True
+                    attempt['restart_observed'] = restart_observed
+                    port = vm.get('adb_port')
+                    if restart_observed and vm.get('is_process_started') and vm.get('is_android_started') and port:
+                        port = int(port)
+                        if not 1 <= port <= 65535:
+                            raise ValueError('Invalid VM ADB port')
+                        target = f'127.0.0.1:{port}'
+                        if target != endpoint:
+                            endpoint, next_connect, connected = target, 0, False
+                        record['device'] = attempt['device'] = endpoint
+                        if not connected and time.monotonic() >= next_connect:
+                            next_connect = time.monotonic() + 10
+                            if attempt['connect_requests']:
+                                # Reset only this transport; never kill the shared ADB server.
+                                try:
+                                    call([adb, 'disconnect', endpoint])
+                                except (RuntimeError, subprocess.TimeoutExpired) as exc:
+                                    attempt['disconnect_error_type'] = type(exc).__name__
+                            attempt['connect_requests'] += 1
+                            call([adb, 'connect', endpoint])
+                        try:
+                            state = call([adb, '-s', endpoint, 'get-state'])
+                        except (RuntimeError, subprocess.TimeoutExpired):
+                            connected = False
+                            record['adb_state'] = attempt['adb_state'] = 'unavailable'
+                            raise
+                        connected = state == 'device'
+                        record['adb_state'] = attempt['adb_state'] = state
+                        if connected:
+                            boot = call([adb, '-s', endpoint, 'shell', 'getprop', 'sys.boot_completed'])
+                            record['boot_completed'] = attempt['boot_completed'] = boot
+                            if boot == '1':
+                                android = call([adb, '-s', endpoint, 'shell', 'getprop', 'ro.build.version.release'])
+                                package = call([adb, '-s', endpoint, 'shell', 'pm', 'path', 'android'])
+                                if android.split('.')[0] != vm['android_version'].split('.')[0]:
+                                    raise ValueError('Connected Android version differs from selected VM')
+                                if package.startswith('package:'):
+                                    attempt.update(status='ready', elapsed_seconds=round(time.monotonic() - attempt_started, 2))
+                                    record.update(status='ready', phase='ready', android_version=android,
+                                                  package_manager_ready=True)
+                                    persist()
+                                    return record
+                except (RuntimeError, subprocess.TimeoutExpired, TimeoutError, ValueError) as exc:
+                    record['last_wait_error_type'] = attempt['last_wait_error_type'] = type(exc).__name__
+                persist()
+                time.sleep(max(0, min(2, deadline - time.monotonic())))
+            attempt.update(status='timed_out', elapsed_seconds=round(time.monotonic() - attempt_started, 2))
+            persist()
+        raise TimeoutError(f'Selected VM did not reach Android/ADB readiness after {max_restarts} restart(s)')
     except Exception as exc:
         record.update(status='failed', error_type=type(exc).__name__, error=str(exc))
         persist()
@@ -212,7 +259,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--vm-index', type=int, required=True, help='Existing MuMu VM index; never creates a VM')
     parser.add_argument('--mumu-dir', type=Path, default=Path(ADB).parent)
-    parser.add_argument('--timeout', type=float, default=180, help='Emulator startup deadline in seconds')
+    parser.add_argument('--timeout', type=float, default=180, help='Android/ADB deadline per attempt in seconds')
+    parser.add_argument('--max-restarts', type=int, choices=range(4), default=3,
+                        help='Restart the selected VM after timeout, at most 3 times (default: 3)')
     parser.add_argument('--apps',action='store_true',help='Also start TouchSprite and launch/verify the game through Lua')
     args = parser.parse_args()
     if args.vm_index < 0 or not math.isfinite(args.timeout) or args.timeout <= 0:
@@ -221,7 +270,7 @@ def main():
     archive.mkdir(parents=True)  # Refuse to overwrite a previous run.
     report = archive / 'emulator-start.json'
     try:
-        result = start(args.mumu_dir, args.vm_index, args.timeout, report)
+        result = start(args.mumu_dir, args.vm_index, args.timeout, report, max_restarts=args.max_restarts)
         if args.apps:
             report=archive/'apps-start.json'
             apps=start_apps(args.mumu_dir,args.vm_index,result['device'],report)
