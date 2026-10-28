@@ -32,16 +32,25 @@ function M.install(ctx)
     }) do
         local module=require(spec[1])
         local original=module[spec[2]]
+        -- Leaf recognition/state calls can run thousands of times per question.
+        -- Never read /proc or build a scope key in their inner loop.
+        local cpu_only=spec[3]=='recognition' or spec[3]:match('^state%.')~=nil
+        local previous_alias,stat
         module[spec[2]]=function(...)
-            local key=(ctx.account and ctx.account.alias or 'none')..':'..spec[3]
-            local started,cpu=wall_ms(),os.clock()
+            local alias=ctx.account and ctx.account.alias or 'none'
+            if alias~=previous_alias then
+                local key=alias..':'..spec[3]
+                stat=ctx.profile.stats[key] or {count=0,wall_ms=0,cpu_ms=0,max_ms=0,errors=0,cpu_only=cpu_only}
+                ctx.profile.stats[key]=stat
+                previous_alias=alias
+            end
+            local started,cpu=not cpu_only and wall_ms(),os.clock()
             local values=table.pack(pcall(original,...))
-            local duration=math.max(0,wall_ms()-started)
-            local stat=ctx.profile.stats[key] or {count=0,wall_ms=0,cpu_ms=0,max_ms=0,errors=0}
-            ctx.profile.stats[key]=stat
+            local cpu_duration=(os.clock()-cpu)*1000
+            local duration=cpu_only and cpu_duration or math.max(0,wall_ms()-started)
             stat.count=stat.count+1
             stat.wall_ms=stat.wall_ms+duration
-            stat.cpu_ms=stat.cpu_ms+(os.clock()-cpu)*1000
+            stat.cpu_ms=stat.cpu_ms+cpu_duration
             stat.max_ms=math.max(stat.max_ms,duration)
             if not values[1] then stat.errors=stat.errors+1;error(values[2],0) end
             return table.unpack(values,2,values.n)
@@ -55,8 +64,13 @@ function M.flush(ctx)
     local keys={};for key in pairs(ctx.profile.stats) do keys[#keys+1]=key end;table.sort(keys)
     for _,key in ipairs(keys) do
         local s=ctx.profile.stats[key]
-        log.write(ctx,'profile',string.format('scope=%s count=%d wall_ms=%.0f cpu_ms=%.3f max_ms=%.0f errors=%d',
-            key,s.count,s.wall_ms,s.cpu_ms,s.max_ms,s.errors))
+        if s.cpu_only then
+            log.write(ctx,'profile',string.format('scope=%s count=%d cpu_ms=%.3f max_cpu_ms=%.3f errors=%d',
+                key,s.count,s.cpu_ms,s.max_ms,s.errors))
+        else
+            log.write(ctx,'profile',string.format('scope=%s count=%d wall_ms=%.0f cpu_ms=%.3f max_ms=%.0f errors=%d',
+                key,s.count,s.wall_ms,s.cpu_ms,s.max_ms,s.errors))
+        end
     end
 end
 return M

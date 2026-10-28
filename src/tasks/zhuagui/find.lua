@@ -8,6 +8,7 @@ local title=require('tasks.zhuagui.assets.find_title')
 local expired=require('tasks.zhuagui.assets.find_time_expired')
 local M={}
 local matcher=require('common.find_items')
+local profile=require('dfx.find_profile')
 local function collect_failure(ctx,name,category,reason)
     if ctx.recognition_materials and ctx.recognition_materials.captured then
         return false,reason,category
@@ -39,8 +40,9 @@ function M.identify()
     if category then return 'legacy',category end
     return nil,nil,reason
 end
-function M.solve(ctx)
-    local name,category,reason=M.identify()
+local function solve(ctx)
+    local name,category,reason=profile.call(ctx,'identify',0,M.identify)
+    profile.set(ctx,0,{topic=name or 'unknown',required=1})
     if reason then
         if reason=='not_find_page' then return false,reason end
         return collect_failure(ctx,name,category,reason)
@@ -56,13 +58,15 @@ function M.solve(ctx)
     if not features or #features==0 then
         return collect_failure(ctx,name,category,'find_target_requires_calibration')
     end
+    profile.set(ctx,0,{features=#features})
     log.write(ctx,'find_search','target=' .. name .. ' features=' .. #features .. ' category=' .. category)
     for pass=1,7 do
         local captured,capture_reason=require('dfx.materials').capture_find(ctx,pass)
         if not captured then return false,capture_reason,category end
         snapshot.capture(ctx,'find_catalog_page_' .. pass, 'debug')
         local started=os.time()
-        local feature,scan_reason=matcher.scan(features,title,expired)
+        local feature,scan_reason=profile.call(ctx,'scan',pass,matcher.scan,features,title,expired,nil,nil,profile.row(ctx,pass))
+        profile.set(ctx,pass,{matches=feature and 1 or 0,selected=0})
         log.write(ctx,'find_scan','page='..pass..' features='..#features..' seconds='..(os.time()-started)..
             ' matched='..tostring(feature~=nil))
         if scan_reason then return false,scan_reason,category end
@@ -71,17 +75,23 @@ function M.solve(ctx)
             if detector.present(expired) then return false,'find_time_expired',category end
             log.write(ctx,'find_target',name .. ' rotation=' .. tostring(feature.rotation) ..
                 ' mirror='..tostring(feature.mirror)..' calibration=' .. tostring(feature.calibration_id))
-            if not device.tap(ctx,feature,'zhuagui_find_' .. name) then return false,'find_target_changed',category end
-            if not device.wait(function() return not detector.present(title) end,10,300) then
+            if not profile.call(ctx,'tap',pass,device.tap,ctx,feature,'zhuagui_find_' .. name) then return false,'find_target_changed',category end
+            profile.set(ctx,pass,{selected=1})
+            if not profile.call(ctx,'verify',pass,device.wait,function() return not detector.present(title) end,10,300) then
                 return false,'find_click_not_confirmed',category
             end
             return true,'find_clicked'
         end
-        if pass<7 and not device.swipe(ctx,title,'zhuagui_find_scroll',{730,1350},{730,950},
+        if pass<7 and not profile.call(ctx,'scroll',pass,device.swipe,ctx,title,'zhuagui_find_scroll',{730,1350},{730,950},
             {settle_ms=350}) then
             return false,'find_page_changed',category
         end
     end
     return false,'find_icon_not_found',category
+end
+function M.solve(ctx)
+    local values=table.pack(solve(ctx))
+    profile.result(ctx,values[1],values[2])
+    return table.unpack(values,1,values.n)
 end
 return M

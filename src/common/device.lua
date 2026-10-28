@@ -18,6 +18,11 @@ function M.tap(ctx, feature, label, guard)
     end
     local offset=found.tap_offset or feature.tap_offset
     local x, y = found.x + offset[1], found.y + offset[2]
+    local material=ctx.recognition_materials
+    local trace=material and material.find_profile
+    if trace and not trace.ended and trace.phase=='tap' then
+        require('dfx.find_profile').target(ctx,trace.page,x,y)
+    end
     log.write(ctx, 'tap', string.format('%s x=%d y=%d', label, x, y))
     tap(x, y)
     mSleep(1200)

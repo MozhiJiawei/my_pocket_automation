@@ -64,6 +64,14 @@ class RecognitionMaterialsTest(unittest.TestCase):
     def files(self):
         return sorted(self.root.glob('*.png'))
 
+    def enable_profile(self):
+        self.lua.execute('''
+            now=0;clock_reads=0
+            ctx.profile={started=0,clock=function() clock_reads=clock_reads+1;return now end}
+            ctx.profile_path=folder..'/profile.log'
+            mSleep=function(ms) now=now+ms end
+        ''')
+
     def test_recognition_collects_once_while_scrolling_without_a_return_pass(self):
         self.assertTrue(self.prepare())
         self.assertEqual(self.lua.globals().position, 0)
@@ -146,6 +154,60 @@ class RecognitionMaterialsTest(unittest.TestCase):
         text = (self.root / 'main.log').read_text()
         self.assertIn('pages=2 from_first=true captured=false', text)
         self.assertFalse(any('_pending_' in path.name for path in self.files()))
+
+    def test_partial_failure_emits_one_bounded_trace_linked_to_retained_originals(self):
+        self.enable_profile()
+        self.lua.execute('expire=true')
+        self.assertTrue(self.prepare())
+        self.assertFalse((self.root/'profile.log').exists())
+        self.assertEqual(self.lua.execute('return solver.solve(ctx)'),(False,'catalog_page_changed'))
+        text=(self.root/'profile.log').read_text()
+        lines=text.splitlines()
+        self.assertLessEqual(len(lines),9)
+        self.assertEqual(text.count('scope=find_failure '),1)
+        self.assertIn('page=3 phase=stable pages=2 captured=false',text)
+        self.assertIn('solver_result=catalog_page_changed',text)
+        self.assertIn('state=retry',text)
+        self.assertIn('scan=',text)
+        self.assertIn('stable=',text)
+        self.assertNotIn('_pending_',text)
+        for path in self.files():
+            self.assertIn('image='+path.name,text)
+        self.lua.execute("materials.keep(ctx,'outer_failure')")
+        self.assertEqual((self.root/'profile.log').read_text(),text)
+
+    def test_success_and_pending_delivery_are_silent_and_next_role_has_a_fresh_trace(self):
+        self.enable_profile()
+        self.assertTrue(self.prepare())
+        self.lua.execute('''
+            require('common.find_items').scan=function()
+                return {{x=100,y=700,feature={region={100,700,100,700}}},
+                        {x=300,y=700,feature={region={300,700,300,700}}}}
+            end
+            taps=0
+            require('common.device').tap=function()
+                taps=taps+1;if taps==2 then state='delivered' end;return true
+            end
+            require('common.device').wait=function(predicate) return predicate() end
+        ''')
+        self.assertEqual(self.lua.execute('return solver.solve(ctx)'),(True,'find_completed'))
+        self.assertFalse((self.root/'profile.log').exists())
+        self.lua.execute("materials.keep(ctx,'delivery_not_verified')")
+        self.assertFalse((self.root/'profile.log').exists())
+        self.lua.execute("ctx.account={alias='second'};state='find'")
+        self.assertTrue(self.prepare())
+        self.lua.execute("materials.keep(ctx,'script_failed')")
+        text=(self.root/'profile.log').read_text()
+        self.assertIn('account=second prefix=shimen_find_r002_',text)
+        self.assertNotIn('shimen_find_r001_',text)
+        self.assertNotIn('scan=',text)
+
+    def test_verified_delivery_discards_all_trace_data_and_emits_nothing(self):
+        self.enable_profile()
+        self.assertTrue(self.prepare())
+        self.lua.execute("require('dfx.find_profile').result(ctx,true,'find_completed');materials.clear(ctx)")
+        self.assertIsNone(self.lua.globals().ctx.recognition_materials)
+        self.assertFalse((self.root/'profile.log').exists())
 
     def test_question_change_is_rejected_before_saving_another_questions_candidates(self):
         self.lua.execute('reroll=true')

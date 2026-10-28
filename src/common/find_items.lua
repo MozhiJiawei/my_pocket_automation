@@ -1,14 +1,16 @@
 -- Shared read-only color search. Directions are compiled offline.
 local detector=require('common.detector')
 local M={}
-function M.scan(features,title,expired,all,limit)
+function M.scan(features,title,expired,all,limit,stats)
     keepScreen(true)
     local ok,result,reason=pcall(function()
         if not detector.present(title) then return nil,'find_page_changed' end
         if expired and detector.present(expired) then return nil,'find_time_expired' end
         local matches={}
         for _,candidate in ipairs(features) do
+            if stats then stats.candidates=(stats.candidates or 0)+1 end
             if not all then
+                if stats then stats.searches=(stats.searches or 0)+1 end
                 if detector.present(candidate) then return candidate end
             else
                 local regions={candidate.region}
@@ -16,6 +18,7 @@ function M.scan(features,title,expired,all,limit)
                     local region=table.remove(regions)
                     local feature={width=candidate.width,height=candidate.height,base=candidate.base,
                         offsets=candidate.offsets,degree=candidate.degree,region=region,tap_offset=candidate.tap_offset}
+                    if stats then stats.searches=(stats.searches or 0)+1 end
                     local found=detector.find(feature)
                     if found then
                         local x=found.x+candidate.tap_offset[1]

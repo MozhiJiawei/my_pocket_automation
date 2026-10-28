@@ -228,7 +228,11 @@ local function enter_pocket(ctx,restarted)
         return ok
     end
     local action,observed=nil,false
+    local network_error=false
     local entered=device.wait(function()
+        if detector.present(require('common.assets.server_list_network_error')) then
+            network_error=true;return true
+        end
         for _,target in ipairs({{confirm,'pocket_confirm'},{entry,'pocket_entry'}}) do
             if detector.present(target[1]) then
                 observed=true
@@ -239,6 +243,7 @@ local function enter_pocket(ctx,restarted)
         end
         return false
     end,restarted and 360 or 1)
+    if network_error then return finish(false,'server_list_network_error') end
     if not entered then
         if restarted or observed then return finish(false,'pocket_entry_not_actionable') end
         return finish(true)
@@ -268,12 +273,57 @@ local function restart_pocket(ctx)
     mSleep(8000)
     return enter_pocket(ctx,true)
 end
+function M.recover_recorded(ctx)
+    ctx.identity_verified=false
+    return restart_pocket(ctx) and M.prepare_recorded(ctx)
+end
 function M.prepare_recorded(ctx)
     -- Authentication is manual; this only enters the already selected saved role.
-    require('common.screen').init(0)
+    local disconnected=require('common.assets.network_disconnected')
+    if detector.present(disconnected) then
+        ctx.identity_verified=false
+        if ctx.network_disconnect_recovered then
+            log.write(ctx,'account_blocked','network_disconnect_recovery_exhausted');return false
+        end
+        ctx.network_disconnect_recovered=true
+        log.write(ctx,'entry_recovery','network_disconnected restart_once=true')
+        if not restart_pocket(ctx) or detector.present(disconnected) then return false end
+    end
+    local screen=require('common.screen')
+    screen.init(1,true)
+    local server_list_failed=detector.present(require('common.assets.server_list_network_error'))
+    screen.init(0,true)
+    if server_list_failed then
+        ctx.identity_verified=false
+        if ctx.server_list_error_recovered then
+            log.write(ctx,'account_blocked','server_list_network_recovery_exhausted');return false
+        end
+        ctx.server_list_error_recovered=true
+        log.write(ctx,'entry_recovery','server_list_network_error restart_once=true')
+        if not restart_pocket(ctx) then return false end
+    end
+    local unresponsive=require('common.assets.game_not_responding')
+    if detector.present(unresponsive) then
+        ctx.identity_verified=false
+        if ctx.game_not_responding_recovered then
+            log.write(ctx,'account_blocked','game_not_responding_recovery_exhausted');return false
+        end
+        ctx.game_not_responding_recovered=true
+        log.write(ctx,'entry_recovery','game_not_responding restart_once=true')
+        if not restart_pocket(ctx) or detector.present(unresponsive) then return false end
+    end
     if detector.present(require('common.assets.settings_page')) and not return_home(ctx) then
         if not restart_pocket(ctx) then return false end
-    elseif not enter_pocket(ctx,false) then return false end
+    elseif not enter_pocket(ctx,false) then
+        ctx.identity_verified=false
+        screen.init(1,true)
+        local returned_to_entry=detector.present(entry)
+        screen.init(0,true)
+        if not returned_to_entry or ctx.pocket_entry_recovered then return false end
+        ctx.pocket_entry_recovered=true
+        log.write(ctx,'entry_recovery','pocket_returned_to_login restart_once=true')
+        if not restart_pocket(ctx) then return false end
+    end
     -- Entering Pocket may briefly show the picker while the saved role loads.
     if detector.present(picker) and not device.wait(function() return detector.present(home) end,10) then
         if not select_saved(ctx) then return false end

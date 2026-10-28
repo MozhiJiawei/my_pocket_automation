@@ -122,7 +122,7 @@ function M.run(ctx)
     local initial=pages.state()
     if initial=='completed_card' and (ctx.identity_verified or not record) then return audit_existing_completion(ctx) end
     if not record or record.status~='running' then
-        local active=pages.actions[initial] or ({find=true,puzzle=true,battle=true,loading=true})[initial]
+        local active=pages.actions[initial] or ({find=true,puzzle=true,battle=true,loading=true,network_retry=true})[initial]
         local entry=ctx.identity_verified and ({home=true,task_list=true,ready=true})[initial]
         if not active and not entry then return stop(ctx,'shimen_task_page_not_verified','blocked') end
         record={status='running',attempts=0,find_attempts=0,find_retry_pending=initial=='retry' and 1 or 0}
@@ -136,11 +136,21 @@ function M.run(ctx)
     end
     local deadline=os.time()+(ctx.config.shimen_timeout or 1800)
     local last_state,actions=nil,0
+    local network_retries=0
+    local city_recovered=false
     local puzzle_attempted=record.stage=='puzzle_exit_requires_delivery_verification'
     while os.time()<deadline do
         local state=pages.state()
         if state~=last_state then log.write(ctx,'state','shimen '..state);last_state=state end
-        if state=='puzzle_retry' and puzzle_attempted then
+        if state=='network_retry' then
+            if network_retries>=3 then return stop(ctx,'shimen_network_retry_limit') end
+            network_retries=network_retries+1
+            log.write(ctx,'entry_recovery','shimen network_retry='..network_retries..'/3')
+            if not device.tap(ctx,pages.features.network_retry,'shimen_network_retry') then
+                return stop(ctx,'shimen_network_retry_failed')
+            end
+            device.wait(function() return pages.state()~='network_retry' end,30,500)
+        elseif state=='puzzle_retry' and puzzle_attempted then
             progress.write(ctx,'shimen','running','puzzle_failed_requires_annotation',record)
             return stop(ctx,'puzzle_game_result_not_verified')
         elseif state=='puzzle' then
@@ -259,7 +269,14 @@ function M.run(ctx)
                 -- Reobserve a changed page; an unchanged target still stops.
                 if pages.state()==state then return stop(ctx,'shimen_action_postcondition_not_verified') end
             elseif not device.wait(function() return pages.state()~=state end,20) then
-                return stop(ctx,'shimen_action_postcondition_not_verified')
+                if state=='choose_city' and not city_recovered then
+                    city_recovered=true
+                    if not require('common.navigation').recover_recorded(ctx) then
+                        return stop(ctx,'shimen_city_reconnect_failed')
+                    end
+                else
+                    return stop(ctx,'shimen_action_postcondition_not_verified')
+                end
             end
         elseif state=='unknown' then
             -- A control can disappear before the loading page has settled.

@@ -137,11 +137,25 @@ local function drive(ctx,stop_after_one)
     local actions=0
     while os.time()<deadline do
         local state=pages.state()
-        if state~=last_state then log.write(ctx,'state','zhuagui ' .. state); last_state=state end
+        if state~=last_state then
+            -- Bound repeated actions on one page, not the whole automatic job.
+            -- Battles and recognition pages prove that the dialogue advanced.
+            actions=0
+            log.write(ctx,'state','zhuagui ' .. state)
+            last_state=state
+        end
         if state=='quota_dialogue' then
             if not act(ctx,pages.features.quota_dialogue,'close_completed_ghost_dialogue') or
-                not device.wait(function() return pages.state()=='task_list' or pages.state()=='quota_completed_card' end,20) then
+                not device.wait(function() return pages.state()=='task_list' or pages.state()=='quota_completed_card' or
+                    require('common.detector').present(require('common.assets.home_dungeon')) end,20) then
                 snapshot.capture(ctx,'quota_dialogue_not_closed');return result('paused','quota_dialogue_not_closed')
+            end
+            if require('common.detector').present(require('common.assets.home_dungeon')) then
+                if not require('common.navigation').prepare_recorded(ctx) then return result('blocked','saved_role_not_ready') end
+                if not act(ctx,pages.features.home_tasks,'reopen_ghost_completion_list') or
+                    not device.wait(function() return pages.state()=='task_list' or pages.state()=='quota_completed_card' end,20) then
+                    return result('paused','completion_list_changed')
+                end
             end
             state=pages.state()
         end
@@ -174,8 +188,12 @@ local function drive(ctx,stop_after_one)
                 if stop_after_one then return result('paused','one_task_completed') end
                 local entered=enter(ctx)
                 if entered.status~='running' then return entered end
-                local started=start(ctx)
-                if started.status~='running' then return started end
+                if pages.state()=='ready_cost_three' then
+                    local started=start(ctx)
+                    if started.status~='running' then return started end
+                elseif not is_active(pages.state()) then
+                    return result('paused','next_task_page_not_verified')
+                end
                 record=progress.read(ctx,'zhuagui')
                 actions=0
             end

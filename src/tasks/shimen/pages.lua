@@ -45,6 +45,8 @@ M.features.retry=require('tasks.shimen.assets.find_retry')
 M.features.gourd_notice=require('tasks.shimen.assets.gourd_notice')
 M.features.puzzle_retry_prompt=require('tasks.shimen.assets.puzzle_retry_prompt')
 M.features.loading=require('tasks.shimen.assets.battle_loading')
+M.features.network_retry=require('tasks.shimen.assets.network_retry')
+M.features.network_retry.variants={require('tasks.shimen.assets.network_retry_failed')}
 M.features.loading.variants={require('tasks.dungeon.assets.loading')}
 M.actions={go=M.features.go,catch=M.features.catch,intimidate=M.features.intimidate,
     duel=M.features.duel,choose_city=M.features.choose_city,
@@ -58,6 +60,7 @@ M.actions={go=M.features.go,catch=M.features.catch,intimidate=M.features.intimid
     encounter_offer=M.features.encounter_offer,
     puzzle_retry=M.features.prepare_puzzle,prepare_puzzle=M.features.prepare_puzzle}
 function M.state()
+    if detector.present(M.features.network_retry) then return 'network_retry' end
     if detector.present(M.features.encounter_offer) then return 'encounter_offer' end
     if detector.present(M.features.story_dialogue) then return 'story_dialogue' end
     if detector.present(M.features.completion_list_dialogue) then return 'completion_list_dialogue' end

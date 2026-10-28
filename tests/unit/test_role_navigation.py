@@ -93,6 +93,80 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().scene,'home')
         self.assertEqual(self.lua.globals().swipes,2)
 
+    def test_unresponsive_game_restarts_and_rechecks_identity(self):
+        self.lua.execute('''
+            scene='anr';ctx.identity_verified=true;restarts=0
+            package.preload['common.assets.game_not_responding']=function() return {kind='anr'} end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if f.kind=='anr' then return scene=='anr' end
+                return present(f)
+            end
+            runApp=function() restarts=restarts+1;scene='entry' end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+        self.lua.execute("scene='anr'")
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+
+    def test_network_disconnect_restarts_once_and_rechecks_identity(self):
+        self.lua.execute('''
+            scene='disconnected';ctx.identity_verified=true;restarts=0
+            package.preload['common.assets.network_disconnected']=function() return {kind='disconnected'} end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if f.kind=='disconnected' then return scene=='disconnected' end
+                return present(f)
+            end
+            runApp=function() restarts=restarts+1;scene='entry' end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+        self.lua.execute("scene='disconnected'")
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+
+    def test_server_list_error_restarts_once_and_rechecks_identity(self):
+        self.lua.execute('''
+            scene='server_error';ctx.identity_verified=true;restarts=0
+            package.preload['common.assets.server_list_network_error']=function() return {kind='server_error'} end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if f.kind=='server_error' then return scene=='server_error' end
+                return present(f)
+            end
+            runApp=function() restarts=restarts+1;scene='entry' end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+        self.lua.execute("scene='server_error'")
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+
+    def test_persistent_server_list_error_stops_after_one_restart(self):
+        self.lua.execute('''
+            scene='server_error';ctx.identity_verified=true;restarts=0
+            package.preload['common.assets.server_list_network_error']=function() return {kind='server_error'} end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if f.kind=='server_error' then return scene=='server_error' end
+                return present(f)
+            end
+            runApp=function() restarts=restarts+1 end
+        ''')
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+        self.assertEqual(self.lua.globals().logs[len(self.lua.globals().logs)][2],
+                         'server_list_network_error')
+
     def test_selected_badge_precedes_a_lower_generic_tile(self):
         self.lua.execute("selected_badge=true;ctx.config.accounts[3]={alias='third'};local old=require('common.detector').find;require('common.detector').find=function(f) if f.kind=='selector' and f.alias=='third' then return {x=199,y=958} end;return old(f) end")
         self.assertTrue(self.module.verify_roster(self.lua.globals().ctx))
@@ -259,6 +333,38 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().portrait_refreshes,2)
         self.assertTrue(self.lua.globals().ctx.identity_verified)
         self.assertEqual(list(self.lua.globals().taps.values()),['pocket_entry','pocket_confirm'])
+
+    def test_returned_login_refreshes_session_once_and_rechecks_identity(self):
+        self.lua.execute('''
+            scene='entry';selected='second';restarts=0
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if f.kind=='confirm' and restarts==0 then
+                    taps[#taps+1]=label;scene='entry';return true
+                end
+                return tap(c,f,label)
+            end
+            runApp=function() restarts=restarts+1;scene='entry' end
+        ''')
+        self.assertTrue(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
+
+    def test_persistent_return_to_login_stops_after_one_restart(self):
+        self.lua.execute('''
+            scene='entry';ctx.identity_verified=true;restarts=0
+            local tap=require('common.device').tap
+            require('common.device').tap=function(c,f,label)
+                if f.kind=='confirm' then
+                    taps[#taps+1]=label;scene='entry';return true
+                end
+                return tap(c,f,label)
+            end
+            runApp=function() restarts=restarts+1;scene='entry' end
+        ''')
+        self.assertFalse(self.module.prepare_recorded(self.lua.globals().ctx))
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,1)
 
     def test_entry_stops_when_portrait_destination_never_loads(self):
         self.lua.execute('''

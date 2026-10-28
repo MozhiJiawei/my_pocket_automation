@@ -4,6 +4,7 @@ local device=require('common.device')
 local snapshot=require('dfx.snapshot')
 local log=require('dfx.log')
 local M={}
+local profile=require('dfx.find_profile')
 -- Normalize a live question without touching answers or opening another round.
 function M.question_key()
     -- Exclude the countdown bar and selected-item counter.
@@ -21,6 +22,9 @@ local function verified_find(ctx,valid)
     for attempt=1,3 do
         local state=pages.state()
         local matches=state=='find' and (not valid or valid())
+        local material=ctx.recognition_materials
+        local trace=material and material.find_profile
+        if trace then profile.set(ctx,trace.page,{state=state}) end
         if matches then return true end
         log.write(ctx,'catalog_guard','attempt='..attempt..' state='..state..' question_matches='..tostring(matches))
         if attempt<3 then mSleep(100) end
@@ -30,6 +34,9 @@ end
 function M.verify_question(ctx,question)
     local function same_question()
         local actual=M.question_key()
+        local material=ctx.recognition_materials
+        local trace=material and material.find_profile
+        if trace then profile.set(ctx,trace.page,{question_matches=actual==question}) end
         if actual~=question then
             log.write(ctx,'catalog_question','expected='..question..' actual='..actual)
         end
@@ -86,8 +93,8 @@ function M.capture(ctx,prefix,options)
     for page=2,7 do
         -- Each saved page is the next swipe's before evidence.
         -- Keep multiple complete rows overlapping; a longer drag can skip faded rows.
-        if not device.swipe(ctx,pages.features.find_title,prefix .. 'scroll_' .. page,{730,1350},{730,950},
-            {capture_before=false,capture_after=false,settle_ms=350}) or not verified_find(ctx,valid) then
+        if not profile.call(ctx,'scroll',page-1,device.swipe,ctx,pages.features.find_title,prefix .. 'scroll_' .. page,{730,1350},{730,950},
+            {capture_before=false,capture_after=false,settle_ms=350}) or not profile.call(ctx,'guard',page,verified_find,ctx,valid) then
             snapshot.capture(ctx,prefix .. 'incomplete')
             return {status='paused',reason='catalog_page_changed',pages=captured}
         end

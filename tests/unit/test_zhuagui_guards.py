@@ -21,6 +21,7 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                 features={rules='rules',cancel='cancel',home_tasks='home_tasks',task_card='task_card',accept='accept',task_list_title='task_list_title',depart='depart',go='go',dialogue_next='dialogue_next',retry='retry',quota_dialogue='quota_dialogue',puzzle={retry_button='puzzle_retry'}}
             } end
             package.preload['common.assets.home_tab']=function() return 'home_tab' end
+            package.preload['common.assets.home_dungeon']=function() return 'home' end
             package.preload['tasks.zhuagui.counter']=function() return {read=function()
                 if missing_count then return nil end
                 if visible_count~=nil then return visible_count end
@@ -34,6 +35,7 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                 clear=function() material_events[#material_events+1]='clear' end} end
             package.preload['dfx.snapshot']=function() return {capture=function() end} end
             package.preload['common.detector']=function() return {present=function(feature)
+                if feature=='home' then return state=='home' end
                 if feature=='task_card' then
                     return state=='task_list' and (not entry_card_after_scroll or (entry_scrolls or 0)>=entry_card_after_scroll)
                 end
@@ -74,7 +76,7 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                     elseif feature=='task_card' then state='ready_cost_three'
                     elseif feature=='retry' then state='find'
                     elseif feature=='puzzle_retry' then state='quota_completed_card'
-                    elseif feature=='quota_dialogue' then state='task_list'
+                    elseif feature=='quota_dialogue' then state=quota_dialogue_home and 'home' or 'task_list'
                     elseif feature=='accept' then
                         assert(c.identity_verified,'identity required before paid task')
                         assert(record.status=='running' and record.stage=='start_requested','record before accepting')
@@ -289,6 +291,12 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.lua.execute('completion_card_after_scroll=true')
         self.assertEqual(self.run_task()['status'],'done')
         self.assertEqual(list(self.lua.globals().taps.values()),['quota_dialogue','swipe'])
+
+    def test_quota_dialogue_returning_home_rechecks_identity_and_completion_card(self):
+        self.lua.execute("ctx.config.step='complete';state='quota_dialogue';quota_dialogue_home=true;completion_card_after_scroll=true")
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(list(self.lua.globals().taps.values()),['quota_dialogue','home_tasks','swipe'])
+        self.assert_no_accept()
 
     def test_final_recovery_reopens_completion_list_after_identity_verification(self):
         self.lua.execute('''
