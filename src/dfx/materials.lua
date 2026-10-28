@@ -76,7 +76,7 @@ function M.collect_find(ctx)
     local catalog=require('tasks.zhuagui.catalog')
     local capture=catalog.capture(ctx,material.prefix,{save=function(label)
         return save(ctx,material,label)
-    end,valid=function() return catalog.question_key()==material.question end})
+    end,valid=function(actual) return catalog.same_question(actual or catalog.question_key(),material.question) end})
     material.captured=capture.reason=='find_catalog_observation_only'
     return capture
 end

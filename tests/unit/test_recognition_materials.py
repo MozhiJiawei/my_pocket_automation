@@ -217,6 +217,71 @@ class RecognitionMaterialsTest(unittest.TestCase):
         self.assertEqual(len(originals), 2)
         self.assertTrue(all('question=1' in p.read_text() for p in originals))
 
+    def test_one_level_color_change_across_quantization_boundary_keeps_the_same_question(self):
+        self.lua.execute('''
+            local color=getColor
+            question_pixel=0x8691c0
+            getColor=function(x,y)
+                if x==262 and y==377 then return question_pixel end
+                return color(x,y)
+            end
+        ''')
+        self.assertTrue(self.prepare())
+        self.lua.execute('question_pixel=0x8691bf')
+        self.assertEqual(self.lua.execute('return solver.solve(ctx)'), (False,'find_icon_not_found'))
+        self.assertEqual(len(self.files()),7)
+
+    def test_question_tolerance_cannot_accumulate_into_a_different_reference(self):
+        self.assertTrue(self.prepare())
+        self.lua.execute('''
+            local color=getColor
+            delta=1
+            getColor=function(x,y) return color(x,y)+(y<500 and delta or 0) end
+            catalog=require('tasks.zhuagui.catalog')
+            original_question=ctx.recognition_materials.question
+        ''')
+        self.assertTrue(self.lua.execute('return catalog.verify_question(ctx,original_question)')[0])
+        self.lua.execute('delta=2')
+        self.assertFalse(self.lua.execute('return catalog.verify_question(ctx,original_question)'))
+        self.assertEqual(self.lua.execute('return original_question[1]'),0x121212)
+
+    def test_stationary_page_uses_three_shared_frames_without_reading_the_fading_scroll_thumb(self):
+        self.assertTrue(self.prepare())
+        self.lua.execute('''
+            local color=getColor
+            held=false;holds=0;releases=0;slept=0
+            keepScreen=function(value)
+                assert(held~=value,'nested observation recaptures or releases a frame')
+                held=value
+                if value then holds=holds+1 else releases=releases+1 end
+            end
+            getColor=function(x,y)
+                assert(held,'all stability samples must share the observed frame')
+                assert(x<820,'the fading scroll thumb is not a motion indicator')
+                return color(x,y)
+            end
+            mSleep=function(ms) assert(not held);slept=slept+ms end
+        ''')
+        self.assertTrue(self.lua.execute('return materials.capture_find(ctx,1)'))
+        self.assertEqual(self.lua.globals().holds,3)
+        self.assertEqual(self.lua.globals().releases,3)
+        self.assertEqual(self.lua.globals().slept,200)
+        self.assertFalse(self.lua.globals().held)
+        self.assertEqual(len(self.files()),1)
+
+    def test_page_observation_error_releases_the_frame_without_capturing_or_answering(self):
+        self.assertTrue(self.prepare())
+        self.lua.execute('''
+            held=false
+            keepScreen=function(value) held=value end
+            getColor=function() error('observation_failed') end
+        ''')
+        ok,error=self.lua.execute('return pcall(materials.capture_find,ctx,1)')
+        self.assertFalse(ok)
+        self.assertIn('observation_failed',error)
+        self.assertFalse(self.lua.globals().held)
+        self.assertEqual(self.files(),[])
+
     def test_success_on_second_page_stops_collection_and_keeps_partial_material_pending_delivery(self):
         self.assertTrue(self.prepare())
         backward=self.lua.globals().backward

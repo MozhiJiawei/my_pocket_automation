@@ -5,57 +5,92 @@ local snapshot=require('dfx.snapshot')
 local log=require('dfx.log')
 local M={}
 local profile=require('dfx.find_profile')
--- Normalize a live question without touching answers or opening another round.
-function M.question_key()
-    -- Exclude the countdown bar and selected-item counter.
-    return require('common.list_navigation').fingerprint({60,335,580,420})
+-- Only page continuity uses this sample; answer recognition stays unchanged.
+function M.question_key(held)
+    if not held then keepScreen(true) end
+    local ok,colors=pcall(function()
+        local sample={}
+        -- Exclude the countdown bar and selected-item counter.
+        for row=1,13 do
+            for column=1,9 do
+                local x=math.floor(60+520*(column-.5)/9)
+                local y=math.floor(335+85*(row-.5)/13)
+                sample[#sample+1]=getColor(x,y)
+            end
+        end
+        return sample
+    end)
+    if not held then keepScreen(false) end
+    if not ok then error(colors,0) end
+    return colors
 end
-local function frame_key()
+function M.same_question(actual,expected)
+    if #actual~=#expected then return false end
+    for index,color in ipairs(actual) do
+        local reference=expected[index]
+        for _=1,3 do
+            if math.abs(color%256-reference%256)>1 then return false end
+            color=math.floor(color/256);reference=math.floor(reference/256)
+        end
+    end
+    return true
+end
+local function frame_key(held)
     local fingerprint=require('common.list_navigation').fingerprint
     -- Item artwork rotates and the scroll thumb fades. Fixed cell borders stay
     -- unchanged; accept their row phase only after the upward boundary is proven.
-    return fingerprint({62,535,66,1405})
+    return fingerprint({62,535,66,1405},held)
 end
-local function verified_find(ctx,valid)
+local function verified_find(ctx,valid,with_frame)
     -- A live recognition read may straddle rendering frames. Reobserve without
     -- input before declaring a different page or question; never accept a new key.
     for attempt=1,3 do
-        local state=pages.state()
-        local matches=state=='find' and (not valid or valid())
+        -- Observe state, question and row borders on the same native frame.
+        -- Nested fingerprint reads must not release or recapture that frame.
+        local held=valid or with_frame
+        if held then keepScreen(true) end
+        local observed=table.pack(pcall(function()
+            local state=pages.state()
+            local actual=held and state=='find' and M.question_key(true) or nil
+            local matches=state=='find' and (not valid or valid(actual))
+            local key=matches and with_frame and frame_key(true) or nil
+            return state,matches,actual,key
+        end))
+        if held then keepScreen(false) end
+        if not observed[1] then error(observed[2],0) end
+        local state,matches,actual,key=table.unpack(observed,2,observed.n)
         local material=ctx.recognition_materials
         local trace=material and material.find_profile
         if trace then profile.set(ctx,trace.page,{state=state}) end
-        if matches then return true end
+        if matches then return true,nil,actual,key end
         log.write(ctx,'catalog_guard','attempt='..attempt..' state='..state..' question_matches='..tostring(matches))
         if attempt<3 then mSleep(100) end
     end
     return false
 end
-function M.verify_question(ctx,question)
-    local function same_question()
-        local actual=M.question_key()
+local function question_guard(ctx,question)
+    return function(actual)
+        local matches=M.same_question(actual,question)
         local material=ctx.recognition_materials
         local trace=material and material.find_profile
-        if trace then profile.set(ctx,trace.page,{question_matches=actual==question}) end
-        if actual~=question then
-            log.write(ctx,'catalog_question','expected='..question..' actual='..actual)
-        end
-        return actual==question
+        if trace then profile.set(ctx,trace.page,{question_matches=matches}) end
+        return matches
     end
-    return verified_find(ctx,same_question)
+end
+function M.verify_question(ctx,question)
+    return verified_find(ctx,question_guard(ctx,question))
 end
 function M.wait_still(ctx,question)
-    local fingerprint=require('common.list_navigation').fingerprint
-    local previous,count=nil,0
+    local previous,previous_question,count=nil,nil,0
+    local valid=question and question_guard(ctx,question) or nil
     for _=1,16 do
-        if not (question and M.verify_question(ctx,question) or not question and verified_find(ctx)) then
-            return false,'catalog_page_changed'
-        end
-        local actual=M.question_key()
-        local key=actual..':'..frame_key()..':'..fingerprint({825,530,831,1405})
-        count=key==previous and count+1 or 1
+        local verified,_,actual,key=verified_find(ctx,valid,true)
+        if not verified then return false,'catalog_page_changed' end
+        -- The scroll thumb fades even after motion stops; only fixed row borders
+        -- establish stability. Keep the original question reference immutable.
+        count=key==previous and M.same_question(actual,previous_question) and count+1 or 1
         if count>=3 then return true,nil,actual end
-        previous=key
+        previous,previous_question=key,actual
         mSleep(100)
     end
     return false,'catalog_scroll_not_stable'
@@ -85,9 +120,9 @@ end
 function M.capture(ctx,prefix,options)
     options=options or {}
     local save=options.save or function(label) return snapshot.capture(ctx,label,'evidence') end
-    local valid=options.valid or function() return true end
+    local valid=options.valid
     if not verified_find(ctx) then return {status='paused',reason='catalog_find_not_open',pages=0} end
-    if not valid() then return {status='paused',reason='catalog_question_changed',pages=0} end
+    if valid and not valid() then return {status='paused',reason='catalog_question_changed',pages=0} end
     save(prefix .. 'p01')
     local captured=1
     for page=2,7 do

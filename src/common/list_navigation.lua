@@ -3,8 +3,9 @@ local log=require('dfx.log')
 local snapshot=require('dfx.snapshot')
 local M={}
 local DEFAULT_VIEW={50,310,850,1420}
-local function fingerprint(view)
-    keepScreen(true)
+-- A caller holding one observation frame owns its release, including on error.
+local function fingerprint(view,held)
+    if not held then keepScreen(true) end
     local ok,key=pcall(function()
         local hash=0
         for row=1,13 do
@@ -20,7 +21,7 @@ local function fingerprint(view)
         end
         return hash
     end)
-    keepScreen(false)
+    if not held then keepScreen(false) end
     if not ok then error(key,0) end
     return key
 end
