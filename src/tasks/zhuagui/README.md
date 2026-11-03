@@ -2,7 +2,7 @@
 
 识别用例按任务、题目和场景保存，见 [用例说明](</D:/Agent Repo/my_pocket_automation/testdata/README.md>)；识别范围由批准的真值与任务资源限定。方向资源离线预生成，不增加运行时变换策略。当前未解决的问题见 [能力边界](</D:/Agent Repo/my_pocket_automation/docs/STATUS.md>)。
 
-寻物识别失败先保存错误现场，在明确的免费重试页或失败后免费对话页自动续试；两条路径共用最多3次重试的运行期计数，下一项接取时清零。重启后从当前页面重新建立运行期账本，不读取旧进度。不重新接任务、不追加精力。入口、身份等错误不触发寻物重试；显式采集轮次不属于自动完成重试。`advance` 也支持从当前免费对话恢复，交付后先核验主页身份再结束单步。
+寻物识别失败先保存错误现场，在明确的免费重试页或失败后免费对话页自动续试；两条路径共用最多3次重试的运行期计数，下一项接取时清零。未完成任务重启后从当前页面恢复，不重新接任务、不追加精力。入口、身份等错误不触发寻物重试；显式采集轮次不属于自动完成重试。`advance` 也支持从当前免费对话恢复，交付后先核验主页身份再结束单步。
 
 ## 流程与资源
 
@@ -26,18 +26,18 @@
 
 ```powershell
 # 默认观察；不接任务
-python scripts/device/run-daily.py --device emulator-5562 --task zhuagui --mode observe
+python scripts/device/run-daily.py --vm-index <索引> --task zhuagui --mode observe --step observe
 # 继续已有任务，完成一项就停，不接下一项
-python scripts/device/run-daily.py --device emulator-5562 --task zhuagui --mode run --step advance
-# 持续推进至完成卡片
-python scripts/device/run-daily.py --device emulator-5562 --task zhuagui --mode run --step complete
+python scripts/device/run-daily.py --vm-index <索引> --task zhuagui --mode run --step advance
+# 单次运行，持续推进至完成卡片；失败交 AGENT 判断
+python scripts/device/run-daily.py --vm-index <索引> --task zhuagui --mode run --step complete
 ```
 
-任务持续推进至最终完成卡片，不设置费用上限或数字任务目标。运行期账本保留状态与识别重试信息，不读写持久化账本。
+任务持续推进至最终完成卡片，不设置费用上限或数字任务目标。Lua 核验完成卡片后才写入完成账本，有效记录可复用，规则见 [每日完成账本与新增角色](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>)。
 
-主页任务入口在有未完成任务时可能直接打开 NPC 对话。恢复按当前画面判断，不强求先出现任务列表。战斗只等待；找物品点击后必须确认找物品页面退出，未成功不重复点。常规运行只有错误才截图；滚动保留足够重叠，避免图标始终只露半边。
+主页任务入口在有未完成任务时可能直接打开 NPC 对话。恢复按当前画面判断，不强求先出现任务列表。战斗只等待；找物品点击后必须确认找物品页面退出，未成功不重复点。过程截图与识别素材留存遵循 [DFX](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)；滚动保留足够重叠，避免图标始终只露半边。
 
-识别断点可用 `--step browse` 只采集候选，不选物品；再执行 `python scripts/perception/prepare-zhuagui-breakpoint.py --run-id <运行编号>` 生成带页码的截图总览和原图索引。用户标注后从对应原图校准，复测点击结果。
+显式开发维护时，识别断点可用 `--step browse` 只采集候选，不选物品；再执行 `python scripts/perception/prepare-zhuagui-breakpoint.py --run-id <运行编号>` 生成带页码的截图总览和原图索引，标注后从对应原图校准、复测点击结果。运行期仅拼图失败沿用 [拼图维护与受控复测](</D:/Agent Repo/my_pocket_automation/scripts/perception/README.md>)，其他失败按 [设备运行期恢复](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>) 处理。
 
 批量只采集使用 `--step browse --browse-rounds 20`：只重试已有任务和滚动，每题采集七页，不调用寻物选择器。采集后用 `scripts/perception/import_frame.py` 按题目、轮次导入脱敏原图，先保存为待审核，再通过 `annotate.py` 应用明确批准的答案。重复题目不增加覆盖数；不完整页和到时负样本保留，但不能冒充有效题目。运行次数和测试通过都不能替代缺项清单。
 

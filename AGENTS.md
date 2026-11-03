@@ -1,51 +1,66 @@
 # 项目协作规则
 
-## 1. 目录与模块划分
+## 1. 运行标准与入口
 
-| 目录 | 职责 |
+- **目标是 Lua 独立完成配置范围内的每日任务。** 游戏中的身份核验、导航、识别、交互、重试、中断恢复和收尾均由 Lua 执行。AGENT 负责观察画面与日志、修改源码、回归、发布和复测，禁止通过 MuMu、ADB 或电脑端工具操作游戏。账号认证由用户完成。
+- Lua 操作前验证状态，操作后验证结果；单次等待与操作必须有时限，无法判断时留证。启动、发布前确认接口空闲并校验产物；忙碌或状态未知时不发布，启动结果未知时先取证，不盲目重发同一启动请求；恢复重启按下文失败处理执行。
+- **允许持久化每日任务白名单内的完成布尔状态。** 记录按角色别名、身份绑定和业务日隔离，仅由 Lua 核验游戏最终业务状态后写入；身份与业务日匹配的已完成状态可跨运行复用。任务内部阶段、次数和重试只保留在内存，未完成任务从游戏页面恢复。已核验状态仅在缺失、失效或动作预期变化时重新获取；日志、截图和调试报告不作为业务状态。
+- 完成验收须覆盖全部所选角色与任务。请求成功、点击发送、进程存在或脚本退出均不能单独证明业务完成；应用入口就绪与日常完成分别验收。离线通过不能替代设备验收，单次成功不能宣称稳定。
+- INFO 保留角色、任务起止、验收、恢复重试和最终结果；页面、识别、输入与等待细节归 DEBUG。默认不归档常规过程和成功页面，失败、待验收、领奖收据及显式采集按需留证，每轮源码版本和运行证据归档到 `debug-runs/`。
+
+### 运行入口
+
+在仓库根目录执行，实例索引、设备地址和角色范围按本次配置选择：
+
+| 用途 | 入口 |
 |---|---|
-| `src/` | Lua 任务、调度与公共能力；识别资源跟随所属任务。 |
-| `scripts/` | 开发、发布、采集和离线评测工具。 |
-| `annotation-web/` | 标注网页及待确认、已确认队列；队列内容不提交。 |
-| `tests/` | 生产脚本测试及离线设备替代环境。 |
-| `testdata/` | 回归原图、唯一答案、业务预期及格位配置。 |
-| `docs/` | 当前设计、使用说明和能力边界。 |
-| `参考代码/` | 历史实现及来源；正式入口不得依赖。 |
-| `prototype/` | 独立实验。 |
-| `.tmp/` | 临时数据与缓存，不提交。 |
-| `debug-runs/` | 按轮次归档日志、截图及报告，不提交。 |
-| `dist/` | 自动构建的发布产物，不手工维护、不提交。 |
+| 启动环境并单次调用 Lua | `python scripts/device/start-emulator.py --vm-index <实例索引> --mode run --step daily` |
+| 只读截图与诊断 | `python scripts/device/inspect-device.py --device <设备>` |
+| 由 Lua 观察游戏页面 | `python scripts/device/run-daily.py --vm-index <实例索引> --mode observe --step observe` |
+| 环境已就绪时单次执行每日任务 | `python scripts/device/run-daily.py --vm-index <实例索引> --mode run --step daily` |
 
-- 不自行新增顶层目录或改变目录职责；模块入口与细节写各自 README。
-- 公共能力统一复用；测试调用生产实现，不另造识别算法。
-- 全量测试须在本机 1 分钟（60 秒）内完成；提速不得减少测试范围或检查项。
-- 正式文档只记录当前规则与能力，运行历史留在 `debug-runs/`。
-- `testdata/` 只保留实际回归使用的原图、`答案.json`、`预期.json`、`格位.json` 及目录 README；不保留或生成审核、来源、采集反馈、建议、待审核说明或审核截图，不另建替代侧车文件。采集、审核及更正过程留在队列或 `debug-runs/`。
-- 默认在 `master/main` 工作，不擅自切分支、创建 worktree；子 Agent 不 fork 上下文。
+两个正式执行命令都必须指定 `--vm-index`，默认参数均为 `--mode observe --step observe`；`--device` 仅作可选的一致性核验。`start-emulator.py` 在环境就绪后按原角色、任务和步骤范围调用 Lua 一次；`--force-restart` 明确要求先重启指定实例一次。构建、发布、等待、采集及结果核验复用现有运行器，共享实例锁只防止并发，不管理恢复次数。命令、范围参数及恢复记录模板见[设备脚本说明](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>)；授权、角色配置及身份资源位于仓库外的 `~/.my_pocket_automation/`。分析运行结果与故障时读 [DFX 说明](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。
 
-## 2. AGENT 与 Lua 脚本的职责划分
+### 运行期失败处理
 
-- **Lua 是推进游戏任务的唯一执行者。** 入口恢复、角色切换、导航、识别、交互、重试和收尾均由 Lua 完成。
-- AGENT 负责查看画面与日志、修改源码、回归、发布和复测；禁止通过 MuMu、ADB 或电脑端工具操作游戏。
-- **环境启动入口：** `python scripts/device/start-emulator.py --vm-index 5 --apps`（5为模拟器实例索引）。电脑端启动或复用指定 MuMu 实例、等待其动态 ADB 连接并启动触动精灵，再由 Lua 启动互通版；省略 `--apps` 仅启动模拟器。
-- 模拟器启动持续探测指定实例的动态 ADB、Android 与包管理器；每轮超时后只重启该实例，最多重启3次，仍失败则留证停止。触动精灵与游戏启动须确认接口空闲、核验游戏进程与入口画面，停在入口；片头、进程存在或请求成功不算入口就绪，也不算日常完成。忙碌时不发布，应用启动超时留证停止，不重复发送触动精灵或 Lua 启动请求；源码、结果及必要验收图归档到 `debug-runs/`。单独启动游戏及参数见 [设备脚本说明](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>)。
-- **最终目标是 Lua 脱离 AGENT 独立完成配置范围内的每日任务。** 身份核验、状态审计、中断恢复和完成验收必须落实在脚本中。
-- Lua 操作前验证状态，操作后验证结果；等待与重试有上限，无法判断时保存现场并停止。允许持久化按角色、身份绑定与业务日隔离的师门、抓鬼、两个副本和开葫芦完成布尔状态；仅在 Lua 核验游戏最终状态后写入。任务内部进度、次数、重试和中间阶段只保留在内存中；未完成任务从游戏页面恢复。本次运行已核验状态直接复用，仅在缺失、失效或动作预期状态变化时重新获取，避免重复导航核验。配置、识别资源及调试证据可以保存；除上述完成布尔状态外，不能作为下一次运行的业务状态。任务以游戏明确完成状态验收，不设置费用预算，不核对任务数量。
-- 完成须由 Lua 核对角色、业务日与游戏最终业务状态；接取次数、点击发送或脚本退出不能单独证明完成。
-- 乌鸡国仅领取100精力的副本葫芦，日常结束后在口袋宝库开启葫芦；不进入或开启“乌鸡国宝库”。领取成功弹窗通过空白区域关闭，不点击宝库入口。
-- 副本点击“开始”后由游戏自动完成。战斗过程中 Lua 只检查完成、中断和超时，不逐关点击继续或下一关，不循环操作倍速；已有中断现场可在入口核验后恢复。
-- 副本列表中，乌鸡国显示“进入宝库”（额外宝库待领取）、车迟斗法卡片打绿色勾，分别证明普通副本葫芦已领取。本次运行复用核验结果，不重复进入；任务入口“2/7”用于汇总查看，重启时从具体副本游戏标记恢复。
-- AGENT 按“读取证据 → 复现失败 → 修改 → 回归 → 发布 → 设备复测”持续推进。使用现有入口，发布前确认空闲并校验产物，每轮保留源码版本与运行证据。
-- INFO 仅保留角色、任务起止、验收、恢复重试和最终结果；页面、识别、输入与等待细节归 DEBUG。默认不归档常规过程和成功页面；识别题完整素材先临时采集，交付核验成功后清理，仅失败、待验收、领奖收据及显式采集保留，已有失败证据不重复截图。
-- 开发时运行相关类别测试，交付前运行全量回归；离线通过不能替代设备验收，单次成功不能宣称稳定。
+单次命令失败后由 AGENT 读取原始结果、日志、失败画面与源码版本，判断首个故障、Lua 是否仍在运行及原范围是否已验收，再决定下一步。Lua 仍在运行或状态未知时仅观察和取证，不从外部强停 Lua、不覆盖代码、不重发启动，也不因游戏进程是否存活而干预。Lua 内部已有的有界游戏重启和免费重试继续保留；Python 命令不自动编排后续恢复。
 
-## 3. 识别题与人工协作
+AGENT 按以下顺序处理，并在每次恢复动作前手工更新 `debug-runs/recovery/vm-<实例索引>/恢复记录.md`：
 
-- 流程页面、按钮和状态断点由 AGENT 自主修复；游戏操作只由 Lua 执行。
-- **拼图自行标注、自测。** 完整原图经 `scripts/perception/lib/annotation_queue.py:enqueue()` 入队，AGENT 实际操作标注器还原、自查拼接连续性；用 `confirm(..., reviewer='agent', evidence=...)` 归档，禁止把算法建议或 AGENT 自查记成人类确认。标注器入口：`python annotation-web/server.py`。
-- 拼图固化：`python scripts/perception/freeze-annotations.py --id <ID>`；师门审核特征写入 `src/tasks/shimen/assets/reviewed_puzzles.json` 后运行 `scripts/perception/import-shimen-puzzles.py`，抓鬼运行 `scripts/perception/calibrate-puzzles.py`。对应类别回归通过后，用 `scripts/device/run-daily.py --mode run --task <shimen|zhuagui> --step advance --account <别名> --device <设备>` 受控复测，再由 Lua 核验游戏成功及交付；退出拼图不单独证明成功。
-- 同题型方案最多检验3次，失败由 AGENT 修正、回归再测，仍失败才请人类确认；重启不清零本次检验次数，交付跟进不算新尝试。原图、还原图、依据及检验记录留在 `debug-runs/`，不写业务账本；已有确认不重复询问。
-- **识别与素材采集共用一轮滚动。** 入口 `src/dfx/materials.lua:prepare(ctx, task, kind)`：寻物先核验首屏，识别器在搜索每页前调用 `capture_find()` 临时缓存本页原图，同页识别、复核并作答；不先预采整题再回滚重扫。未命中时持续采集到末页，题目未知时复用 `catalog.capture()` 只读采全；拼图保留操作前完整原图。失败或待交付验收用 `keep()` 保留，游戏交付成功用 `clear()` 清理。提前成功、页面退出或超时导致的缺页素材明确标记不完整。运行器自动调用 `scripts/perception/lib/failure_materials.py:assemble()`，复用 `task_review.py:compose_rows()` 去重拼接，结果见 `result.json.recognition_materials`。完整性及视觉核验通过后才经 `annotation_queue.enqueue()` 入队；末屏、超时缺页和跨题／跨重试素材不得作为完整用例。
-- 补采命令：`python scripts/device/run-daily.py --device <设备> --mode run --task <zhuagui|shimen> --step browse --account <别名> --max-seconds 180`，原图回收到 `debug-runs/<轮次>/res/`。手动补采师门仅从自身已核验的免费重试页重开一轮，再复用 `capture()`；拒绝从滚动位置未知的题页采集，不套用抓鬼重试动作。新题不能补作旧失败题的原图；采集不点候选、不付费，任务只在免费重试上限内绕过失败题。
-- 标注器复用上述拼接能力；用 `python annotation-web/check_capture.py --stage pending --id <ID>` 检查高度：识物去重物品区≥2760像素、拼图原图≥1600像素。AGENT 还须核对首尾、接缝和缺行，7页或高度达标不单独证明完整；缺页须补采，无法补采则不保留识物标注归档，禁止用 `--allow-partial` 绕过。高度检查只在内存／标准输出展示，不生成反馈侧车文件。
-- 未标区域保持未知；识别器输出不能自证真值。仅在核验全部所选角色与任务后报告完成，单次成功不宣称稳定。
+1. 固定目标安装目录、实例、原命令范围和已验证版本，核对源码、构建包、配置及角色身份和选择资源哈希；先承接同目标仍未解除的历史故障，不把新会话当作新故障。
+2. 拼图失败按[识别工具说明](</D:/Agent Repo/my_pocket_automation/scripts/perception/README.md>)独立还原、自查、校准、回归及受控复测，允许按该流程修改源码并归档各版本。同一题型方案最多3次设备检验，与普通恢复和 Lua 免费重试独立计数。
+3. 其他运行期故障保持已验证版本及原角色、任务、步骤范围，不动态修改源码、识别资源、参数或验收条件。初次执行不计恢复；确认 Lua 已结束且接口空闲后，同一未解除故障最多额外调用 `run-daily.py` 3次，仍失败再最多调用带 `--force-restart` 的 `start-emulator.py` 3次。每次实例重启附带的一次 Lua 验证只计实例恢复，不再占 Lua 恢复次数，也不重开 Lua 配额。
+4. 动作发出前预记本层次数、依据和关联证据；确定未发请求才撤销本次预记，请求结果未知则保守保留并先取证。同故障的原因文字、命令、会话或进程变化均不清零；只有 AGENT 根据新证据确认旧故障解除，才记录结论并为后续独立故障建立新预算。无关任务完成、请求成功或脚本退出不能解除旧故障。
+5. 每周二北京时间 `07:30 <= 当前时间 < 09:00`，所有非拼图故障统一放宽上述恢复次数，仅按时间判断，不要求维护原因或确认文件；仍逐次预记、串行执行、有界等待并取证。窗口结束立即按累计次数执行普通上限，计数不清零；拼图方案检验上限不放宽。
+6. 无法安全继续、恢复次数耗尽、需要账号认证、缺少授权或无法自主取得必要证据时，记录结果、未完成范围与下一步并交接用户。原自动恢复历史保留，未解除故障须由 AGENT 承接；恢复记录只供诊断，不作为 Lua 业务进度。
+
+## 2. 开发架构与入口
+
+Lua 是设备业务执行层，Python 与 PowerShell 是电脑端开发和运行工具，标注网页维护识别输入与真值。Lua 入口为 [main.lua](</D:/Agent Repo/my_pocket_automation/src/main.lua>)，每日调度为 [daily.lua](</D:/Agent Repo/my_pocket_automation/src/daily.lua>)；任务模块复用公共能力，日志和取证由 DFX 提供。运行期进度由 [progress.lua](</D:/Agent Repo/my_pocket_automation/src/progress.lua>) 管理，每日完成状态白名单及持久化由 [completion.lua](</D:/Agent Repo/my_pocket_automation/src/completion.lua>) 管理。
+
+| 目录 | 职责与按需阅读入口 |
+|---|---|
+| `src/` | Lua 入口、调度及状态管理；架构约定见[基线](</D:/Agent Repo/my_pocket_automation/docs/BASELINE.md>)。 |
+| `src/tasks/` | 任务状态机及所属识别资源；修改任务时读[师门](</D:/Agent Repo/my_pocket_automation/src/tasks/shimen/README.md>)、[抓鬼](</D:/Agent Repo/my_pocket_automation/src/tasks/zhuagui/README.md>)、[副本](</D:/Agent Repo/my_pocket_automation/src/tasks/dungeon/README.md>)或[葫芦收尾](</D:/Agent Repo/my_pocket_automation/src/tasks/rewards/README.md>)说明。 |
+| `src/common/` | 共享识别、设备输入、角色与页面导航；修改公共能力时读[公共模块说明](</D:/Agent Repo/my_pocket_automation/src/common/README.md>)。 |
+| `src/dfx/` | 日志、截图、素材与性能诊断；修改取证或结果处理时读 [DFX 说明](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。 |
+| `scripts/` | 开发工具；设备运行读[设备说明](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>)，识别校准、标注固化及素材补采读[识别工具说明](</D:/Agent Repo/my_pocket_automation/scripts/perception/README.md>)。 |
+| `annotation-web/` | 标注网页及待确认、已确认队列；标注作业读[标注器说明](</D:/Agent Repo/my_pocket_automation/annotation-web/README.md>)，队列内容不提交。 |
+| `tests/` | 生产实现的流程、识别及回放测试与离线设备替代环境；选测与分类见[测试说明](</D:/Agent Repo/my_pocket_automation/tests/README.md>)。 |
+| `testdata/` | 实际回归使用的原图、唯一答案、业务预期和格位配置；数据约定见[用例说明](</D:/Agent Repo/my_pocket_automation/testdata/README.md>)。 |
+| `docs/` | 当前设计、使用说明和[能力边界](</D:/Agent Repo/my_pocket_automation/docs/STATUS.md>)。 |
+| `参考代码/`、`prototype/` | 历史实现与独立实验；正式入口不得依赖。 |
+| `.tmp/`、`debug-runs/`、`dist/` | 临时缓存、运行归档及自动构建产物；均不提交，`dist/` 不手工维护。 |
+
+| 开发用途 | 入口 |
+|---|---|
+| 安装依赖 | `python -m pip install -r scripts/requirements.txt` |
+| 相关类别回归 | `python scripts/test.py --group 师门`；可组合类别，详见测试说明。 |
+| 全量回归 | `python scripts/test.py`；须在本机60秒内完成，提速不得减少范围或检查项。 |
+| 构建发布产物 | `python scripts/device/build.py`；设备复测使用上述正式运行入口。 |
+
+- 默认在 `master/main` 工作，不擅自切分支或创建 worktree；子 Agent 不 fork 上下文。
+- 不自行新增顶层目录或改变目录职责；公共能力统一复用，测试调用生产实现，不另造识别算法。任务业务规则、页面特征、参数和操作步骤维护在所属实现、测试及模块 README，不重复写入根 AGENTS.md。
+- 运行失败按上文“运行期失败处理”执行。开发时运行相关类别测试，交付前运行全量回归；文档整理核对入口、链接与规则一致性，不因此启动设备。
+- `testdata/` 只保留实际回归使用的原图、`答案.json`、`预期.json`、`格位.json` 及目录 README；采集、审核、来源、建议及更正过程留在标注队列或 `debug-runs/`，不另建替代侧车文件。未标区域保持未知，识别器输出不能自证真值，AGENT 自查不能记作人类确认。
+- 正式文档只记录当前规则与能力，运行历史留在 `debug-runs/`；同一规则在所属文档维护，其他入口按需链接。

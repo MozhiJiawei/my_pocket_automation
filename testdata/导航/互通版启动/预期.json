@@ -1,0 +1,8 @@
+{
+  "正常入口.png": {"page": "pocket_entry", "tap_bounds": [1495, 665, 1570, 739], "label_bounds": [1495, 738, 1570, 775]},
+  "新版入口白天.png": {"page": "pocket_entry", "tap_bounds": [1495, 720, 1570, 783], "label_bounds": [1495, 784, 1570, 817]},
+  "新版入口夜晚.png": {"page": "pocket_entry", "tap_bounds": [1495, 720, 1570, 783], "label_bounds": [1495, 784, 1570, 817]},
+  "口袋确认.png": {"page": "pocket_confirm", "tap_bounds": [865, 535, 1100, 598]},
+  "新版口袋确认.png": {"page": "pocket_confirm", "tap_bounds": [865, 535, 1100, 598]},
+  "网易启动画面.png": {"page": null}
+}

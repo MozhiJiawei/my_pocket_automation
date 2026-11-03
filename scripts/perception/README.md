@@ -2,6 +2,8 @@
 
 正式输入在 `testdata/`，提案放 `.tmp/`，审核图与评测报告输出到 `debug-runs/`。工具直接发现可读目录，不维护 case、轮次、增强或采集索引。工具自身测试位于本目录的 `tests/`。
 
+本页的标注、固化与校准流程用于明确开展的识别开发和用例维护。每日运行中仅拼图类失败沿用该流程及 Lua 受控复测；其他失败按 [设备运行期恢复](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>) 处理，不因素材采集或入队自动进入运行态源码、参数或特征修改。
+
 ```powershell
 python scripts/test.py
 python scripts/test.py --group 师门
@@ -20,7 +22,15 @@ python scripts/perception/render_task_review.py --topic 兵器
 
 `render_task_review.py` 按原图内容去除滚动重叠，生成带正式答案框的任务长图；拼接坐标只存在于生成过程，不作为另一份真值。`prepare-zhuagui-breakpoint.py` 展示尚未导入的设备断点。
 
-`lib/failure_materials.py:assemble(debug-runs/<轮次>)` 由运行器自动调用，按 Lua 保留的单题素材复用 `compose_rows()`，生成含题干的去重长图；原图不改写，路径及完整性检查保存在 `result.json.recognition_materials`。缺页、未知起点、重复末屏、裁切及高度不足均不能进入完整用例；达标仍需目视检查首尾和接缝，确认后再经 `annotation_queue.enqueue()` 入队。
+运行器自动拼接 Lua 保留的单题素材，原图与长图路径见 `result.json.recognition_materials`；采集、保留与清理机制见 [DFX](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。入队前按 [标注器完整性规则](</D:/Agent Repo/my_pocket_automation/annotation-web/README.md>) 目视核对首尾、接缝与缺行；不得跨题或跨重试拼接素材。
+
+缺页时由 Lua 补采，原图回收到 `debug-runs/<轮次>/res/`：
+
+```powershell
+python scripts/device/run-daily.py --vm-index <索引> --mode run --task <zhuagui|shimen> --step browse --account <别名> --max-seconds 180
+```
+
+页面限制分别见 [师门采集](</D:/Agent Repo/my_pocket_automation/src/tasks/shimen/README.md>) 与 [抓鬼采集](</D:/Agent Repo/my_pocket_automation/src/tasks/zhuagui/README.md>)。师门只能从自身已核验的免费重试页重开一轮，不套用抓鬼重试动作；采集不点候选、不付费，新题不能补作旧失败题的原图。无法补采的缺页输入不保留正式识物标注归档。
 
 导入一张或多张新截图，必须指定可读用例目录和公开区域；默认待审核，不覆盖已有用例：
 
@@ -28,7 +38,7 @@ python scripts/perception/render_task_review.py --topic 兵器
 python scripts/perception/import_frame.py --case '抓鬼/寻物/黄纸/新界面' --source 'D:/截图/第01页.png' 'D:/截图/第02页.png' --retain 15,174,887,1435
 ```
 
-识别题先入标注器，由 AGENT 查看全部输入、还原并独立自查，按用户授权直接固化、校准与回归，再以设备结果检验；同题型最多3次尝试仍不成功才交人类确认。审核须区分人类确认与 AGENT 自查。寻物失败后，Lua 在本次运行的免费重试上限内先重试绕过，等待 AGENT 独立标注与审核。流程页面、按钮及状态变化由 AGENT 独立核对原图和业务状态并直接固化，保留审核依据，不进入待标注队列。使用命令行应用识别题的已确认提案时：
+开展识别开发或用例维护时，识别题先入 [标注器](</D:/Agent Repo/my_pocket_automation/annotation-web/README.md>)，由 AGENT 查看全部输入、还原并独立自查，按用户授权归档，再固化、校准与回归。审核须区分人类确认与 AGENT 自查。在该开发工作中，流程页面、按钮及状态变化由 AGENT 独立核对原图和业务状态并直接固化，保留审核依据，不进入待标注队列。使用命令行应用识别题的已确认提案时：
 
 ```powershell
 python scripts/perception/annotate.py --case '抓鬼/寻物/黄纸/新界面' --proposal 'D:/提案/答案.json' --reviewer user --evidence '用户明确确认的消息或审核依据'
@@ -38,13 +48,14 @@ python scripts/perception/annotate.py --case '抓鬼/寻物/黄纸/新界面' --
 
 `calibrate-*.py`、`compile-find-catalog.py` 从批准的校准画面构建设备识别资源；不读取预测建立答案，不在评测时自动重建。旧特征导入工具保留以重建历史资源。设备构建、发布、采集入口在 `scripts/device/`。
 
-拼图审核使用 `review-puzzles.py <采集目录...> --output <审核目录>`，按四块图内容归组并展示原始 A/B/C/D；对应关系暂存 `.tmp/`。用户批准的排列与原图保存在 `testdata/抓鬼/拼图/`，`calibrate-puzzles.py` 重建生产多点找色资源。测试执行时遍历每种图案的24种格位排列，不另存增强图片或用例索引。
+拼图审核使用 `review-puzzles.py <采集目录...> --output <审核目录>`，按四块图内容归组并展示原始 A/B/C/D；对应关系暂存 `.tmp/`。独立审核确认的排列与原图保存在 `testdata/抓鬼/拼图/`，`calibrate-puzzles.py` 重建生产多点找色资源。测试执行时遍历每种图案的24种格位排列，不另存增强图片或用例索引。
 
 ## 标注固化与复用
 
 ```powershell
 python scripts/perception/freeze-annotations.py
-python scripts/perception/freeze-annotations.py --wine-cases 3 --allow-partial
+python scripts/perception/freeze-annotations.py --id <ID>
+python scripts/perception/freeze-annotations.py --wine-cases 3
 python scripts/perception/calibrate-reviewed-items.py --task shimen
 python scripts/perception/compile-find-catalog.py --task shimen
 python scripts/perception/evaluate.py --task shimen
@@ -52,10 +63,18 @@ python scripts/perception/evaluate.py --task shimen
 
 固化处理师门、抓鬼的寻物、找鬼及拼图，只读取已完成归档，将物品重叠页标注投回原图，不生成或读取 `审核.md`。`--wine-cases 3` 对虎骨酒、蛇胆酒、梅花酒、珍露酒各选3轮，优先选择去重长图较高的输入，其它题目全部处理；未选酒类不写正式用例。拼图按题型合并原图并保留每张图的独立确认排列，不覆盖已有答案。
 
-核对正式用例的全部原图及已确认答案后，删除标注器中的对应归档，正式用例只保留原图和唯一答案；未固化或内容不一致的归档继续保留。不复制来源、采集反馈、建议或审核过程文件，不维护索引。按同题目原图的文件名及内容匹配已有轮次，相同原图重复固化不新增轮次。经用户明确重新确认的更正使用 `freeze-annotations.py --update`，旧答案留在 `debug-runs/`。
+核对正式用例的全部原图及已确认答案后，删除标注器中的对应归档，正式用例只保留原图和唯一答案；符合完整性要求但未固化或内容不一致的归档继续保留。不复制来源、采集反馈、建议或审核过程文件，不维护索引。按同题目原图的文件名及内容匹配已有轮次，相同原图重复固化不新增轮次。经用户明确重新确认的更正使用 `freeze-annotations.py --update`，旧答案留在 `debug-runs/`。
 
-固化前只比较当前像素高度：去重物品长图须达到2760像素，拼图每张原图须达到1600像素；高度不足或图片无法读取默认报错。不读写采集反馈文件，不保存反馈历史。只固化已确认可见区域时使用 `freeze-annotations.py --allow-partial`，未标区域仍为未知。
+固化工具检查当前像素高度；阈值及人工完整性核验见 [标注器完整性规则](</D:/Agent Repo/my_pocket_automation/annotation-web/README.md>)。高度不足或图片无法读取默认报错；不得用 `--allow-partial` 绕过完整性要求，未标区域仍为未知。不读写采集反馈文件，不保存反馈历史。
 
 `annotation-web/check_capture.py` 只向标准输出显示当前高度、阈值及是否达标，不生成文件。生产校准所需、但不具备回归断言的参考图随对应任务资源维护，不以待审核用例混入 `testdata/`。
 
 校准与编译共用抓鬼工具，默认参数仍为抓鬼；师门校准中间文件在 `.tmp/`，构建统计在 `debug-runs/`。师门每张图同时变换所有批准正反例，执行八种方向而不逐物品复制整屏；全部正例逐区域检查，反例不得误识别，未知区域不算通过。GPU按原图及增强批量计算，Lua状态与每帧结果独立。全量用于校准的结果不称为未见验证。
+
+拼图固化后，[师门](</D:/Agent Repo/my_pocket_automation/src/tasks/shimen/README.md>) 将审核特征写入 `src/tasks/shimen/assets/reviewed_puzzles.json`，再运行 `python scripts/perception/import-shimen-puzzles.py`；[抓鬼](</D:/Agent Repo/my_pocket_automation/src/tasks/zhuagui/README.md>) 运行 `python scripts/perception/calibrate-puzzles.py`。对应类别回归通过后，按 [设备发布规则](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>) 发布并由 Lua 受控复测：
+
+```powershell
+python scripts/device/run-daily.py --vm-index <索引> --mode run --task <shimen|zhuagui> --step advance --account <别名>
+```
+
+Lua 须核验小游戏成功并继续交付，再核对角色、业务日与最终业务状态；退出拼图不单独证明成功。同一拼图题型方案最多进行3次设备检验；失败后由 AGENT 修正、回归再测，仍失败才交人类确认。重启 Lua、模拟器或运行器不清零该方案计数，交付跟进不算新尝试。该计数与 Lua 内部免费重试、普通恢复分别管理，由 AGENT 在 [恢复记录](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>) 中关联原图、还原图、依据、版本与检验结果；证据留在 `debug-runs/`，不写业务完成账本，已有确认不重复询问。需要认证、授权、无法自主取得的证据等其他人工介入条件见 [AGENT 运行期失败工作流](</D:/Agent Repo/my_pocket_automation/AGENTS.md>)。核验全部所选角色与任务后才报告完成，单次成功不宣称稳定。

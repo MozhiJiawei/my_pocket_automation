@@ -6,7 +6,15 @@ local snapshot = require('dfx.snapshot')
 local materials=require('dfx.materials')
 local progress = require('progress')
 local list=require('common.list_navigation')
-local function result(status,reason,evidence) return {status=status,reason=reason,failure_evidence=evidence} end
+local function result(status,reason,evidence)
+    return {status=status,reason=reason,failure_evidence=evidence}
+end
+local function stop_puzzle(ctx,reason)
+    -- Preserve the primary outcome even when either evidence channel fails.
+    pcall(materials.keep,ctx,reason)
+    local captured,evidence=pcall(snapshot.capture,ctx,reason)
+    return result('paused',reason,captured and evidence or nil)
+end
 local function act(ctx,feature,label)
     return device.tap(ctx,feature,label)
 end
@@ -222,11 +230,10 @@ local function drive(ctx,stop_after_one)
         elseif state=='battle' then
             mSleep(1000)
         elseif state=='puzzle_retry' then
-            materials.keep(ctx,'puzzle_game_result_not_verified')
             if (record.puzzle_retries or 0)>=1 then
-                snapshot.capture(ctx,'puzzle_retry_not_authorized')
-                return result('paused','puzzle_retry_not_authorized')
+                return stop_puzzle(ctx,'puzzle_retry_not_authorized')
             end
+            materials.keep(ctx,'puzzle_game_result_not_verified')
             record.puzzle_retries=(record.puzzle_retries or 0)+1
             progress.write(ctx,'zhuagui','running','authorized_puzzle_resume',record)
             log.write(ctx,'puzzle_retry','attempt='..record.attempts..' retry=1 no_new_accept=true')
@@ -235,7 +242,7 @@ local function drive(ctx,stop_after_one)
             local prepared,prepare_reason=materials.prepare(ctx,'zhuagui','puzzle')
             if not prepared then return result('paused',prepare_reason) end
             local solved,reason=require('tasks.zhuagui.puzzle').solve(ctx)
-            if not solved then materials.keep(ctx,reason);return result('paused',reason,snapshot.capture(ctx,reason)) end
+            if not solved then return stop_puzzle(ctx,reason) end
             log.write(ctx,'puzzle_solved','attempt='..record.attempts)
         elseif state=='find' then
             local prepared,prepare_reason=materials.prepare(ctx,'zhuagui','find')

@@ -15,6 +15,7 @@ class DeviceDiagnosticsTest(unittest.TestCase):
             config={mode='run',step='daily',allow_reward_claim=false,accounts={{alias='fake'}}}
             loadfile=function() return function() return config end end
             init=function() if fail_init then error('initialization_fault') end end
+            appIsRunning=function() return 1 end
             nLog=function(line) table.insert(fallback,line) end
             package.preload['TSLib']=function() return {} end
             package.preload['dfx.run']=function() return {new=function(c) return {config=c,run_id='fake'} end} end

@@ -6,10 +6,10 @@ import json
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def build() -> Path:
+def build(output: Path | None = None) -> Path:
     source = ROOT / 'src'
-    output = ROOT / 'dist'
-    output.mkdir(exist_ok=True)
+    output = Path(output) if output is not None else ROOT / 'dist'
+    output.mkdir(parents=True, exist_ok=True)
     chunks = []
     manifest = {}
     for path in sorted(source.rglob('*.lua')):

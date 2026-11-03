@@ -2,7 +2,7 @@
 
 目标是按游戏中已保存的角色，串联师门、抓鬼、副本与葫芦收尾四类任务。账号认证由用户人工完成。支持完整已登录名单轮转，按角色与当天身份保存师门、抓鬼、两个副本及开葫芦完成布尔状态，未完成任务从游戏页面恢复。
 
-已实现角色调度、抓鬼和乌鸡国／车迟国副本（新版名“车迟斗法”）；师门与抓鬼以游戏明确的完成卡片验收，持续执行直到完成。葫芦收尾自动开完宝库任务、副本分类的葫芦，并通过“丢弃所有”清空特殊葫芦。未见页面或无法识别的题型会保存现场停止；配置五号的完整日常与完成状态恢复已通过设备验收；未见题型及重复运行稳定性仍受资源覆盖范围限制。全部设备操作由触动精灵 Lua 状态机执行，MuMu 与电脑工具仅观察和采集证据。具体实现和限制见 [当前能力](docs/STATUS.md)、[葫芦收尾](src/tasks/rewards/README.md) 与 [抓鬼说明](src/tasks/zhuagui/README.md)。
+已实现角色调度、抓鬼和乌鸡国／车迟国副本（新版名“车迟斗法”）；师门与抓鬼以游戏明确的完成卡片验收，持续执行直到完成。葫芦收尾自动开完宝库任务、副本分类的葫芦，并通过“丢弃所有”清空特殊葫芦。未见页面或无法识别的题型会保存现场停止；配置五号的完整日常与完成状态恢复已通过设备验收；未见题型及重复运行稳定性仍受资源覆盖范围限制。全部游戏内操作由触动精灵 Lua 状态机执行，电脑工具管理运行环境、发布和证据采集。具体实现和限制见 [当前能力](</D:/Agent Repo/my_pocket_automation/docs/STATUS.md>)、[葫芦收尾](</D:/Agent Repo/my_pocket_automation/src/tasks/rewards/README.md>) 与 [抓鬼说明](</D:/Agent Repo/my_pocket_automation/src/tasks/zhuagui/README.md>)。
 
 ## 代码入口
 
@@ -15,7 +15,7 @@
 - `tests/`：生产脚本测试；`testdata/`：冻结的输入、真值和预期。
 - `scripts/perception/`：用例制作、审核与能力评测；`.tmp/annotation/`：临时标注数据。
 
-结构见 [基线](docs/BASELINE.md)，副本机制见 [副本说明](src/tasks/dungeon/README.md)，运行结果与故障处理见 [DFX 说明](docs/DFX.md)。运行报告归档在 `debug-runs/`。
+结构见 [基线](</D:/Agent Repo/my_pocket_automation/docs/BASELINE.md>)，副本机制见 [副本说明](</D:/Agent Repo/my_pocket_automation/src/tasks/dungeon/README.md>)，运行结果与故障处理见 [DFX 说明](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。运行报告归档在 `debug-runs/`。
 
 ## 运行
 
@@ -24,9 +24,11 @@
 ```powershell
 python -m pip install -r scripts/requirements.txt
 # 只观察，不点击
-python scripts/device/run-daily.py --device emulator-5562 --mode observe
-# 主循环；按配置任务持续执行至完成
-python scripts/device/run-daily.py --device emulator-5562 --mode run --step daily
+python scripts/device/run-daily.py --vm-index 5 --mode observe --step observe
+# 环境已就绪时单次执行主循环
+python scripts/device/run-daily.py --vm-index 5 --mode run --step daily
+# 启动或复用环境后，按同一范围单次执行主循环
+python scripts/device/start-emulator.py --vm-index 5 --mode run --step daily
 # 开发时只跑相关类别，不接触设备
 python scripts/test.py --group 师门
 # 合入前全量回归，默认上限60秒
@@ -34,7 +36,7 @@ python scripts/test.py
 python scripts/perception/evaluate.py
 ```
 
-运行器打包全部 Lua 模块，调用现有 CLI 发布到 TS Studio 与设备，校验哈希，等待退出并采集本轮日志、截图和结果。API 请求被接受不代表业务成功，需以设备日志和完成画面为准。
+两个正式运行命令均要求实例索引，默认只读观察；可选 `--device` 仅核验实例端点一致性。运行器打包全部 Lua 模块，调用现有 CLI 发布到 TS Studio 与设备，校验哈希，等待退出并采集本轮日志、截图和结果。命令失败后由 AGENT 根据原始证据决定恢复动作，并在 `debug-runs/recovery/vm-<索引>/恢复记录.md` 手工记账；命令及模板见 [设备脚本说明](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>)。API 请求被接受不代表业务成功，需以设备日志和完成画面为准。
 
 授权及角色配置位于仓库外的 `~/.my_pocket_automation/`。角色清单为 `daily-accounts.json`，例如 `[{"alias":"current"}]`；每个别名在 `accounts/<alias>/` 下具有私有的 `role.lua`（主页身份特征）和 `selector.lua`（已保存角色卡片特征）。别名与角色的绑定不能在同一天随意更换。
 

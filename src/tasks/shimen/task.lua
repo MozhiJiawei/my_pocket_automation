@@ -7,10 +7,18 @@ local snapshot=require('dfx.snapshot')
 local materials=require('dfx.materials')
 local list=require('common.list_navigation')
 local FIND_ATTEMPT_LIMIT=4 -- First attempt plus at most three free retries.
-local function result(status,reason,evidence) return {status=status,reason=reason,failure_evidence=evidence} end
+local function result(status,reason,evidence)
+    return {status=status,reason=reason,failure_evidence=evidence}
+end
 local function stop(ctx,reason,status)
     materials.keep(ctx,reason)
     return result(status or 'paused',reason,snapshot.capture(ctx,reason))
+end
+local function stop_puzzle(ctx,reason)
+    -- Diagnostic failures must not erase the verified puzzle outcome.
+    pcall(materials.keep,ctx,reason)
+    local captured,evidence=pcall(snapshot.capture,ctx,reason)
+    return result('paused',reason,captured and evidence or nil)
 end
 local function open_list_card(ctx)
     local spec={name='shimen_entry_or_completed',page=pages.features.task_list,
@@ -152,13 +160,13 @@ function M.run(ctx)
             device.wait(function() return pages.state()~='network_retry' end,30,500)
         elseif state=='puzzle_retry' and puzzle_attempted then
             progress.write(ctx,'shimen','running','puzzle_failed_requires_annotation',record)
-            return stop(ctx,'puzzle_game_result_not_verified')
+            return stop_puzzle(ctx,'puzzle_game_result_not_verified')
         elseif state=='puzzle' then
             puzzle_attempted=true
             local prepared,prepare_reason=materials.prepare(ctx,'shimen','puzzle')
             if not prepared then return stop(ctx,prepare_reason) end
             local solved,reason=require('tasks.shimen.puzzle').solve(ctx,ctx.config.shimen_puzzle_family or 'auto')
-            if not solved then return stop(ctx,reason) end
+            if not solved then return stop_puzzle(ctx,reason) end
             progress.write(ctx,'shimen','running','puzzle_exit_requires_delivery_verification',record)
             if step=='advance' then return result('paused','one_minigame_completed') end
         elseif state=='find' then

@@ -21,6 +21,21 @@ local ok, err = pcall(function()
             log.write(ctx,'summary','daily_done=false scope=application_startup')
             return
         end
+        local checked,running=pcall(appIsRunning,'com.netease.mhxyhtb')
+        if not checked or (running~=0 and running~=1) then
+            log.write(ctx,'task_result','startup status=blocked reason=game_process_state_unknown')
+            pcall(snapshot.capture,ctx,'game_process_state_unknown')
+            log.write(ctx,'summary','daily_done=false reason=game_process_state_unknown')
+            return
+        end
+        if running==0 then
+            local result=require('common.application').start(ctx)
+            if result.status~='done' then
+                log.write(ctx,'task_result','startup status='..result.status..' reason='..result.reason)
+                log.write(ctx,'summary','daily_done=false reason='..result.reason)
+                return
+            end
+        end
         if config.step=='select-role' then
             assert(#config.accounts==1,'select-role requires one configured role')
             ctx.account=config.accounts[1]
@@ -66,9 +81,11 @@ local ok, err = pcall(function()
                 return
             end
             local task_names = config.step=='daily' and {'shimen', 'zhuagui', 'dungeon', 'rewards'} or {config.task or 'dungeon'}
+            local last_task,last_status
             for _, name in ipairs(task_names) do
                 log.write(ctx,'task_start',name)
                 local result = require('tasks.' .. name .. '.task').run(ctx)
+                last_task,last_status=name,result.status
                 log.write(ctx, 'task_result', name .. ' status=' .. result.status .. ' reason=' .. (result.reason or ''))
                 if name=='dungeon' then dungeon_done=result.status=='done' end
                 if result.status=='not_implemented' then placeholders[#placeholders+1]=name end
@@ -77,10 +94,15 @@ local ok, err = pcall(function()
                     return
                 end
             end
-            if config.step=='daily' and not require('common.navigation').finish_account(ctx) then
-                log.write(ctx,'task_result','navigation status=blocked reason=return_home_not_verified')
-                log.write(ctx,'summary','daily_done=false reason=return_home_not_verified')
-                return
+            if config.step=='daily' then
+                if not require('common.navigation').finish_account(ctx) then
+                    log.write(ctx,'task_result','navigation status=blocked reason=return_home_not_verified')
+                    log.write(ctx,'summary','daily_done=false reason=return_home_not_verified')
+                    return
+                end
+                if last_status=='done' then
+                    log.write(ctx,'home_verified','account='..account.alias..' task='..last_task)
+                end
             end
         end
         local missing=#placeholders>0 and table.concat(placeholders,',') or 'none'

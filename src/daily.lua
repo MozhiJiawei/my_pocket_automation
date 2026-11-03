@@ -41,8 +41,8 @@ function M.run(ctx)
         log.write(ctx,'account',account.alias)
         local ready=navigation.prepare_recorded(ctx)
         if not ready then
-            snapshot.capture(ctx,'role_identity_not_verified')
             log.write(ctx,'task_result','account status=blocked reason=saved_role_not_ready')
+            pcall(snapshot.capture,ctx,'role_identity_not_verified')
             log.write(ctx,'summary','all_roles_done=false selected_done=false daily_done=false reason=saved_role_not_ready')
             return
         else
@@ -54,17 +54,18 @@ function M.run(ctx)
                 log.write(ctx,'task_result',name..' status='..outcome.status..' reason='..(outcome.reason or ''))
                 if outcome.status~='done' then
                     log.write(ctx,'error','task='..name..' status='..outcome.status..' reason='..(outcome.reason or ''))
-                    if not outcome.failure_evidence then snapshot.capture(ctx,'task_'..name..'_incomplete') end
+                    if not outcome.failure_evidence then pcall(snapshot.capture,ctx,'task_'..name..'_incomplete') end
                     log.write(ctx,'summary','all_roles_done=false selected_done=false daily_done=false reason='..name..'_'..outcome.status)
                     return
                 end
                 if not navigation.finish_account(ctx) then
                     log.write(ctx,'task_result','navigation status=blocked reason=return_home_not_verified')
                     log.write(ctx,'error','task=navigation reason=return_home_not_verified')
-                    snapshot.capture(ctx,'return_home_not_verified')
+                    pcall(snapshot.capture,ctx,'return_home_not_verified')
                     log.write(ctx,'summary','all_roles_done=false selected_done=false daily_done=false reason=return_home_not_verified')
                     return
                 end
+                log.write(ctx,'home_verified','account='..account.alias..' task='..name)
             end
         end
         -- Every selected task and its return home were verified above.

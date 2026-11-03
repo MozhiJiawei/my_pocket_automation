@@ -11,7 +11,7 @@ import re
 import sys
 
 from build import ROOT, build
-from dfx_device import Device, command
+from dfx_device import ADB, Device, allocate_run_id, command, instance_lock
 
 
 class WaitExpired(RuntimeError):
@@ -19,6 +19,35 @@ class WaitExpired(RuntimeError):
 
 
 DAILY_TASK_ORDER = ('shimen', 'zhuagui', 'dungeon', 'rewards')
+
+
+def input_evidence(args, accounts, max_seconds):
+    """Describe the exact requested scope and input hashes without credentials."""
+    accounts_source = getattr(args, 'accounts_source', None)
+    accounts_hash = hashlib.sha256(accounts_source.read_bytes()).hexdigest() if accounts_source else None
+    if hasattr(args, 'accounts_source_sha256') and accounts_hash != args.accounts_source_sha256:
+        raise RuntimeError('Account configuration changed after validation; no launch requested')
+    names = ('mode', 'step', 'task', 'account', 'select_accounts', 'tasks', 'dungeon', 'dungeons',
+             'shimen_needed', 'shimen_puzzle_family', 'browse_rounds', 'browse_until_no_new_topics',
+             'rewards_debug_after_shimen', 'rewards_inspect_category', 'routine_screenshots', 'verbose_logs')
+    scope = {name: getattr(args, name, None) for name in names}
+    scope.update(accounts=[{'alias': item['alias'], 'claim_dungeon_rewards': item.get('claim_dungeon_rewards', False)}
+                           for item in accounts], max_seconds=max_seconds)
+    resources = {}
+    for item in accounts:
+        folder = Path.home() / '.my_pocket_automation/accounts' / item['alias']
+        resources[item['alias']] = {
+            name: hashlib.sha256((folder / name).read_bytes()).hexdigest() if (folder / name).is_file() else None
+            for name in ('role.lua', 'selector.lua')}
+    return {'vm_index': getattr(args, 'vm_index', None),
+            'mumu_dir': str(getattr(args, 'mumu_dir', Path(ADB).parent)),
+            'requested_scope': scope, 'accounts_sha256': accounts_hash,
+            'account_resources_sha256': resources,
+            'source_sha256': {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                              for path in sorted((ROOT / 'src').rglob('*.lua'))},
+            'device_tools_sha256': {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                                    for path in sorted((ROOT / 'scripts/device').glob('*'))
+                                    if path.is_file() and path.suffix in ('.py', '.ps1')}}
 
 
 def validate_rewards_options(args):
@@ -55,10 +84,10 @@ def runtime_result(text, mode, step, task='dungeon', accounts=None, selected_tas
     script = 'failed' if '[failed]' in text or '[finished] script_failed' in text else (
         'succeeded' if '[finished] script_exited_normally' in text else 'unknown')
     business, reason = 'unknown', 'runtime_evidence_missing'
+    problem = next((item for item in tasks if item['status'] in ('failed', 'blocked', 'paused')), None)
     if script == 'failed':
-        business, reason = 'failed', 'device_script_failed'
+        business, reason = 'failed', problem['reason'] if problem else 'device_script_failed'
     elif script == 'succeeded':
-        problem = next((item for item in tasks if item['status'] in ('failed', 'blocked', 'paused')), None)
         if problem:
             business, reason = problem['status'], problem['reason']
         elif summary.get('reason'):
@@ -153,7 +182,12 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         if args.step!='daily':
             accounts=selected
     archive.mkdir(parents=True)  # A collision must not overwrite previous evidence.
-    record = {'run_id': run_id, 'mode': args.mode, 'step': args.step,
+    record = {'run_id': run_id, 'archive': str(archive), 'mode': args.mode, 'step': args.step,
+              'device': args.device, 'vm_index': getattr(args, 'vm_index', None),
+              'adb': str(getattr(args, 'adb', None) or ADB),
+              'mumu_dir': str(getattr(args, 'mumu_dir', Path(ADB).parent)),
+              'environment_run_id': getattr(args, 'environment_run_id', None),
+              'environment_archive': getattr(args, 'environment_archive', None),
               'task': getattr(args, 'task', 'dungeon'),
               'selected_account':getattr(args,'account',None),
               'rewards_debug_after_shimen':bool(getattr(args,'rewards_debug_after_shimen',False)),
@@ -218,14 +252,20 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         return ''
 
     try:
-        bundle = build()
+        expected_inputs = getattr(args, 'input_evidence', None) or input_evidence(args, accounts, max_seconds)
+        record.update(expected_inputs)
+        persist()
+        if input_evidence(args, accounts, max_seconds) != expected_inputs:
+            raise RuntimeError('Run inputs changed before build; no launch requested')
+        bundle = build(output=archive / 'build')
         shutil.copyfile(bundle, archive / 'script-source.lua')
-        shutil.copyfile(ROOT / 'dist/manifest.json', archive / 'manifest.json')
+        manifest = bundle.parent / 'manifest.json'
+        shutil.copyfile(manifest, archive / 'manifest.json')
+        bundle = archive / 'script-source.lua'
         record['bundle_sha256'] = hashlib.sha256(bundle.read_bytes()).hexdigest()
-        config = ROOT / 'dist/daily_config.lua'
+        config = archive / 'run-config.lua'
         def binding(item):
-            path=Path.home()/'.my_pocket_automation/accounts'/item['alias']/'role.lua'
-            return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ''
+            return record['account_resources_sha256'][item['alias']]['role.lua'] or ''
         account_lua = ','.join('{alias="%s",claim_dungeon_rewards=%s,identity_binding="%s"}' %
                               (item['alias'],'true' if item.get('claim_dungeon_rewards') is True else 'false',binding(item)) for item in accounts)
         config.write_text('return {run_id="%s", business_date="%s", mode="%s", step="%s", task="%s", dungeon="%s", browse_rounds=%d, allow_reward_claim=false, accounts={%s}}\n' %
@@ -258,11 +298,13 @@ def run_once(args, accounts, max_seconds, run_id, archive):
             text=config.read_text(encoding='utf-8').rstrip()
             selection=',selected_account="'+args.account+'"' if args.step=='daily' else ''
             config.write_text(text[:-1]+',verify_role=true'+selection+'}\n',encoding='utf-8')
-        shutil.copyfile(config, archive / 'run-config.lua')
+        record['run_config_sha256'] = hashlib.sha256(config.read_bytes()).hexdigest()
         record['phase'] = 'authorize'
         device.authorize()
         if observe_status() != 'f00':
             raise RuntimeError('Device is not idle; no files published')
+        if input_evidence(args, accounts, max_seconds) != expected_inputs:
+            raise RuntimeError('Run inputs changed before publication; no launch requested')
         record['phase'] = 'publish_config'
         if args.step == 'daily' or getattr(args,'account',None) or (getattr(args, 'task', 'dungeon')=='zhuagui' and args.mode=='run' and args.step in ('enter','start','complete')):
             for item in accounts:
@@ -273,9 +315,12 @@ def run_once(args, accounts, max_seconds, run_id, archive):
                     identity = Path.home() / '.my_pocket_automation/accounts' / alias / local_name
                     if not identity.exists():
                         raise RuntimeError('Calibrate configured saved-role resources outside repository first')
+                    expected_hash = record['account_resources_sha256'][alias][local_name]
+                    if hashlib.sha256(identity.read_bytes()).hexdigest() != expected_hash:
+                        raise RuntimeError('Saved-role resource changed; no launch requested')
                     remote = f'/storage/emulated/0/TouchSprite/res/daily_{remote_kind}_{alias}.lua'
                     device.adb_call('push', str(identity), remote + '.pending')
-                    if device.adb_call('shell', 'sha256sum', remote + '.pending').split()[0] != hashlib.sha256(identity.read_bytes()).hexdigest():
+                    if device.adb_call('shell', 'sha256sum', remote + '.pending').split()[0] != expected_hash:
                         raise RuntimeError('Saved-role resource hash mismatch')
                     device.adb_call('shell', 'mv', remote + '.pending', remote)
         remote_config = '/storage/emulated/0/TouchSprite/res/daily_config.lua'
@@ -283,6 +328,8 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         if device.adb_call('shell', 'sha256sum', remote_config + '.pending').split()[0] != hashlib.sha256(config.read_bytes()).hexdigest():
             raise RuntimeError('Configuration hash mismatch')
         device.adb_call('shell', 'mv', remote_config + '.pending', remote_config)
+        if input_evidence(args, accounts, max_seconds) != expected_inputs:
+            raise RuntimeError('Run inputs changed before Lua launch; no launch requested')
         env = os.environ.copy()
         env['TOUCHSPRITE_AUTH'] = device.auth
         record.update(phase='start', launch_status='unknown', may_still_be_running=True)
@@ -338,11 +385,35 @@ def run_once(args, accounts, max_seconds, run_id, archive):
     if failure is not None:
         raise failure
     print(json.dumps({'run_id': run_id, 'archive': str(archive)}), flush=True)
+    return record
 
 
-def main():
+def _load_emulator():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('single_run_emulator', Path(__file__).with_name('start-emulator.py'))
+    launcher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(launcher)
+    return launcher
+
+
+def execute(args, accounts, max_seconds):
+    """Execute one validated scope; the caller holds the instance lock."""
+    launcher = _load_emulator()
+    args.device = launcher.validate_vm(args.mumu_dir, args.vm_index, args.device)['device']
+    args.adb = str(args.mumu_dir / 'adb.exe')
+    if getattr(args, 'input_evidence', None) is None:
+        args.input_evidence = input_evidence(args, accounts, max_seconds)
+    run_id = allocate_run_id(ROOT)
+    args.lua_run_id = run_id
+    args.lua_archive = str(ROOT / 'debug-runs' / run_id)
+    return run_once(args, accounts, max_seconds, run_id, Path(args.lua_archive))
+
+
+def create_parser():
     p = argparse.ArgumentParser()
-    p.add_argument('--device', required=True)
+    p.add_argument('--device', help='Optional exact endpoint check against the selected VM')
+    p.add_argument('--vm-index', type=int, required=True, help='Explicit existing MuMu instance')
+    p.add_argument('--mumu-dir', type=Path, default=Path(ADB).parent)
     p.add_argument('--mode', choices=['observe', 'run'], default='observe')
     p.add_argument('--max-seconds', type=int)
     p.add_argument('--dungeon', choices=['wuji', 'chechi'], default='wuji')
@@ -361,7 +432,15 @@ def main():
     p.add_argument('--select-accounts',nargs='+',help='Configured roles to run in daily mode; verify the full saved roster first')
     p.add_argument('--tasks', default=','.join(DAILY_TASK_ORDER), help='Daily selected task modules, comma-separated; run in Shimen, ZhuaGui, dungeon, rewards order')
     p.add_argument('--step', choices=['launch-game', 'select-role', 'enter', 'start', 'advance', 'complete', 'finish', 'back', 'browse', 'select', 'switch', 'observe', 'daily'], default='observe')
-    args = p.parse_args()
+    return p
+
+
+def prepare(args):
+    """Validate options and external configuration without contacting a device."""
+    if type(args.vm_index) is not int or args.vm_index < 0:
+        raise ValueError('VM index must be a nonnegative integer')
+    if not args.mumu_dir.is_absolute():
+        raise ValueError('An absolute MuMu installation path is required')
     validate_rewards_options(args)
     if not 1<=args.shimen_needed<=10:raise ValueError('Invalid Shimen item count')
     if args.shimen_puzzle_family and (args.task!='shimen' or args.step!='advance' or args.mode!='run' or not re.fullmatch(r'[\w\u4e00-\u9fff]{1,20}',args.shimen_puzzle_family)):
@@ -382,21 +461,22 @@ def main():
     if args.browse_until_no_new_topics and (args.task!='zhuagui' or args.step!='browse' or args.mode!='run' or args.browse_rounds!=10):
         raise ValueError('Topic cycles require wine sampling in 10-round ZhuaGui browse mode')
     if args.step=='launch-game':
-        if args.accounts:
-            raise ValueError('Application startup does not use saved-role configuration')
+        if args.mode!='run' or args.task!='dungeon' or args.accounts or args.account or args.select_accounts:
+            raise ValueError('Application startup requires run mode without role or task selection')
         max_seconds=args.max_seconds if args.max_seconds is not None else 150
         if max_seconds<=0:
             raise ValueError('Wait limit must be positive')
-        run_id=datetime.now().strftime('%Y%m%d_%H%M%S')
-        run_once(args,[],max_seconds,run_id,ROOT/'debug-runs'/run_id)
-        return
+        return [], max_seconds
     accounts_path=args.accounts or Path.home() / '.my_pocket_automation/daily-accounts.json'
     if not accounts_path.exists() and not args.accounts:
         accounts_path.parent.mkdir(parents=True,exist_ok=True)
         accounts_path.write_text(json.dumps([{'alias':'current'}],indent=2),encoding='utf-8')
     if accounts_path.resolve().is_relative_to(ROOT):
         raise ValueError('Saved-role configuration belongs outside the repository')
-    accounts=json.loads(accounts_path.read_text(encoding='utf-8'))
+    args.accounts_source = accounts_path
+    accounts_bytes = accounts_path.read_bytes()
+    args.accounts_source_sha256 = hashlib.sha256(accounts_bytes).hexdigest()
+    accounts=json.loads(accounts_bytes.decode('utf-8'))
     if not isinstance(accounts,list) or not accounts:
         raise ValueError('Accounts must be a nonempty list')
     aliases=[item['alias'] for item in accounts]
@@ -415,15 +495,30 @@ def main():
             aliases=[args.account]
     if args.step!='daily' and aliases!=['current'] and not args.account:
         raise ValueError('Development steps are limited to the inspected current account')
-    max_seconds = args.max_seconds or (10800 if args.step=='daily' else 3900 if args.step in ['advance','complete'] else 90)
+    max_seconds = args.max_seconds if args.max_seconds is not None else (10800 if args.step=='daily' else 3900 if args.step in ['advance','complete'] else 90)
     if args.task=='zhuagui' and args.step=='browse' and not args.max_seconds:
         max_seconds=max(max_seconds,(60 if args.browse_until_no_new_topics else args.browse_rounds)*65+30)
-    run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-    archive = ROOT / 'debug-runs' / run_id
     if max_seconds <= 0:
         raise ValueError('Wait limit must be positive')
-    run_once(args, accounts, max_seconds, run_id, archive)
+    return accounts, max_seconds
+
+
+def main(argv=None):
+    args = create_parser().parse_args(argv)
+    accounts, max_seconds = prepare(args)
+    with instance_lock(ROOT, args.mumu_dir, args.vm_index):
+        args.input_evidence = input_evidence(args, accounts, max_seconds)
+        return execute(args, accounts, max_seconds)
+
+
+def cli(argv=None):
+    try:
+        main(argv)
+    except Exception as exc:
+        print(json.dumps({'status': 'failed', 'error_type': type(exc).__name__}), flush=True)
+        return 1
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(cli())

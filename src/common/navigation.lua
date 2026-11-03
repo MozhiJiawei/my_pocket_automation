@@ -220,8 +220,6 @@ end
 M.return_home=return_home
 local function enter_pocket(ctx,restarted)
     local screen=require('common.screen')
-    -- A restarted game changes from portrait Pocket to landscape login.
-    screen.init(1,restarted)
     local function finish(ok,reason)
         screen.init(0)
         if reason then log.write(ctx,'account_blocked',reason) end
@@ -229,29 +227,53 @@ local function enter_pocket(ctx,restarted)
     end
     local action,observed=nil,false
     local network_error=false
+    local portrait_checked=false
     local entered=device.wait(function()
+        -- Entry landmarks can appear late or change during their animation.
+        -- Refresh before every observation, including the initial saved login.
+        screen.init(1,true)
         if detector.present(require('common.assets.server_list_network_error')) then
             network_error=true;return true
         end
+        local visible=false
         for _,target in ipairs({{confirm,'pocket_confirm'},{entry,'pocket_entry'}}) do
             if detector.present(target[1]) then
-                observed=true
+                observed=true;visible=true
                 -- A false tap sent no input: the animated target changed during
                 -- revalidation. Wait for it again; never repeat a sent tap.
                 if device.tap(ctx,target[1],target[2]) then action=target[2];return true end
             end
         end
+        if visible then return false end
+        screen.init(0,true)
+        if (detector.present(home) and detector.present(switch)) or detector.present(picker) then
+            action='portrait_ready';return true
+        end
+        -- Preserve recovery from known task pages without a login timeout.
+        -- A state label alone cannot send input: return_home uses verified taps.
+        if not restarted and not portrait_checked then
+            portrait_checked=true
+            if return_home(ctx) and ((detector.present(home) and detector.present(switch)) or detector.present(picker)) then
+                action='portrait_ready';return true
+            end
+        end
         return false
-    end,restarted and 360 or 1)
+    end,restarted and 360 or 60)
     if network_error then return finish(false,'server_list_network_error') end
     if not entered then
-        if restarted or observed then return finish(false,'pocket_entry_not_actionable') end
-        return finish(true)
+        return finish(false,observed and 'pocket_entry_not_actionable' or 'pocket_entry_not_verified')
     end
-    if action=='pocket_entry' and not device.wait(function()
-        return detector.present(confirm) and device.tap(ctx,confirm,'pocket_confirm')
-    end,20) then
-        return finish(false,'pocket_confirmation_not_verified')
+    if action=='portrait_ready' then return finish(true) end
+    if action=='pocket_entry' then
+        local confirmed=device.wait(function()
+            screen.init(1,true)
+            if detector.present(require('common.assets.server_list_network_error')) then
+                network_error=true;return true
+            end
+            return detector.present(confirm) and device.tap(ctx,confirm,'pocket_confirm')
+        end,60)
+        if network_error then return finish(false,'server_list_network_error') end
+        if not confirmed then return finish(false,'pocket_confirmation_not_verified') end
     end
     -- Confirmation rotates Android after the tap returns. Refresh the capture
     -- while waiting, so a stale landscape stride cannot drive home navigation.
@@ -279,6 +301,7 @@ function M.recover_recorded(ctx)
 end
 function M.prepare_recorded(ctx)
     -- Authentication is manual; this only enters the already selected saved role.
+    ctx.identity_verified=false
     local disconnected=require('common.assets.network_disconnected')
     if detector.present(disconnected) then
         ctx.identity_verified=false
@@ -328,9 +351,12 @@ function M.prepare_recorded(ctx)
     if detector.present(picker) and not device.wait(function() return detector.present(home) end,10) then
         if not select_saved(ctx) then return false end
     end
-    return_home(ctx)
     if not device.wait(function() return detector.present(home) end, 60) then
         log.write(ctx, 'account_blocked', 'home_not_verified')
+        return false
+    end
+    if not return_home(ctx) then
+        log.write(ctx,'account_blocked','return_home_not_verified')
         return false
     end
     local identity_path = '/storage/emulated/0/TouchSprite/res/daily_identity_' .. ctx.account.alias .. '.lua'

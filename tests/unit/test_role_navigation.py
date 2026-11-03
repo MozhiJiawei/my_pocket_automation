@@ -583,4 +583,260 @@ class RoleNavigationTest(unittest.TestCase):
         self.assertEqual(list(self.lua.globals().taps.values()),['cancel_dungeon_switch'])
 
 
+class LoginTimingTest(unittest.TestCase):
+    """Use production polling and input revalidation with a virtual device clock."""
+
+    def setUp(self):
+        RoleNavigationTest.setUp(self)
+        self.lua.execute('''
+            package.preload['dfx.snapshot']=function() return {capture=function(c,label)
+                if capture_hook then capture_hook(label) end
+            end} end
+        ''')
+        production=self.lua.execute((ROOT/'src/common/device.lua').read_text(encoding='utf-8'))
+        self.lua.globals().production_wait=production.wait
+        self.lua.globals().production_tap=production.tap
+        self.lua.execute('''
+            scene='entry';selected='second';clock=0;restarts=0;native_taps={};refreshes={};direction=0
+            local device=require('common.device')
+            device.wait=production_wait;device.tap=production_tap
+            init=function(value) direction=value end
+            resetScreen=function() refreshes[#refreshes+1]=clock end
+            mSleep=function(ms)
+                clock=clock+ms
+                if scene=='splash' and entry_at and clock>=entry_at then scene='entry' end
+                if scene=='waiting_confirm' and confirm_at and clock>=confirm_at then scene='confirm' end
+                if scene=='rotating' and home_at and clock>=home_at then scene='home' end
+                if scene=='connecting' and home_at and clock>=home_at then scene='home' end
+                if time_hook then time_hook() end
+            end
+            runApp=function() restarts=restarts+1;scene='entry' end
+            package.preload['common.assets.server_list_network_error']=function() return {kind='server_error'} end
+            local detector=require('common.detector')
+            local present,find=detector.present,detector.find
+            detector.present=function(f)
+                if f.kind=='entry' or f.kind=='confirm' or f.kind=='server_error' then
+                    return direction==1 and scene==f.kind
+                end
+                if f.kind=='home_tab' then return direction==0 and scene=='task_list' end
+                return direction==0 and present(f)
+            end
+            detector.find=function(f)
+                if lose_next_target==f.kind then lose_next_target=nil;return nil end
+                local x=({entry=100,confirm=200,home_tab=300})[f.kind]
+                if f.kind=='selector' then x=f.alias=='second' and 400 or 401 end
+                if x then
+                    if detector.present(f) then return {x=x,y=100,tap_offset={0,0}} end
+                    return nil
+                end
+                return find(f)
+            end
+            tap=function(x,y)
+                native_taps[#native_taps+1]={x=x,y=y,clock=clock,direction=direction}
+                if x==100 then
+                    confirm_at=confirmation_delay and clock+confirmation_delay
+                    scene=confirmation_delay and 'waiting_confirm' or 'confirm'
+                elseif x==200 then
+                    home_at=rotation_delay and clock+rotation_delay
+                    scene=rotation_delay and 'rotating' or 'home'
+                elseif x==300 then scene='home'
+                elseif x==400 then
+                    selected='second';home_at=connection_delay and clock+connection_delay
+                    scene=connection_delay and 'connecting' or 'home'
+                else error('unexpected native input') end
+                if tap_hook then tap_hook(x) end
+            end
+        ''')
+
+    def run_prepare(self):
+        return self.module.prepare_recorded(self.lua.globals().ctx)
+
+    def native_points(self):
+        return [tap.x for tap in self.lua.globals().native_taps.values()]
+
+    def last_reason(self):
+        logs=self.lua.globals().logs
+        return logs[len(logs)][2]
+
+    def test_first_login_frame_miss_is_reprobed_before_native_input(self):
+        self.lua.execute('''
+            scene='splash';entry_at=500
+            package.preload['tasks.dungeon.pages']=function() return {state=function() return 'unknown' end} end
+            package.preload['tasks.zhuagui.pages']=function() return {state=function() return 'task_list' end} end
+            package.preload['common.assets.home_tab']=function() return {kind='home_tab'} end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[100,200])
+        self.assertEqual(self.lua.globals().native_taps[1].clock,500)
+        self.assertEqual(self.lua.globals().restarts,0)
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+
+    def test_unknown_page_times_out_without_input_or_identity(self):
+        self.lua.execute("scene='unknown';ctx.identity_verified=true")
+        self.assertFalse(self.run_prepare())
+        self.assertEqual(self.native_points(),[])
+        self.assertEqual(self.lua.globals().clock,30000)
+        self.assertEqual(self.lua.globals().restarts,0)
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.last_reason(),'pocket_entry_not_verified')
+
+    def test_verified_home_has_no_login_wait_or_input(self):
+        self.lua.execute("scene='home'")
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.lua.globals().clock,0)
+        self.assertEqual(self.native_points(),[])
+
+    def test_initial_partial_home_waits_for_upper_role_control(self):
+        self.lua.execute('''
+            scene='partial_home'
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                if scene=='partial_home' and f.kind=='home' then return direction==0 end
+                return present(f)
+            end
+            time_hook=function() if clock>=1500 then scene='home' end end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.lua.globals().clock,1500)
+        self.assertEqual(self.native_points(),[])
+
+    def test_visible_home_identity_cannot_bypass_failed_overlay_cleanup(self):
+        self.lua.execute('''
+            scene='home';ctx.identity_verified=true
+            local rewards=require('tasks.rewards.pages')
+            rewards.features.bonus_receipt={kind='bonus_receipt'}
+            rewards.close_receipt=function() return false end
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                return f.kind=='bonus_receipt' or present(f)
+            end
+        ''')
+        self.assertFalse(self.run_prepare())
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.native_points(),[])
+        self.assertEqual(self.last_reason(),'return_home_not_verified')
+
+    def test_selected_role_slow_connection_is_awaited_before_home_cleanup(self):
+        self.lua.execute("scene='picker';selected='first';connection_delay=12000")
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[400])
+        self.assertGreaterEqual(self.lua.globals().clock,17000)
+        self.assertTrue(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.lua.globals().restarts,0)
+
+    def test_picker_can_finish_loading_without_login_wait(self):
+        self.lua.execute('''
+            scene='picker'
+            time_hook=function() if clock>=1000 then scene='home' end end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.lua.globals().clock,1000)
+        self.assertEqual(self.native_points(),[])
+
+    def test_failed_saved_role_selection_clears_previous_identity(self):
+        self.lua.execute('''
+            scene='picker';ctx.identity_verified=true
+            local original=loadfile
+            loadfile=function(path)
+                if path:match('daily_selector_') then return nil end
+                return original(path)
+            end
+        ''')
+        self.assertFalse(self.run_prepare())
+        self.assertFalse(self.lua.globals().ctx.identity_verified)
+        self.assertEqual(self.native_points(),[])
+
+    def test_known_task_returns_home_without_login_wait(self):
+        self.lua.execute('''
+            scene='task_list'
+            package.preload['tasks.dungeon.pages']=function() return {state=function() return 'unknown' end} end
+            package.preload['tasks.zhuagui.pages']=function() return {state=function() return scene end} end
+            package.preload['common.assets.home_tab']=function() return {kind='home_tab'} end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[300])
+        self.assertEqual(self.lua.globals().clock,1200)
+
+    def test_confirmation_after_ten_seconds_is_accepted_with_fresh_capture(self):
+        self.lua.execute('''
+            confirmation_delay=12000
+            capture_hook=function(label)
+                if label=='pocket_confirm_before' then
+                    assert(direction==1 and refreshes[#refreshes]==clock,'stale confirmation capture')
+                end
+            end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[100,200])
+        self.assertGreaterEqual(self.lua.globals().native_taps[2].clock,12000)
+        self.assertEqual(self.lua.globals().restarts,0)
+
+    def assert_revalidation_retry(self,kind):
+        self.lua.globals().changed_kind=kind
+        self.lua.execute('''
+            capture_hook=function(label)
+                if not changed and label=='pocket_'..changed_kind..'_before' then
+                    changed=true;lose_next_target=changed_kind
+                end
+            end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[100,200])
+        self.assertEqual(self.lua.globals().clock,2900)
+        self.assertEqual(self.lua.globals().restarts,0)
+        self.assertEqual(sum(row[1]=='tap_skipped' for row in self.lua.globals().logs.values()),1)
+
+    def test_entry_target_can_change_before_input_and_be_retried(self):
+        self.assert_revalidation_retry('entry')
+
+    def test_confirmation_target_can_change_before_input_and_be_retried(self):
+        self.assert_revalidation_retry('confirm')
+
+    def test_sent_entry_input_is_not_repeated_during_confirmation_wait(self):
+        self.lua.execute('''
+            ctx.pocket_entry_recovered=true
+            tap_hook=function(x) if x==100 then scene='entry' end end
+        ''')
+        self.assertFalse(self.run_prepare())
+        self.assertEqual(self.native_points(),[100])
+        self.assertEqual(self.lua.globals().clock,31200)
+        self.assertEqual(self.last_reason(),'pocket_confirmation_not_verified')
+
+    def test_sent_confirmation_input_is_not_repeated_during_home_wait(self):
+        self.lua.execute("tap_hook=function(x) if x==200 then scene='confirm' end end")
+        self.assertFalse(self.run_prepare())
+        self.assertEqual(self.native_points(),[100,200])
+        self.assertEqual(self.lua.globals().clock,32400)
+        self.assertEqual(self.last_reason(),'pocket_home_not_verified')
+
+    def test_async_rotation_waits_for_home_without_extra_input(self):
+        self.lua.execute('''
+            rotation_delay=12000
+            capture_hook=function(label)
+                if label=='pocket_confirm_before' then assert(direction==1) end
+            end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[100,200])
+        self.assertGreaterEqual(self.lua.globals().clock,13200)
+        self.assertEqual(self.lua.globals().direction,0)
+
+    def test_network_error_during_entry_wait_stops_without_input(self):
+        self.lua.execute("scene='splash';time_hook=function() if clock>=1500 then scene='server_error' end end")
+        self.assertFalse(self.run_prepare())
+        self.assertEqual(self.native_points(),[])
+        self.assertEqual(self.lua.globals().clock,1500)
+        self.assertEqual(self.last_reason(),'server_list_network_error')
+
+    def test_network_error_during_confirmation_wait_stops_before_confirmation(self):
+        self.lua.execute('''
+            confirmation_delay=15000
+            time_hook=function() if clock>=2500 then scene='server_error' end end
+        ''')
+        self.assertFalse(self.run_prepare())
+        self.assertEqual(self.native_points(),[100])
+        self.assertLess(self.lua.globals().clock,3000)
+        self.assertEqual(self.last_reason(),'server_list_network_error')
+
+
 if __name__=='__main__': unittest.main()

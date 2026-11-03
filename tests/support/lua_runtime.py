@@ -67,8 +67,9 @@ class Runtime:
         g.findMultiColorInRegionFuzzy = lambda *args: self.screen.find(*args)
         g.offline_log = lambda c, kind, detail: self.logs.append({'kind': kind, 'detail': detail})
         g.offline_capture = self.capture
-        g.tap = lambda x, y: self.actions.append({'kind': 'tap', 'point': [int(x), int(y)]})
+        g.tap = lambda x, y, options=None: self.actions.append({'kind': 'tap', 'point': [int(x), int(y)]})
         g.mSleep = lambda milliseconds: None
+        g.appIsRunning = lambda package: 1
         g.touchDown = lambda *args: None
         g.touchMove = lambda *args: None
         g.touchUp = lambda *args: None

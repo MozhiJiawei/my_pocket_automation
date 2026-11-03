@@ -76,7 +76,7 @@ class RewardsPagesTest(unittest.TestCase):
         for closes in (True, False):
             with self.subTest(closes=closes):
                 runtime, _ = self.runtime('额外奖励收据')
-                def tap(x, y):
+                def tap(x, y, options=None):
                     runtime.actions.append((x, y))
                     if closes:
                         runtime.screen = Screen.read(CASES / '副本空库存' / '画面.png')
@@ -97,7 +97,7 @@ class RewardsPagesTest(unittest.TestCase):
         runtime, _ = self.runtime('树苗碎片提示')
         pages = runtime.require('tasks.rewards.pages')
         self.assertEqual(pages.state(), 'bonus_receipt')
-        def tap(x, y):
+        def tap(x, y, options=None):
             runtime.actions.append((x, y))
             runtime.screen = Screen.read(CASES / '副本空库存' / '画面.png')
         runtime.lua.globals().tap = tap

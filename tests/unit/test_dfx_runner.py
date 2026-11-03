@@ -64,12 +64,12 @@ class RuntimeResultTest(unittest.TestCase):
 
     def test_ledger_retry_cli_options_are_removed(self):
         for option in ('--find-retry-attempt','--puzzle-retry-attempt'):
-            with self.subTest(option=option),patch.object(sys,'argv',['run-daily.py','--device','fake',option,'14']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):
+            with self.subTest(option=option),patch.object(sys,'argv',['run-daily.py','--vm-index','5','--device','fake',option,'14']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):runner.main()
                 run.assert_not_called()
 
     def test_prior_ledger_date_is_not_a_runtime_option(self):
-        with patch.object(sys,'argv',['run-daily.py','--device','fake','--shimen-resume-date','20261010']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):
+        with patch.object(sys,'argv',['run-daily.py','--vm-index','5','--device','fake','--shimen-resume-date','20261010']),patch.object(runner,'run_once') as run,contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):runner.main()
             run.assert_not_called()
 
@@ -117,6 +117,19 @@ class RuntimeResultTest(unittest.TestCase):
         result = runner.runtime_result(log_for('paused', 'stable_unknown_state_no_actions', 'daily_done=false reason=dungeon_paused'), 'run', 'daily')
         self.assertFalse(result['expectation_met'])
         self.assertEqual(result['business_status'], 'paused')
+
+    def test_secondary_screenshot_failure_preserves_first_task_failure_reason(self):
+        for status in ('failed', 'blocked', 'paused'):
+            with self.subTest(status=status):
+                text = (f'[account] current\n[task_result] shimen status={status} reason=puzzle_tiles_unrecognized\n'
+                        '[task_result] navigation status=blocked reason=secondary_navigation_failure\n'
+                        '[failed] screenshot error\n[finished] script_failed\n')
+                result = runner.runtime_result(text, 'run', 'daily', accounts=[{'alias': 'current'}],
+                                               selected_tasks=['shimen'])
+                self.assertEqual(result['script_status'], 'failed')
+                self.assertEqual(result['termination_reason'], 'puzzle_tiles_unrecognized')
+                self.assertEqual(result['tasks'][0]['status'], status)
+                self.assertFalse(result['expectation_met'])
 
     def test_only_expected_development_pause_is_accepted(self):
         for reason, expected in [('battle_completed', True), ('stable_unknown_state_no_actions', False)]:
@@ -207,13 +220,13 @@ class RewardsRunnerOptionsTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.accounts=Path(self.temp.name)/'accounts.json'
         self.accounts.write_text(json.dumps([{'alias':'first'},{'alias':'second'}]),encoding='utf-8')
-        self.base=['run-daily.py','--device','fake','--accounts',str(self.accounts)]
+        self.base=['run-daily.py','--vm-index','5','--accounts',str(self.accounts)]
 
     def parse(self,options):
-        with patch.object(sys,'argv',self.base+options),patch.object(runner,'run_once') as run:
-            runner.main()
-        run.assert_called_once()
-        return run.call_args.args
+        args=runner.create_parser().parse_args(self.base[1:]+options)
+        with patch.object(runner,'execute',side_effect=AssertionError('validation performed device work')):
+            accounts,seconds=runner.prepare(args)
+        return args,accounts,seconds
 
     def test_default_daily_tasks_include_rewards(self):
         args,accounts,*_=self.parse(['--mode','run','--step','daily'])
@@ -290,11 +303,14 @@ class RunnerFaultTest(unittest.TestCase):
         self.bundle.write_text('return true', encoding='utf-8')
         (dist / 'manifest.json').write_text('{}', encoding='utf-8')
         self.archive = self.root / 'debug-runs/20261009_230000'
-        self.args = SimpleNamespace(device='fake', mode='run', step='complete', dungeon='wuji')
+        self.args = SimpleNamespace(device='fake', vm_index=5, mumu_dir=self.root / 'mumu', adb='fake-adb',
+                                    mode='run', step='complete', dungeon='wuji')
         self.statuses = ['f00', 'f00']
         self.start_error = None
         self.collect_error = None
         self.cleanup_error = None
+        self.authorize_action = None
+        self.before_push = None
         self.text = log_for()
         self.calls = []
         self.device_calls = []
@@ -304,11 +320,13 @@ class RunnerFaultTest(unittest.TestCase):
             adb = 'fake-adb'
             auth = 'fake-secret-not-for-archive'
 
-            def __init__(self, device):
+            def __init__(self, device, adb='fake-adb'):
+                self.adb = adb
                 self.files = {}
 
             def authorize(self):
-                pass
+                if test.authorize_action:
+                    test.authorize_action()
 
             def status(self):
                 item = test.statuses.pop(0) if len(test.statuses) > 1 else test.statuses[0]
@@ -319,6 +337,8 @@ class RunnerFaultTest(unittest.TestCase):
             def adb_call(self, *args):
                 test.device_calls.append(args)
                 if args[0] == 'push':
+                    if test.before_push:
+                        test.before_push(Path(args[1]))
                     self.files[args[2]] = Path(args[1]).read_bytes()
                 elif args[:2] == ('shell', 'sha256sum'):
                     return hashlib.sha256(self.files[args[2]]).hexdigest() + ' fake'
@@ -329,6 +349,7 @@ class RunnerFaultTest(unittest.TestCase):
                     raise test.cleanup_error
 
         self.patches = [patch.object(runner, 'ROOT', self.root), patch.object(runner, 'build', return_value=self.bundle),
+                        patch.object(runner.Path, 'home', return_value=self.root / 'empty-home'),
                         patch.object(runner, 'Device', FakeDevice), patch.object(runner, 'command', side_effect=self.command),
                         patch.object(runner.time, 'sleep'), patch.object(runner.time, 'monotonic', side_effect=[0, 2])]
         for item in self.patches:
@@ -373,6 +394,110 @@ class RunnerFaultTest(unittest.TestCase):
         config=(self.archive/'run-config.lua').read_text(encoding='utf-8')
         self.assertIn('rewards_debug_after_shimen=false',config)
         self.assertIn('rewards_inspect_category="task"',config)
+        self.assertEqual(result['vm_index'], 5)
+        self.assertEqual(result['device'], 'fake')
+        self.assertEqual(result['adb'], 'fake-adb')
+        self.assertEqual(result['mumu_dir'], str(self.args.mumu_dir))
+        self.assertEqual(result['archive'], str(self.archive))
+        self.assertEqual(result['run_config_sha256'], hashlib.sha256((self.archive / 'run-config.lua').read_bytes()).hexdigest())
+        self.assertEqual(result['bundle_sha256'], hashlib.sha256((self.archive / 'script-source.lua').read_bytes()).hexdigest())
+        for key in ('failure_domain', 'failure_boundary', 'recovery_events', 'recovery_attempt_token'):
+            self.assertNotIn(key, result)
+
+    def test_build_and_published_source_are_isolated_to_this_archive(self):
+        with patch.object(runner, 'build', return_value=self.bundle) as build:
+            self.invoke()
+        build.assert_called_once_with(output=self.archive / 'build')
+        launch = next(call for call in self.calls if any('ts-cli.ps1' in str(arg) for arg in call))
+        self.assertEqual(launch[launch.index('-SourcePath') + 1], str(self.archive / 'script-source.lua'))
+
+    def test_account_config_and_device_tool_hashes_are_archived_with_environment_link(self):
+        self.args.accounts_source = self.root / 'external-accounts.json'
+        self.args.accounts_source.write_text('[{"alias":"current"}]', encoding='utf-8')
+        self.args.environment_run_id = '20261009_225959'
+        self.args.environment_archive = str(self.root / 'debug-runs/20261009_225959')
+        tools = self.root / 'scripts/device'
+        tools.mkdir(parents=True)
+        for name, content in (('run-daily.py', 'runner source'), ('ts-cli.ps1', 'transport source'),
+                              ('README.md', 'instructions')):
+            (tools / name).write_text(content, encoding='utf-8')
+        result = self.invoke()
+        self.assertEqual(result['accounts_sha256'], hashlib.sha256(self.args.accounts_source.read_bytes()).hexdigest())
+        self.assertEqual(result['device_tools_sha256'], {
+            'scripts/device/' + name: hashlib.sha256((tools / name).read_bytes()).hexdigest()
+            for name in ('run-daily.py', 'ts-cli.ps1')})
+        self.assertEqual(result['environment_run_id'], self.args.environment_run_id)
+        self.assertEqual(result['environment_archive'], self.args.environment_archive)
+        self.assertNotIn('runner source', json.dumps(result))
+
+    def test_archive_collision_preserves_previous_evidence_without_launch(self):
+        self.archive.mkdir(parents=True)
+        result_path = self.archive / 'result.json'
+        result_path.write_text('{"prior":true}', encoding='utf-8')
+        with self.assertRaises(FileExistsError):
+            runner.run_once(self.args, [{'alias': 'current'}], 1, '20261009_230000', self.archive)
+        self.assertEqual(result_path.read_text(encoding='utf-8'), '{"prior":true}')
+        self.assertEqual(self.device_calls, [])
+        self.assertEqual(self.calls, [])
+
+    def configure_input_files(self):
+        self.args.task = 'shimen'
+        self.args.account = 'current'
+        identities = self.root / 'empty-home/.my_pocket_automation/accounts/current'
+        identities.mkdir(parents=True)
+        for name in ('role.lua', 'selector.lua'):
+            (identities / name).write_text('return {original=true}', encoding='utf-8')
+        source = self.root / 'src/main.lua'
+        source.parent.mkdir()
+        source.write_text('return "original source"', encoding='utf-8')
+        self.args.accounts_source = self.root / 'external-accounts.json'
+        self.args.accounts_source.write_text('[{"alias":"current"}]', encoding='utf-8')
+        self.args.accounts_source_sha256 = hashlib.sha256(self.args.accounts_source.read_bytes()).hexdigest()
+        self.args.input_evidence = runner.input_evidence(self.args, [{'alias': 'current'}], 1)
+        return {'role.lua': identities / 'role.lua', 'selector.lua': identities / 'selector.lua', 'source': source}
+
+    def assert_authorization_drift_is_rejected(self, name):
+        paths = self.configure_input_files()
+        original = self.args.input_evidence
+        self.authorize_action = lambda: paths[name].write_text('changed while authorizing', encoding='utf-8')
+        result = self.invoke(RuntimeError, expected_launches=0)
+        self.assertEqual(result['phase'], 'authorize')
+        self.assertEqual(result['launch_status'], 'not_attempted')
+        self.assertEqual(result['collection_status'], 'not_attempted')
+        for key in ('requested_scope', 'accounts_sha256', 'account_resources_sha256', 'source_sha256'):
+            self.assertEqual(result[key], original[key])
+        self.assertEqual(result['requested_scope']['accounts'], [{'alias': 'current', 'claim_dungeon_rewards': False}])
+        config = (self.archive / 'run-config.lua').read_text(encoding='utf-8')
+        self.assertIn('identity_binding="' + original['account_resources_sha256']['current']['role.lua'] + '"', config)
+        self.assertEqual(self.device_calls, [])
+        self.assertEqual(self.calls, [])
+
+    def test_role_change_during_authorization_does_not_publish_or_rebind(self):
+        self.assert_authorization_drift_is_rejected('role.lua')
+
+    def test_selector_change_during_authorization_does_not_publish(self):
+        self.assert_authorization_drift_is_rejected('selector.lua')
+
+    def test_source_change_during_authorization_does_not_publish(self):
+        self.assert_authorization_drift_is_rejected('source')
+
+    def test_identity_changed_during_push_cannot_self_validate_against_live_file(self):
+        paths = self.configure_input_files()
+        original_hash = self.args.input_evidence['account_resources_sha256']['current']['role.lua']
+
+        def replace_identity(path):
+            if path == paths['role.lua']:
+                path.write_text('changed immediately before push', encoding='utf-8')
+
+        self.before_push = replace_identity
+        result = self.invoke(RuntimeError, expected_launches=0)
+        self.assertEqual(result['phase'], 'publish_config')
+        self.assertEqual(result['account_resources_sha256']['current']['role.lua'], original_hash)
+        self.assertNotEqual(hashlib.sha256(paths['role.lua'].read_bytes()).hexdigest(), original_hash)
+        self.assertEqual(result['launch_status'], 'not_attempted')
+        self.assertFalse(any(call[:2] == ('shell', 'mv') for call in self.device_calls))
+        self.assertFalse(any('daily_config.lua.pending' in str(call) for call in self.device_calls))
+        self.assertEqual(self.calls, [])
 
     def test_rewards_debug_publishes_selected_identity_and_archives_authorization(self):
         self.args.task='rewards';self.args.account='current';self.args.step='enter'
@@ -392,6 +517,11 @@ class RunnerFaultTest(unittest.TestCase):
         self.assertIn('rewards_debug_after_shimen=true',config)
         self.assertIn('rewards_inspect_category="dungeon"',config)
         self.assertIn('accounts={{alias="current"',config)
+        expected = hashlib.sha256((identities / 'role.lua').read_bytes()).hexdigest()
+        self.assertIn('identity_binding="' + expected + '"', config)
+        self.assertEqual(result['account_resources_sha256'], {'current': {
+            name: hashlib.sha256((identities / name).read_bytes()).hexdigest()
+            for name in ('role.lua', 'selector.lua')}})
         published=[call[2] for call in self.device_calls if call[0]=='push']
         self.assertIn('/storage/emulated/0/TouchSprite/res/daily_identity_current.lua.pending',published)
         self.assertIn('/storage/emulated/0/TouchSprite/res/daily_selector_current.lua.pending',published)
@@ -520,6 +650,25 @@ class RunnerFaultTest(unittest.TestCase):
         self.assertEqual(result['launch_status'], 'not_attempted')
         self.assertEqual(result['collection_status'], 'not_attempted')
         self.assertTrue(result['may_still_be_running'])
+        self.assertEqual(self.calls, [])
+
+    def test_unknown_preflight_state_never_publishes_launches_or_collects(self):
+        self.statuses = ['unrecognized-status']
+        result = self.invoke(RuntimeError, expected_launches=0)
+        self.assertEqual(result['launch_status'], 'not_attempted')
+        self.assertEqual(result['collection_status'], 'not_attempted')
+        self.assertTrue(result['may_still_be_running'])
+        self.assertEqual(self.device_calls, [])
+        self.assertEqual(self.calls, [])
+
+    def test_preflight_transport_failure_never_launches_or_collects(self):
+        self.statuses = [RuntimeError('auth MUST_NOT_LEAK')]
+        result = self.invoke(RuntimeError, expected_launches=0)
+        self.assertEqual(result['launch_status'], 'not_attempted')
+        self.assertEqual(result['collection_status'], 'not_attempted')
+        self.assertEqual(result['error_type'], 'RuntimeError')
+        self.assertNotIn('MUST_NOT_LEAK', json.dumps(result))
+        self.assertEqual(self.device_calls, [])
         self.assertEqual(self.calls, [])
 
     def test_missing_device_log_is_unknown_not_success(self):

@@ -24,7 +24,8 @@ function M.tap(ctx, feature, label, guard)
         require('dfx.find_profile').target(ctx,trace.page,x,y)
     end
     log.write(ctx, 'tap', string.format('%s x=%d y=%d', label, x, y))
-    tap(x, y)
+    -- Use the same primary contact as swipes, instead of TSLib's random index.
+    tap(x, y, {ms=50,index=1})
     mSleep(1200)
     snapshot.capture(ctx, label .. '_after', 'debug')
     return true
