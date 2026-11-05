@@ -15,6 +15,9 @@ class RoleNavigationTest(unittest.TestCase):
             ctx={config={accounts={{alias='first'},{alias='second'}}},account={alias='second'}}
             getScreenSize=function() return 900,1600 end; init=function() end; mSleep=function() end
             closeApp=function() end;runApp=function() scene='entry' end
+            package.preload['common.pocket_loading']=function()
+                return function() return entry_loading==true end
+            end
             loadfile=function(path)
                 local alias=path:match('daily_selector_(%w+)')
                 if alias then return function() return {kind='selector',alias=alias} end end
@@ -598,6 +601,7 @@ class LoginTimingTest(unittest.TestCase):
         self.lua.globals().production_tap=production.tap
         self.lua.execute('''
             scene='entry';selected='second';clock=0;restarts=0;native_taps={};refreshes={};direction=0
+            ctx.profile={clock=function() return clock end}
             local device=require('common.device')
             device.wait=production_wait;device.tap=production_tap
             init=function(value) direction=value end
@@ -667,7 +671,7 @@ class LoginTimingTest(unittest.TestCase):
         ''')
         self.assertTrue(self.run_prepare())
         self.assertEqual(self.native_points(),[100,200])
-        self.assertEqual(self.lua.globals().native_taps[1].clock,500)
+        self.assertEqual(self.lua.globals().native_taps[1].clock,1500)
         self.assertEqual(self.lua.globals().restarts,0)
         self.assertTrue(self.lua.globals().ctx.identity_verified)
 
@@ -675,7 +679,7 @@ class LoginTimingTest(unittest.TestCase):
         self.lua.execute("scene='unknown';ctx.identity_verified=true")
         self.assertFalse(self.run_prepare())
         self.assertEqual(self.native_points(),[])
-        self.assertEqual(self.lua.globals().clock,30000)
+        self.assertEqual(self.lua.globals().clock,60000)
         self.assertEqual(self.lua.globals().restarts,0)
         self.assertFalse(self.lua.globals().ctx.identity_verified)
         self.assertEqual(self.last_reason(),'pocket_entry_not_verified')
@@ -757,9 +761,9 @@ class LoginTimingTest(unittest.TestCase):
         self.assertEqual(self.native_points(),[300])
         self.assertEqual(self.lua.globals().clock,1200)
 
-    def test_confirmation_after_ten_seconds_is_accepted_with_fresh_capture(self):
+    def test_confirmation_after_thirty_seconds_is_accepted_with_fresh_capture(self):
         self.lua.execute('''
-            confirmation_delay=12000
+            confirmation_delay=45000
             capture_hook=function(label)
                 if label=='pocket_confirm_before' then
                     assert(direction==1 and refreshes[#refreshes]==clock,'stale confirmation capture')
@@ -768,8 +772,31 @@ class LoginTimingTest(unittest.TestCase):
         ''')
         self.assertTrue(self.run_prepare())
         self.assertEqual(self.native_points(),[100,200])
-        self.assertGreaterEqual(self.lua.globals().native_taps[2].clock,12000)
+        self.assertGreaterEqual(self.lua.globals().native_taps[2].clock,45000)
         self.assertEqual(self.lua.globals().restarts,0)
+
+    def test_visible_entry_waits_for_loading_to_clear_and_stay_clear(self):
+        self.lua.execute('''
+            entry_loading=true
+            time_hook=function() entry_loading=clock<2000 or clock==2500 end
+            tap_hook=function(x) if x==100 then assert(not entry_loading) end end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[100,200])
+        self.assertEqual(self.lua.globals().native_taps[1].clock,4000)
+
+    def test_loading_return_during_capture_prevents_entry_input(self):
+        self.lua.execute('''
+            capture_hook=function(label)
+                if label=='pocket_entry_before' and not changed then
+                    changed=true;entry_loading=true
+                end
+            end
+            time_hook=function() if clock>=3000 then entry_loading=false end end
+        ''')
+        self.assertTrue(self.run_prepare())
+        self.assertEqual(self.native_points(),[100,200])
+        self.assertEqual(self.lua.globals().native_taps[1].clock,4000)
 
     def assert_revalidation_retry(self,kind):
         self.lua.globals().changed_kind=kind
@@ -782,7 +809,7 @@ class LoginTimingTest(unittest.TestCase):
         ''')
         self.assertTrue(self.run_prepare())
         self.assertEqual(self.native_points(),[100,200])
-        self.assertEqual(self.lua.globals().clock,2900)
+        self.assertEqual(self.lua.globals().clock,3900)
         self.assertEqual(self.lua.globals().restarts,0)
         self.assertEqual(sum(row[1]=='tap_skipped' for row in self.lua.globals().logs.values()),1)
 
@@ -799,14 +826,14 @@ class LoginTimingTest(unittest.TestCase):
         ''')
         self.assertFalse(self.run_prepare())
         self.assertEqual(self.native_points(),[100])
-        self.assertEqual(self.lua.globals().clock,31200)
-        self.assertEqual(self.last_reason(),'pocket_confirmation_not_verified')
+        self.assertEqual(self.lua.globals().clock,62200)
+        self.assertEqual(self.last_reason(),'pocket_entry_transition_not_verified')
 
     def test_sent_confirmation_input_is_not_repeated_during_home_wait(self):
         self.lua.execute("tap_hook=function(x) if x==200 then scene='confirm' end end")
         self.assertFalse(self.run_prepare())
         self.assertEqual(self.native_points(),[100,200])
-        self.assertEqual(self.lua.globals().clock,32400)
+        self.assertEqual(self.lua.globals().clock,63400)
         self.assertEqual(self.last_reason(),'pocket_home_not_verified')
 
     def test_async_rotation_waits_for_home_without_extra_input(self):

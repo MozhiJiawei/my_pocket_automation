@@ -133,7 +133,18 @@ class LuaApplicationStartTest(unittest.TestCase):
         lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
         lua.globals().findMultiColorInRegionFuzzy=screen.find
         lua.globals().getScreenSize=lambda: (frame.shape[1],frame.shape[0])
+        lua.globals().getColor=screen.color
+        lua.globals().keepScreen=lambda held: None
         return lua,lua.eval("require('common.detector')")[0]
+
+    def test_pocket_spinner_matches_failed_cold_entry_and_ignores_ready_pages(self):
+        folder=ROOT/'testdata/导航/互通版启动'
+        for filename, expected in (('入口加载中.png', True), ('正常入口.png', False),
+                                   ('新版入口白天.png', False), ('新版入口夜晚.png', False)):
+            with self.subTest(frame=filename):
+                lua,detector=self.detect_frame(Screen.read(folder/filename).frame)
+                self.assertTrue(detector.present(lua.eval("require('common.assets.pocket_entry')")[0]))
+                self.assertEqual(lua.eval("(require('common.pocket_loading'))()"),expected)
 
     def test_real_entry_and_confirmation_match_but_netease_splash_is_rejected(self):
         folder=ROOT/'testdata/导航/互通版启动'
@@ -351,6 +362,9 @@ class ApplicationBootstrapTest(unittest.TestCase):
         self.report = self.folder / 'apps-start.json'
         self.device = Mock()
         self.processes = 'USER PID PPID NAME\nu0_a1 42 1 system_server'
+        self.activities = 'ACTIVITY MANAGER ACTIVITIES\nActivityRecord{com.touchsprite.android/.MainActivity}'
+        self.services = 'ACTIVITY MANAGER SERVICES\n  (nothing)'
+        self.listeners = 'State Recv-Q Send-Q Local_Address:Port Peer_Address:Port\nLISTEN 0 4 *:5555 *:*'
         self.device.adb_call.side_effect = self.adb
         self.device.status.return_value = 'f00'
         self.vm = dict(error_code=0, index='5', is_android_started=True, is_process_started=True, adb_port=16544)
@@ -368,6 +382,12 @@ class ApplicationBootstrapTest(unittest.TestCase):
             return '12345'
         if args == ('shell', 'ps', '-A'):
             return self.processes
+        if args == ('shell', 'dumpsys', 'activity', 'activities'):
+            return self.activities
+        if args == ('shell', 'dumpsys', 'activity', 'services', 'com.touchsprite.android'):
+            return self.services
+        if args == ('shell', 'ss', '-ltn'):
+            return self.listeners
         return 'package:/data/app/base.apk'
 
     def command(self, args, timeout):
@@ -405,7 +425,7 @@ class ApplicationBootstrapTest(unittest.TestCase):
         self.device.close.assert_called_once_with()
 
     def test_unavailable_service_launches_only_when_process_is_confirmed_absent(self):
-        self.device.http.open.side_effect = [OSError(), self.response]
+        self.device.http.open.side_effect = [OSError(), OSError(), self.response]
         result = self.run_apps()
         self.assertEqual(result['touchsprite_launch'], 'returned')
         self.assertFalse(result['touchsprite_process_running'])
@@ -424,11 +444,82 @@ class ApplicationBootstrapTest(unittest.TestCase):
         self.device.authorize.assert_not_called()
         self.device.close.assert_called_once()
 
-    def test_live_auxiliary_process_also_prevents_relaunch(self):
+    def test_initialized_auxiliary_process_is_reused(self):
         self.processes += '\nu0_a2 55 1 com.touchsprite.android:service'
         self.device.http.open.side_effect = [OSError(), self.response]
         result = self.run_apps()
         self.assertTrue(result['touchsprite_process_running'])
+        self.assertEqual(result['touchsprite_launch'], 'reused')
+        self.assertEqual(len(self.calls), 1)
+
+    def test_boot_receiver_process_is_initialized_once_without_stopping_it(self):
+        for process in ('com.touchsprite.android', 'com.touchsprite.android:service'):
+            with self.subTest(process=process):
+                self.setUp()
+                self.processes += '\nu0_a2 55 1 ' + process
+                self.activities = 'ACTIVITY MANAGER ACTIVITIES\nResumedActivity: app.lawnchair/.Launcher'
+                self.device.http.open.side_effect = [OSError(), OSError(), OSError(), self.response]
+                result = self.run_apps()
+                self.assertTrue(result['touchsprite_process_running'])
+                self.assertEqual(result['touchsprite_launch_reason'], 'process_without_activity_service_or_api')
+                self.assertEqual(result['touchsprite_launch'], 'returned')
+                self.assertEqual(result['touchsprite_api_probe'], 'ready')
+                self.assertEqual(result['touchsprite_api_checks'], 4)
+                self.assertEqual(result['http_proxy_policy'], 'direct')
+                self.assertEqual(len(self.calls), 2)
+                self.assertEqual(self.calls[1][4:], ['app', 'launch', '--package', 'com.touchsprite.android'])
+                self.device.authorize.assert_called_once_with()
+                self.device.status.assert_called_once_with()
+
+    def test_existing_service_or_listener_prevents_initialization_launch(self):
+        for protected in ('service', 'listener'):
+            with self.subTest(protected=protected):
+                self.setUp()
+                self.processes += '\nu0_a2 55 1 com.touchsprite.android'
+                self.activities = 'ACTIVITY MANAGER ACTIVITIES\nResumedActivity: app.lawnchair/.Launcher'
+                if protected == 'service':
+                    self.services += '\nServiceRecord{com.touchsprite.android/.service.ServiceMain}'
+                else:
+                    self.listeners += '\nLISTEN 0 5 0.0.0.0:50005 0.0.0.0:*'
+                self.device.http.open.side_effect = OSError('secret')
+                with self.assertRaises(TimeoutError):
+                    self.run_apps()
+                self.assertEqual(len(self.calls), 1)
+                self.device.authorize.assert_not_called()
+                self.assertNotIn('secret', self.report.read_text())
+
+    def test_boot_initialization_response_loss_never_repeats_launch(self):
+        self.processes += '\nu0_a2 55 1 com.touchsprite.android'
+        self.activities = 'ACTIVITY MANAGER ACTIVITIES\nResumedActivity: app.lawnchair/.Launcher'
+        self.launch_lost = True
+        self.device.http.open.side_effect = OSError('private token')
+        with self.assertRaises(TimeoutError):
+            self.run_apps()
+        self.assertEqual(len(self.calls), 2)
+        record = json.loads(self.report.read_text())
+        self.assertEqual(record['touchsprite_launch'], 'unknown')
+        self.assertEqual(record['touchsprite_api_probe'], 'OSError')
+        self.assertEqual(record['phase'], 'wait_touchsprite')
+        self.assertEqual(self.clock, 90)
+        self.assertNotIn('private token', self.report.read_text())
+        self.device.authorize.assert_not_called()
+
+    def test_unknown_initialization_evidence_never_launches(self):
+        for field in ('activities', 'services', 'listeners'):
+            with self.subTest(field=field):
+                self.setUp()
+                self.processes += '\nu0_a2 55 1 com.touchsprite.android'
+                setattr(self, field, 'truncated')
+                self.device.http.open.side_effect = OSError()
+                with self.assertRaisesRegex(RuntimeError, 'initialization state is unknown'):
+                    self.run_apps()
+                self.assertEqual(len(self.calls), 1)
+
+    def test_api_becoming_ready_during_inspection_cancels_initialization_launch(self):
+        self.processes += '\nu0_a2 55 1 com.touchsprite.android'
+        self.activities = 'ACTIVITY MANAGER ACTIVITIES\nResumedActivity: app.lawnchair/.Launcher'
+        self.device.http.open.side_effect = [OSError(), self.response, self.response]
+        result = self.run_apps()
         self.assertEqual(result['touchsprite_launch'], 'reused')
         self.assertEqual(len(self.calls), 1)
 
@@ -471,7 +562,7 @@ class ApplicationBootstrapTest(unittest.TestCase):
 
     def test_launch_response_loss_is_observed_without_second_request(self):
         self.launch_lost = True
-        self.device.http.open.side_effect = [OSError(), self.response]
+        self.device.http.open.side_effect = [OSError(), OSError(), self.response]
         result = self.run_apps()
         self.assertEqual(result['status'], 'ready')
         self.assertEqual(result['touchsprite_launch'], 'unknown')

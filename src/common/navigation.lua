@@ -5,6 +5,7 @@ local M = {}
 local home = require('common.assets.home_dungeon')
 local entry = require('common.assets.pocket_entry')
 local confirm = require('common.assets.pocket_confirm')
+local pocket_loading = require('common.pocket_loading')
 local picker = require('common.assets.saved_account_picker')
 local switch = require('common.assets.saved_account_switch')
 local current_marker = require('common.assets.current_role_marker')
@@ -218,17 +219,38 @@ return_home=function(ctx)
     return detector.present(home)
 end
 M.return_home=return_home
+local function wait_entry(ctx, seconds, predicate)
+    local now = ctx.profile and ctx.profile.clock or function() return os.time() * 1000 end
+    local deadline = now() + seconds * 1000
+    local expired = false
+    local matched = device.wait(function()
+        expired = now() >= deadline
+        return expired or predicate()
+    end, seconds * 2)
+    return matched and not expired
+end
+
 local function enter_pocket(ctx,restarted)
     local screen=require('common.screen')
+    local snapshot=require('dfx.snapshot')
     local function finish(ok,reason)
+        if reason then
+            pcall(snapshot.capture,ctx,reason,'error')
+            log.write(ctx,'account_blocked',reason)
+        end
         screen.init(0)
-        if reason then log.write(ctx,'account_blocked',reason) end
         return ok
+    end
+    local function portrait_ready()
+        screen.init(0,true)
+        return (detector.present(home) and detector.present(switch)) or detector.present(picker)
     end
     local action,observed=nil,false
     local network_error=false
     local portrait_checked=false
-    local entered=device.wait(function()
+    local ready_frames = 0
+    local was_loading = false
+    local entered=wait_entry(ctx,restarted and 180 or 60,function()
         -- Entry landmarks can appear late or change during their animation.
         -- Refresh before every observation, including the initial saved login.
         screen.init(1,true)
@@ -239,14 +261,34 @@ local function enter_pocket(ctx,restarted)
         for _,target in ipairs({{confirm,'pocket_confirm'},{entry,'pocket_entry'}}) do
             if detector.present(target[1]) then
                 observed=true;visible=true
+                local guard
+                if target[1]==entry then
+                    if pocket_loading() then
+                        if not was_loading then log.write(ctx,'entry_state','loading') end
+                        was_loading=true
+                        ready_frames=0
+                        return false
+                    end
+                    ready_frames=ready_frames+1
+                    if ready_frames<3 then return false end
+                    if was_loading then
+                        log.write(ctx,'entry_state','ready_after_loading')
+                        was_loading=false
+                    end
+                    guard=function()
+                        if not pocket_loading() then return true end
+                        ready_frames=0
+                        return false
+                    end
+                end
                 -- A false tap sent no input: the animated target changed during
                 -- revalidation. Wait for it again; never repeat a sent tap.
-                if device.tap(ctx,target[1],target[2]) then action=target[2];return true end
+                if device.tap(ctx,target[1],target[2],guard) then action=target[2];return true end
             end
         end
         if visible then return false end
-        screen.init(0,true)
-        if (detector.present(home) and detector.present(switch)) or detector.present(picker) then
+        ready_frames=0
+        if portrait_ready() then
             action='portrait_ready';return true
         end
         -- Preserve recovery from known task pages without a login timeout.
@@ -258,31 +300,39 @@ local function enter_pocket(ctx,restarted)
             end
         end
         return false
-    end,restarted and 360 or 60)
+    end)
     if network_error then return finish(false,'server_list_network_error') end
     if not entered then
         return finish(false,observed and 'pocket_entry_not_actionable' or 'pocket_entry_not_verified')
     end
     if action=='portrait_ready' then return finish(true) end
     if action=='pocket_entry' then
-        local confirmed=device.wait(function()
+        local at_home=false
+        local confirmed=wait_entry(ctx,60,function()
             screen.init(1,true)
             if detector.present(require('common.assets.server_list_network_error')) then
                 network_error=true;return true
             end
-            return detector.present(confirm) and device.tap(ctx,confirm,'pocket_confirm')
-        end,60)
+            if detector.present(confirm) then return device.tap(ctx,confirm,'pocket_confirm') end
+            if detector.present(entry) then return false end
+            at_home=portrait_ready()
+            return at_home
+        end)
         if network_error then return finish(false,'server_list_network_error') end
-        if not confirmed then return finish(false,'pocket_confirmation_not_verified') end
+        if not confirmed then
+            screen.init(1,true)
+            if detector.present(entry) then return finish(false,'pocket_entry_transition_not_verified') end
+            return finish(false,'pocket_confirmation_not_verified')
+        end
+        if at_home then return finish(true) end
     end
     -- Confirmation rotates Android after the tap returns. Refresh the capture
     -- while waiting, so a stale landscape stride cannot drive home navigation.
-    if not device.wait(function()
-        screen.init(0,true)
+    if not wait_entry(ctx,60,function()
         -- The lower home landmark can appear before Android finishes rotating.
         -- Require the upper role control too before using portrait coordinates.
-        return (detector.present(home) and detector.present(switch)) or detector.present(picker)
-    end,60) then
+        return portrait_ready()
+    end) then
         return finish(false,'pocket_home_not_verified')
     end
     return finish(true)

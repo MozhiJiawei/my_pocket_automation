@@ -283,7 +283,7 @@ class EnvironmentCommandTest(unittest.TestCase):
 
 
 class DeviceTransportTest(unittest.TestCase):
-    def test_loopback_status_uses_authenticated_read_only_endpoint(self):
+    def test_loopback_status_ignores_environment_proxy_and_uses_authenticated_read_only_endpoint(self):
         requests = []
 
         class Handler(BaseHTTPRequestHandler):
@@ -300,11 +300,14 @@ class DeviceTransportTest(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
         thread.start()
         try:
-            device = Device('fixture-only')
-            device.port = str(server.server_address[1])
-            device.auth = 'fixture-secret'
-            device.auth_deadline = time.monotonic() + 10
-            self.assertEqual(device.status(), 'f00')
+            with patch.dict('os.environ', {'HTTP_PROXY': 'http://127.0.0.1:1',
+                                          'http_proxy': 'http://127.0.0.1:1',
+                                          'NO_PROXY': '', 'no_proxy': ''}):
+                device = Device('fixture-only')
+                device.port = str(server.server_address[1])
+                device.auth = 'fixture-secret'
+                device.auth_deadline = time.monotonic() + 10
+                self.assertEqual(device.status(), 'f00')
             self.assertEqual(requests, [('/status', 'fixture-secret')])
             self.assertFalse(hasattr(device, 'stop_lua'))
         finally:

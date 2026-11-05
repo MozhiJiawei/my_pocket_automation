@@ -197,7 +197,7 @@ def start(mumu_dir, vm_index, timeout, report, force_restart=False):
 
 
 def _touchsprite_running(client):
-    """Only a complete process listing can establish that first launch is safe."""
+    """Process existence alone does not establish application initialization."""
     rows = client.adb_call('shell', 'ps', '-A').splitlines()
     header = rows[0].split() if rows else []
     name_columns = [column for column in ('NAME', 'CMD', 'COMMAND', 'CMDLINE', 'ARGS') if column in header]
@@ -213,6 +213,30 @@ def _touchsprite_running(client):
     return any(name == TOUCHSPRITE or name.startswith(TOUCHSPRITE + ':') for name in processes)
 
 
+def _touchsprite_uninitialized(client, record):
+    """Recognize the boot receiver process without an activity, service or API.
+
+    Opening that app once initializes it; never stop/relaunch an existing
+    activity or service merely because its HTTP endpoint is unavailable.
+    Keep raw dumps out of the report, since they can contain private extras.
+    """
+    activities = client.adb_call('shell', 'dumpsys', 'activity', 'activities')
+    services = client.adb_call('shell', 'dumpsys', 'activity', 'services', TOUCHSPRITE)
+    listeners = client.adb_call('shell', 'ss', '-ltn')
+    rows = listeners.splitlines()
+    if (not activities.startswith('ACTIVITY MANAGER ACTIVITIES')
+            or not services.startswith('ACTIVITY MANAGER SERVICES')
+            or not rows or rows[0].split()[:1] != ['State']
+            or any(len(row.split()) < 5 or row.split()[0] != 'LISTEN' for row in rows[1:])):
+        raise RuntimeError('TouchSprite initialization state is unknown; no launch request sent')
+    record['touchsprite_activity_present'] = TOUCHSPRITE in activities
+    record['touchsprite_service_present'] = TOUCHSPRITE in services
+    record['touchsprite_api_listening'] = any(row.split()[3].rsplit(':', 1)[-1] == '50005'
+                                             for row in rows[1:])
+    return not any(record[key] for key in ('touchsprite_activity_present',
+                                          'touchsprite_service_present', 'touchsprite_api_listening'))
+
+
 def start_apps(mumu_dir, vm_index, endpoint, report):
     """Prepare only TouchSprite; the caller runs the requested Lua scope once."""
     report = Path(report)
@@ -224,6 +248,7 @@ def start_apps(mumu_dir, vm_index, endpoint, report):
     report.parent.mkdir(parents=True, exist_ok=True)
     record = dict(status='starting', vm_index=vm_index, device=endpoint, phase='preflight',
                   touchsprite_launch='not_requested', touchsprite_ready=False,
+                  touchsprite_api_checks=0, http_proxy_policy='direct',
                   source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
     started = time.monotonic()
     deadline = started + 90
@@ -237,10 +262,14 @@ def start_apps(mumu_dir, vm_index, endpoint, report):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
+        record['touchsprite_api_checks'] += 1
         try:
             with client.http.open(f'http://127.0.0.1:{client.port}/deviceid', timeout=min(2, remaining)) as response:
-                return bool(re.fullmatch(r'[\w-]{16,64}', response.read(256).decode().strip()))
-        except Exception:
+                valid = bool(re.fullmatch(r'[\w-]{16,64}', response.read(256).decode().strip()))
+                record['touchsprite_api_probe'] = 'ready' if valid else 'invalid_identity'
+                return valid
+        except Exception as exc:
+            record['touchsprite_api_probe'] = type(exc).__name__
             return False
 
     try:
@@ -254,8 +283,17 @@ def start_apps(mumu_dir, vm_index, endpoint, report):
         if not client.port.isdigit():
             raise RuntimeError('Invalid forwarded port')
         if not api_ready():
+            record['phase'] = 'inspect_touchsprite_initialization'
+            persist()
             record['touchsprite_process_running'] = _touchsprite_running(client)
-            if not record['touchsprite_process_running']:
+            initialize = (not record['touchsprite_process_running']
+                          or _touchsprite_uninitialized(client, record))
+            # The boot receiver can create the process before MainActivity and
+            # its HTTP service. Recheck the API before the one initialization
+            # request, in case startup completed during the read-only probes.
+            if initialize and not api_ready():
+                record['touchsprite_launch_reason'] = ('process_absent' if not record['touchsprite_process_running']
+                                                       else 'process_without_activity_service_or_api')
                 record.update(phase='launch_touchsprite', touchsprite_launch='requested')
                 persist()
                 print('[apps] Starting TouchSprite', flush=True)
@@ -278,11 +316,18 @@ def start_apps(mumu_dir, vm_index, endpoint, report):
             while not api_ready():
                 if time.monotonic() >= deadline:
                     raise TimeoutError('TouchSprite API did not become available; no repeated launch or restart requested')
+                persist()
                 time.sleep(max(0, min(1, deadline - time.monotonic())))
         else:
             record['touchsprite_launch'] = 'reused'
         record['phase'] = 'authorize_idle'
-        client.authorize()
+        record['touchsprite_api_ready_seconds'] = round(time.monotonic() - started, 2)
+        persist()
+        authorization_started = time.monotonic()
+        try:
+            client.authorize()
+        finally:
+            record['authorization_seconds'] = round(time.monotonic() - authorization_started, 2)
         record['touchsprite_status'] = client.status()
         if record['touchsprite_status'] != 'f00':
             raise RuntimeError('TouchSprite is busy or unknown; no Lua files published')
