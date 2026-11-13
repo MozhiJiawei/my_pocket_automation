@@ -50,6 +50,18 @@ local function selector_for(account)
     local loader=loadfile('/storage/emulated/0/TouchSprite/res/daily_selector_'..account.alias..'.lua')
     return loader and loader() or nil
 end
+local function recorded_identity(alias)
+    local path = '/storage/emulated/0/TouchSprite/res/daily_identity_' .. alias .. '.lua'
+    return assert(loadfile(path))()
+end
+function M.home_identity_matches(ctx)
+    local alias = ctx and ctx.account and ctx.account.alias
+    if type(alias) ~= 'string' or alias == '' or not detector.present(home) then return false end
+    local loaded, identity = pcall(recorded_identity, alias)
+    if not loaded or type(identity) ~= 'table' then return false end
+    local checked, matches = pcall(detector.present, identity)
+    return checked and matches == true
+end
 function M.verify_roster(ctx)
     require('common.screen').init(0)
     if not detector.present(picker) then
@@ -409,8 +421,7 @@ function M.prepare_recorded(ctx)
         log.write(ctx,'account_blocked','return_home_not_verified')
         return false
     end
-    local identity_path = '/storage/emulated/0/TouchSprite/res/daily_identity_' .. ctx.account.alias .. '.lua'
-    local identity = assert(loadfile(identity_path))()
+    local identity = recorded_identity(ctx.account.alias)
     if not detector.present(identity) then
         if not device.tap(ctx,switch,'open_saved_role_picker') then return false end
         if not device.wait(function() return detector.present(picker) end,10) or not select_saved(ctx) then

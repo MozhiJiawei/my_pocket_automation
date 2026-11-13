@@ -1,4 +1,6 @@
 local detector = require('common.detector')
+local home = require('common.assets.home_dungeon')
+local role_switch = require('common.assets.saved_account_switch')
 local M = {}
 M.features = {
     puzzle=require('tasks.zhuagui.assets.puzzle'),
@@ -53,6 +55,9 @@ function M.state()
         return 'task_list'
     end
     if detector.present(M.features.task_card) then return 'task_list' end
+    if detector.present(home) and detector.present(role_switch) and detector.present(M.features.home_tasks) then
+        return 'home'
+    end
     return 'unknown'
 end
 return M

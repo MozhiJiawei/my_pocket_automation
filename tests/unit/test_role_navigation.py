@@ -91,6 +91,45 @@ class RoleNavigationTest(unittest.TestCase):
         ''')
         self.module=self.lua.eval("require('common.navigation')")[0]
 
+    def test_home_identity_matches_configured_role_without_mutation(self):
+        self.lua.execute("scene='home';selected='second';ctx.identity_verified=false")
+        state=self.lua.globals()
+        self.assertTrue(self.module.home_identity_matches(state.ctx))
+        self.assertFalse(state.ctx.identity_verified)
+        self.assertEqual(len(state.taps),0)
+        self.assertEqual(len(state.logs),0)
+
+    def test_home_identity_rejects_wrong_role_even_after_prior_verification(self):
+        self.lua.execute("scene='home';ctx.identity_verified=true")
+        state=self.lua.globals()
+        self.assertFalse(self.module.home_identity_matches(state.ctx))
+        self.assertTrue(state.ctx.identity_verified)
+        self.assertEqual(state.selected,'first')
+        self.assertEqual(len(state.taps),0)
+        self.assertEqual(len(state.logs),0)
+
+    def test_home_identity_requires_visible_home_landmark(self):
+        self.lua.execute('''
+            scene='task_list';selected='second'
+            local present=require('common.detector').present
+            require('common.detector').present=function(f)
+                return f.kind=='identity' or present(f)
+            end
+        ''')
+        self.assertFalse(self.module.home_identity_matches(self.lua.globals().ctx))
+
+    def test_home_identity_rejects_unavailable_or_malformed_resource(self):
+        self.lua.execute("scene='home';selected='second'")
+        for response in (
+            "return nil, 'missing'",
+            "return function() error('invalid identity resource') end",
+            "return function() return 'invalid identity feature' end",
+            "return function() return setmetatable({}, {__index=function() error('invalid identity feature') end}) end",
+        ):
+            with self.subTest(response=response):
+                self.lua.execute(f"loadfile=function(path) {response} end")
+                self.assertFalse(self.module.home_identity_matches(self.lua.globals().ctx))
+
     def test_verified_roster_returns_home_and_restores_list(self):
         self.assertTrue(self.module.verify_roster(self.lua.globals().ctx))
         self.assertEqual(self.lua.globals().scene,'home')

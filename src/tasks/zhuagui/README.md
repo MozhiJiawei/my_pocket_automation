@@ -37,6 +37,8 @@ python scripts/device/run-daily.py --vm-index <索引> --task zhuagui --mode run
 
 主页任务入口在有未完成任务时可能直接打开 NPC 对话。恢复按当前画面判断，不强求先出现任务列表。战斗只等待；找物品点击后必须确认找物品页面退出，未成功不重复点。过程截图与识别素材留存遵循 [DFX](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)；滚动保留足够重叠，避免图标始终只露半边。
 
+抓鬼进行中若回到主页，Lua 重新核对当前角色与业务日，再从任务入口续接。每次抓鬼接取最多走一次主页恢复。打开列表后有界查找完成卡片，或在游戏直接显示已有任务时继续该任务。身份或页面无法核验、找不到完成卡片，或恢复过程只显示付费接取页时，保存现场并暂停。
+
 显式开发维护时，识别断点可用 `--step browse` 只采集候选，不选物品；再执行 `python scripts/perception/prepare-zhuagui-breakpoint.py --run-id <运行编号>` 生成带页码的截图总览和原图索引，标注后从对应原图校准、复测点击结果。运行期仅拼图失败沿用 [拼图维护与受控复测](</D:/Agent Repo/my_pocket_automation/scripts/perception/README.md>)，其他失败按 [设备运行期恢复](</D:/Agent Repo/my_pocket_automation/scripts/device/README.md>) 处理。
 
 批量只采集使用 `--step browse --browse-rounds 20`：只重试已有任务和滚动，每题采集七页，不调用寻物选择器。采集后用 `scripts/perception/import_frame.py` 按题目、轮次导入脱敏原图，先保存为待审核，再通过 `annotate.py` 应用明确批准的答案。重复题目不增加覆盖数；不完整页和到时负样本保留，但不能冒充有效题目。运行次数和测试通过都不能替代缺项清单。

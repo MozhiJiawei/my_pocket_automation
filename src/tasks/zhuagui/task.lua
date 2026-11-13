@@ -131,6 +131,27 @@ local function start(ctx)
     end
     return result('running','one_task_reserved_start_requested')
 end
+local function reopen_from_home(ctx)
+    local function identity_matches()
+        return ctx.config.business_date==os.date('%Y%m%d') and
+            require('common.navigation').home_identity_matches(ctx)
+    end
+    ctx.identity_verified=false
+    if not identity_matches() then return nil,'zhuagui_home_identity_not_verified' end
+    if not device.tap(ctx,pages.features.home_tasks,'reopen_ghost_tasks_from_home',function()
+        return pages.state()=='home' and identity_matches()
+    end) then return nil,'zhuagui_home_entry_not_verified' end
+    local resumed
+    if not device.wait(function()
+        resumed=pages.state()
+        return resumed=='task_list' or resumed=='quota_completed_card' or
+            resumed=='ready_cost_three' or is_active(resumed)
+    end,20) then return nil,'zhuagui_home_resume_not_verified' end
+    if resumed=='ready_cost_three' then return nil,'zhuagui_home_paid_page' end
+    ctx.identity_verified=true
+    log.write(ctx,'screen_resume','zhuagui from=home state='..resumed)
+    return resumed
+end
 local function drive(ctx,stop_after_one)
     local record=progress.read(ctx,'zhuagui')
     if not record then
@@ -143,6 +164,7 @@ local function drive(ctx,stop_after_one)
     local deadline=os.time()+(ctx.config.zhuagui_timeout or 1800)
     local unknown_since,last_state,heartbeat=nil,nil,os.time()
     local actions=0
+    local home_reopened,home_resume_pending=false,false
     while os.time()<deadline do
         local state=pages.state()
         if state~=last_state then
@@ -154,18 +176,20 @@ local function drive(ctx,stop_after_one)
         end
         if state=='quota_dialogue' then
             if not act(ctx,pages.features.quota_dialogue,'close_completed_ghost_dialogue') or
-                not device.wait(function() return pages.state()=='task_list' or pages.state()=='quota_completed_card' or
-                    require('common.detector').present(require('common.assets.home_dungeon')) end,20) then
+                not device.wait(function()
+                    local next_state=pages.state()
+                    return next_state=='task_list' or next_state=='quota_completed_card' or next_state=='home'
+                end,20) then
                 snapshot.capture(ctx,'quota_dialogue_not_closed');return result('paused','quota_dialogue_not_closed')
             end
-            if require('common.detector').present(require('common.assets.home_dungeon')) then
-                if not require('common.navigation').prepare_recorded(ctx) then return result('blocked','saved_role_not_ready') end
-                if not act(ctx,pages.features.home_tasks,'reopen_ghost_completion_list') or
-                    not device.wait(function() return pages.state()=='task_list' or pages.state()=='quota_completed_card' end,20) then
-                    return result('paused','completion_list_changed')
-                end
-            end
             state=pages.state()
+        end
+        if home_resume_pending then
+            -- Reopening the task list alone does not verify delivery.
+            if state=='ready_cost_three' then
+                return result('paused','zhuagui_home_paid_page',snapshot.capture(ctx,'zhuagui_home_paid_page'))
+            end
+            if is_active(state) then home_resume_pending=false end
         end
         if (state=='ready_cost_three' or state=='quota_idle' or state=='quota_completed_card') and
             ctx.config.verify_role and not ctx.identity_verified then
@@ -179,7 +203,7 @@ local function drive(ctx,stop_after_one)
                 return finish_completed(ctx)
             end
             if state=='quota_idle' then
-                materials.clear(ctx)
+                if not home_resume_pending then materials.clear(ctx) end
                 if not act(ctx,pages.features.cancel,'zhuagui_close_final_detail') then
                     return result('paused','completion_list_entry_not_verified')
                 end
@@ -199,6 +223,7 @@ local function drive(ctx,stop_after_one)
                 if pages.state()=='ready_cost_three' then
                     local started=start(ctx)
                     if started.status~='running' then return started end
+                    home_reopened=false
                 elseif not is_active(pages.state()) then
                     return result('paused','next_task_page_not_verified')
                 end
@@ -207,6 +232,13 @@ local function drive(ctx,stop_after_one)
             end
         elseif record.status~='running' then
             return result('blocked','completed_record_does_not_match_page')
+        elseif state=='home' then
+            if home_reopened then
+                return result('paused','zhuagui_home_resume_limit',snapshot.capture(ctx,'zhuagui_home_resume_limit'))
+            end
+            local resumed,reason=reopen_from_home(ctx)
+            if not resumed then return result('paused',reason,snapshot.capture(ctx,reason)) end
+            home_reopened,home_resume_pending=true,not is_active(resumed)
         elseif state=='task_list' then
             if not device.wait(function() return pages.state()~='task_list' end,6,200) then
                 local spec={name='zhuagui_completed',page=pages.features.task_list_title,
@@ -216,7 +248,8 @@ local function drive(ctx,stop_after_one)
                 if not match then
                     local current=pages.state()
                     if reason=='list_changed' and (is_active(current) or current=='ready_cost_three' or
-                        current=='quota_idle' or current=='quota_dialogue' or current=='quota_completed_card') then
+                        current=='quota_idle' or current=='quota_dialogue' or current=='quota_completed_card' or
+                        current=='home') then
                         -- Delivery can settle on the NPC while the list scanner
                         -- is stabilizing. Re-enter the guarded task loop there.
                         log.write(ctx,'screen_resume','zhuagui completion_scan state='..current)
@@ -339,7 +372,7 @@ function M.run(ctx)
     if step=='complete' or step=='daily' then
         if pages.state()=='quota_completed_card' and ctx.identity_verified then return finish_completed(ctx) end
         local current=progress.read(ctx,'zhuagui')
-        if current and current.status=='running' and pages.state()~='unknown' then return drive(ctx,false) end
+        if current and current.status=='running' then return drive(ctx,false) end
         if is_active(pages.state()) or pages.state()=='quota_dialogue' then return drive(ctx,false) end
         local entered=enter(ctx)
         if entered.status~='running' then return entered end

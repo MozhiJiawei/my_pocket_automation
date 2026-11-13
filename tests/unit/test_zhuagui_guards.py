@@ -41,11 +41,14 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                 end
                 return paid_accept_visible==true and feature=='accept'
             end} end
-            package.preload['common.navigation']=function() return {prepare_recorded=function(c)
-                assert(state=='home','must return to home for identity verification')
-                c.identity_verified=identity_available
-                return identity_available
-            end} end
+            package.preload['common.navigation']=function() return {
+                prepare_recorded=function(c)
+                    assert(state=='home','must return to home for identity verification')
+                    c.identity_verified=identity_available
+                    return identity_available
+                end,
+                home_identity_matches=function() return state=='home' and identity_available end
+            } end
             package.preload['progress']=function() return {
                 read=function() return record end,
                 write=function(c,id,status,stage,counters)
@@ -65,9 +68,12 @@ class ZhuaGuiGuardTest(unittest.TestCase):
                     return true
                 end,
                 wait=function(predicate) return predicate() end,
-                tap=function(c,feature,label)
+                tap=function(c,feature,label,guard)
+                    if guard and not guard() then return false end
                     if feature=='task_card' and entry_card_after_scroll and
                         (entry_scrolls or 0)<entry_card_after_scroll then return false end
+                    if before_input then before_input(feature) end
+                    if guard and not guard() then return false end
                     table.insert(taps,feature)
                     if feature=='rules' then state='ready_cost_three'
                     elseif feature=='cancel' then state='task_list'
@@ -313,10 +319,203 @@ class ZhuaGuiGuardTest(unittest.TestCase):
         self.assert_no_accept()
 
     def test_final_recovery_from_home_never_reopens_paid_detail(self):
-        self.lua.execute("ctx.config.step='complete';ctx.identity_verified=true;state='unknown';completion_card_after_scroll=true;entry_card_after_scroll=100;mSleep=function() end;record={status='running',attempts=25,completed_count=24,reserved_energy=75}")
+        self.lua.execute("ctx.config.step='complete';ctx.identity_verified=true;state='home';completion_card_after_scroll=true;entry_card_after_scroll=100;record={status='running',attempts=25,completed_count=24,reserved_energy=75}")
         self.assertEqual(self.run_task()['status'],'done')
         self.assertEqual(list(self.lua.globals().taps.values()),['home_tasks','swipe'])
         self.assert_no_accept()
+
+    def prepare_find_return(self, step='complete', next_page='home'):
+        globals_ = self.lua.globals()
+        globals_.ctx.config.step = step
+        globals_.find_result_page = next_page
+        self.lua.execute('''
+            state='find'
+            record={status='running',stage='start_requested',attempts=25,find_retries=2}
+            package.preload['tasks.zhuagui.find']=function() return {solve=function()
+                state=find_result_page
+                return true,'find_clicked'
+            end} end
+        ''')
+
+    def assert_find_attempt_unfinished(self):
+        globals_ = self.lua.globals()
+        self.assertEqual(globals_.record.status, 'running')
+        self.assertEqual(globals_.record.stage, 'start_requested')
+        self.assertEqual(globals_.record.attempts, 25)
+        self.assertEqual(globals_.record.find_retries, 2)
+        self.assertNotIn('clear', list(globals_.material_events.values()))
+        self.assert_no_accept()
+
+    def test_find_success_returning_home_finishes_only_after_completed_card(self):
+        self.prepare_find_return()
+        self.lua.execute('completion_card_after_scroll=true')
+
+        self.assertEqual(self.run_task()['status'], 'done')
+        globals_ = self.lua.globals()
+        self.assertEqual(list(globals_.taps.values()), ['home_tasks', 'swipe'])
+        self.assertEqual(globals_.record.stage, 'completion_card_verified')
+        self.assertEqual(globals_.record.attempts, 25)
+        self.assertEqual(globals_.record.find_retries, 2)
+        self.assertEqual(list(globals_.material_events.values()), ['prepare_find', 'clear'])
+
+    def test_find_return_home_rechecks_identity_despite_previously_verified_role(self):
+        self.prepare_find_return()
+        self.lua.execute('ctx.identity_verified=true; identity_available=false')
+
+        self.assertEqual(self.run_task()['reason'], 'zhuagui_home_identity_not_verified')
+        self.assertEqual(len(self.lua.globals().taps), 0)
+        self.assert_find_attempt_unfinished()
+
+    def test_find_return_home_requires_current_business_day(self):
+        self.prepare_find_return()
+        self.lua.execute("ctx.config.business_date='20000101'")
+
+        self.assertEqual(self.run_task()['reason'], 'zhuagui_home_identity_not_verified')
+        self.assertEqual(len(self.lua.globals().taps), 0)
+        self.assert_find_attempt_unfinished()
+
+    def test_home_tap_rechecks_page_and_identity_immediately_before_input(self):
+        for change in ("state='unknown'", 'identity_available=false'):
+            with self.subTest(change=change):
+                self.prepare_find_return()
+                self.lua.execute(f"""
+                    identity_available=true
+                    before_input=function(feature)
+                        if feature=='home_tasks' then {change} end
+                    end
+                """)
+
+                self.assertEqual(self.run_task()['reason'], 'zhuagui_home_entry_not_verified')
+                self.assertEqual(len(self.lua.globals().taps), 0)
+                self.assert_find_attempt_unfinished()
+
+    def test_home_entry_with_no_response_waits_once_without_reopening(self):
+        self.prepare_find_return()
+        self.lua.execute("""
+            home_entry_state='home'; wait_checks=0
+            require('common.device').wait=function(predicate,attempts,interval)
+                for _=1,attempts do
+                    wait_checks=wait_checks+1
+                    if predicate() then return true end
+                    mSleep(interval or 500)
+                end
+                return false
+            end
+        """)
+
+        self.assertEqual(self.run_task()['reason'], 'zhuagui_home_resume_not_verified')
+        globals_ = self.lua.globals()
+        self.assertEqual(list(globals_.taps.values()), ['home_tasks'])
+        self.assertGreater(globals_.wait_checks, 1)
+        self.assert_find_attempt_unfinished()
+
+    def test_home_entry_list_without_completed_card_stops_after_bounded_scan(self):
+        self.prepare_find_return()
+
+        self.assertEqual(self.run_task()['reason'], 'completed_card_not_found')
+        self.assertEqual(list(self.lua.globals().taps.values()), ['home_tasks'] + ['swipe'] * 24)
+        self.assert_find_attempt_unfinished()
+
+    def test_home_entry_paid_dialogue_never_reserves_or_claims_delivery(self):
+        self.prepare_find_return()
+        self.lua.execute("home_entry_state='ready_cost_three'")
+
+        self.assertEqual(self.run_task()['reason'], 'zhuagui_home_paid_page')
+        self.assertEqual(list(self.lua.globals().taps.values()), ['home_tasks'])
+        self.assert_find_attempt_unfinished()
+
+    def test_home_entry_list_transition_to_paid_never_reserves_or_claims_delivery(self):
+        self.prepare_find_return()
+        self.lua.execute('''
+            local sleep=mSleep
+            mSleep=function(ms)
+                sleep(ms)
+                if state=='task_list' and ms==150 then state='ready_cost_three' end
+            end
+        ''')
+
+        self.assertEqual(self.run_task()['reason'], 'zhuagui_home_paid_page')
+        self.assertEqual(list(self.lua.globals().taps.values()), ['home_tasks'])
+        self.assert_find_attempt_unfinished()
+
+    def test_advance_resumes_known_active_dialogue_and_stops_after_one_delivery(self):
+        self.prepare_find_return(step='advance')
+        self.lua.execute('''
+            home_entry_state='go'
+            local device=require('common.device')
+            local tap=device.tap
+            device.tap=function(c,feature,label,guard)
+                local sent=tap(c,feature,label,guard)
+                if sent and feature=='go' then state='ready_cost_three' end
+                return sent
+            end
+        ''')
+
+        self.assertEqual(self.run_task()['reason'], 'one_task_completed')
+        globals_ = self.lua.globals()
+        self.assertEqual(list(globals_.taps.values()), ['home_tasks', 'go'])
+        self.assertEqual(globals_.record.stage, 'one_task_completed')
+        self.assertEqual(globals_.record.attempts, 25)
+        self.assertEqual(globals_.record.find_retries, 2)
+
+    def test_advance_can_verify_final_card_after_find_returns_home(self):
+        self.prepare_find_return(step='advance')
+        self.lua.execute('completion_card_after_scroll=true')
+
+        self.assertEqual(self.run_task()['status'], 'done')
+        self.assertEqual(list(self.lua.globals().taps.values()), ['home_tasks', 'swipe'])
+
+    def test_returning_home_again_does_not_reopen_during_same_attempt(self):
+        self.prepare_find_return()
+        self.lua.execute('''
+            home_entry_state='go'
+            local device=require('common.device')
+            local tap=device.tap
+            device.tap=function(c,feature,label,guard)
+                local sent=tap(c,feature,label,guard)
+                if sent and feature=='go' then state='home' end
+                return sent
+            end
+        ''')
+
+        self.assertEqual(self.run_task()['reason'], 'zhuagui_home_resume_limit')
+        self.assertEqual(list(self.lua.globals().taps.values()), ['home_tasks', 'go'])
+        self.assert_find_attempt_unfinished()
+
+    def test_verified_next_reservation_can_reopen_home_once_for_its_own_attempt(self):
+        self.prepare_find_return()
+        self.lua.execute('''
+            home_entry_state='go';completion_card_after_scroll=true
+            local device=require('common.device')
+            local tap=device.tap
+            device.tap=function(c,feature,label,guard)
+                local sent=tap(c,feature,label,guard)
+                if sent and feature=='go' then state='ready_cost_three' end
+                if sent and feature=='accept' then state='find';home_entry_state='task_list' end
+                return sent
+            end
+        ''')
+
+        self.assertEqual(self.run_task()['status'], 'done')
+        globals_ = self.lua.globals()
+        self.assertEqual(list(globals_.taps.values()), ['home_tasks', 'go', 'accept', 'home_tasks', 'swipe'])
+        self.assertEqual(globals_.record.attempts, 26)
+        self.assertEqual(globals_.record.find_retries, 0)
+
+    def test_find_success_on_unknown_page_does_not_open_home_entry(self):
+        self.prepare_find_return(next_page='unknown')
+
+        self.assertEqual(self.run_task()['reason'], 'new_task_requires_calibration')
+        self.assertEqual(len(self.lua.globals().taps), 0)
+        self.assert_find_attempt_unfinished()
+
+    def test_running_attempt_starting_on_unknown_page_does_not_open_home_entry(self):
+        self.prepare_find_return()
+        self.lua.execute("state='unknown'")
+
+        self.assertEqual(self.run_task()['reason'], 'new_task_requires_calibration')
+        self.assertEqual(len(self.lua.globals().taps), 0)
+        self.assert_find_attempt_unfinished()
 
     def test_entry_only_returns_home_verifies_identity_and_does_not_accept(self):
         self.lua.execute("ctx.config.step='enter'; state='rules'")
@@ -529,6 +728,31 @@ class ZhuaGuiGuardTest(unittest.TestCase):
 
 
 class ScreenCoordinatesTest(unittest.TestCase):
+    def test_home_requires_its_landmarks_and_respects_known_page_precedence(self):
+        lua = LuaRuntime(unpack_returned_tuples=True)
+        lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
+        lua.execute('''
+            package.preload['common.detector']=function() return {present=function(f)
+                return visible[f]==true
+            end} end
+            pages=require('tasks.zhuagui.pages');visible={}
+            home_features={require('common.assets.home_dungeon'),
+                require('common.assets.saved_account_switch'),pages.features.home_tasks}
+            for _,feature in ipairs(home_features) do visible[feature]=true end
+        ''')
+        globals_ = lua.globals()
+        self.assertEqual(globals_.pages.state(), 'home')
+        for feature in globals_.home_features.values():
+            globals_.visible[feature] = False
+            self.assertEqual(globals_.pages.state(), 'unknown')
+            globals_.visible[feature] = True
+
+        globals_.visible[globals_.pages.features.task_list_title] = True
+        globals_.visible[globals_.pages.features.completed_card] = True
+        self.assertEqual(globals_.pages.state(), 'quota_completed_card')
+        globals_.visible[globals_.pages.features.gourd_prompt] = True
+        self.assertEqual(globals_.pages.state(), 'unknown')
+
     def test_paid_ready_combination_wins_over_free_depart_button_match(self):
         lua=LuaRuntime(unpack_returned_tuples=True)
         lua.execute(f"package.path='{ROOT.as_posix()}/src/?.lua;'..package.path")
