@@ -14,6 +14,7 @@
 
 | 用途 | 入口 |
 |---|---|
+| 验收完成后停止实例并清理残留虚拟机进程 | `python scripts/device/stop-emulator.py --vm-index <实例索引>` |
 | 启动环境并单次调用 Lua | `python scripts/device/start-emulator.py --vm-index <实例索引> --mode run --step daily` |
 | 只读截图与诊断 | `python scripts/device/inspect-device.py --device <设备>` |
 | 由 Lua 观察游戏页面 | `python scripts/device/run-daily.py --vm-index <实例索引> --mode observe --step observe` |
