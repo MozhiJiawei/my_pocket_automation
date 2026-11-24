@@ -4,6 +4,7 @@
     "selected_category": null,
     "empty_category": false,
     "card_icon_regions": null,
-    "detail_title_shift_y": -45
+    "detail_title_shift_y": -45,
+    "ghost_gourd_count": false
   }
 }

@@ -28,8 +28,8 @@ local ok, err = pcall(function()
             log.write(ctx,'summary','daily_done=false reason=game_process_state_unknown')
             return
         end
-        if running==0 then
-            local result=require('common.application').start(ctx)
+        if running==0 or config.step=='daily' then
+            local result=require('common.application').start(ctx,config.step=='daily')
             if result.status~='done' then
                 log.write(ctx,'task_result','startup status='..result.status..' reason='..result.reason)
                 log.write(ctx,'summary','daily_done=false reason='..result.reason)

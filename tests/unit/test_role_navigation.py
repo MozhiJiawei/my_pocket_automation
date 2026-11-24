@@ -601,7 +601,7 @@ class RoleNavigationTest(unittest.TestCase):
             scene='switch_chechi_wuji'
             package.preload['tasks.dungeon.pages']=function() return {
                 state=function() return scene end,
-                features={switch_chechi_wuji={kind='switch',tap_offset={100,200}},list_back={kind='list_back'}}
+                features={switch_cancel={kind='switch',tap_offset={-290,200}},list_back={kind='list_back'}}
             } end
             require('common.device').tap=function(c,f,label)
                 taps[#taps+1]=label

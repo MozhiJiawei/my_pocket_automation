@@ -35,6 +35,11 @@ class RewardsRunTest(unittest.TestCase):
             package.preload['tasks.rewards.pages']=function() return {
                 features={task_tab='task_tab',treasury_tab='treasury_tab'},
                 state=function() return page_state end,
+                open_treasury=function(c)
+                    assert(c==ctx and page_state=='home')
+                    calls[#calls+1]='tap:rewards_open_inventory';page_state='inventory'
+                    return true
+                end,
                 select_category=function() error('clearing belongs to inventory.clear') end
             } end
             package.preload['tasks.shimen.pages']=function() return {
@@ -253,6 +258,46 @@ class RewardsRunTest(unittest.TestCase):
         self.assertEqual(self.globals.prepare_calls, 0)
         self.assertFalse(any(w.task=='rewards' for w in self.globals.writes.values()))
         self.assertNotIn('rewards', self.globals.records)
+
+    def configure_automatic_rewards(self):
+        self.valid_records()
+        self.lua.execute('''
+            ctx.config.dungeons=nil;ctx.config.automatic_dungeons=true
+            ctx.account={alias='first',claim_dungeon_rewards=true}
+            local stored={}
+            package.preload['completion']=function() return {
+                read=function(c,k) return stored[k] end,
+                write=function(c,k,status,stage)
+                    assert(k=='dungeonsclaimed' and stage=='selected_dungeons_verified')
+                    calls[#calls+1]='save_scope';stored[k]={status=status,stage=stage}
+                end
+            } end
+            for _,id in ipairs({'wuji','heifeng','shuilu','chechi','pingding'}) do
+                records[id]={status='done',stage='reward_claimed'}
+            end
+            count_calls=0
+            require('tasks.rewards.inventory').ghost_count=function(c)
+                count_calls=count_calls+1
+                if ghost_opened then return nil,'ghost_gourd_missing' end
+                return 2
+            end
+        ''')
+
+    def test_rewards_only_saves_a_verified_scope_before_cleanup_and_reuses_it_on_retry(self):
+        self.configure_automatic_rewards()
+        self.globals.outcomes['dungeon']=self.lua.table_from({'status':'paused','reason':'test_pause'})
+        self.assert_result(self.run_task(),'paused','test_pause')
+        calls=list(self.globals.calls.values())
+        self.assertLess(calls.index('save_scope'),calls.index('clear:task'))
+        self.lua.execute("page_state='home';ctx.dungeon_scope=nil;ghost_opened=true;outcomes={}")
+        self.assert_result(self.run_task(),'done','daily_inventory_empty')
+        self.assertEqual(self.globals.count_calls,1)
+
+    def test_automatic_rewards_cannot_open_gourds_before_required_dungeon_claim(self):
+        self.configure_automatic_rewards()
+        self.lua.execute("records.pingding.stage='completion_card_verified'")
+        self.assert_result(self.run_task(),'blocked','pingding_reward_not_verified')
+        self.assert_no_clear_or_write()
 
 
 if __name__ == '__main__':

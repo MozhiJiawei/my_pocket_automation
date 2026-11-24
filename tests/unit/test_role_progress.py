@@ -41,6 +41,11 @@ class RoleProgressTest(unittest.TestCase):
             fresh,context=runtime()
             self.assertIsNone(fresh.read(context,'rewards'))
             self.assertEqual(fresh.read(context,'zhuagui').status,'done')
+            fresh.write(context,'rewards','done','daily_inventory_empty')
+            fresh.write(context,'pingdingcleared','done','reward_intentionally_unclaimed')
+            final,context=runtime()
+            self.assertIsNone(final.read(context,'rewards'))
+            self.assertEqual(final.read(context,'pingdingcleared').stage,'reward_intentionally_unclaimed')
 
     def test_runtime_state_is_role_isolated_and_never_touches_files(self):
         lua=LuaRuntime(unpack_returned_tuples=True)

@@ -81,6 +81,69 @@ class MultiRoleTest(unittest.TestCase):
                          [(alias,task) for alias in ('first','second') for task in ('shimen','zhuagui','dungeon','rewards')])
         self.assertIn(('summary','scope=roles roles_expected=2 roles_completed=2 all_roles_done=true selected_done=true daily_done=true'),events)
 
+    def configure_automatic_dungeons(self):
+        self.lua.execute('''
+            ctx.config.step='daily';ctx.config.automatic_dungeons=true
+            ctx.config.business_date=os.date('%Y%m%d');ctx.config.tasks={'zhuagui','dungeon','rewards'}
+            checked={};counts={};targets={};saved={}
+            package.preload['tasks.rewards.inventory']=function() return {ghost_count=function(c)
+                assert(checked[c.account.alias]);counts[#counts+1]=c.account.alias
+                if missing==c.account.alias then return nil,'ghost_gourd_count_not_verified' end
+                return c.account.alias=='first' and 3 or 2
+            end} end
+            package.preload['completion']=function() return {
+                read=function(c,id) return saved[c.account.alias..':'..id] end,
+                write=function(c,id,status,stage)
+                    assert(stage=='selected_dungeons_verified');saved[c.account.alias..':'..id]={status=status,stage=stage}
+                end
+            } end
+            local scope=require('tasks.dungeon.scope')
+            package.preload['tasks.rewards.task']=function() return {
+                verify_task_completed=function(c,task)
+                    assert(task=='zhuagui' and c.identity_verified);checked[c.account.alias]=true;return true
+                end,
+                run=function(c)
+                    assert(scope.completed(c));return {status='done',reason='fixture'}
+                end
+            } end
+            package.preload['tasks.dungeon.task']=function() return {run=function(c)
+                local names,reason=scope.resolve(c)
+                if not names then return {status='blocked',reason=reason} end
+                assert(scope.resolve(c)==names)
+                targets[c.account.alias]=table.concat(names,',')
+                return {status='done',reason='fixture'}
+            end} end
+        ''')
+
+    def test_automatic_dungeons_use_each_roles_count_and_reuse_only_verified_scope(self):
+        self.configure_automatic_dungeons()
+        self.run_daily()
+        self.assertEqual(self.lua.globals().targets['first'],'wuji,heifeng,shuilu,chechi')
+        self.assertEqual(self.lua.globals().targets['second'],'wuji,heifeng,shuilu,chechi,pingding')
+        self.lua.execute("targets={};missing='first'")
+        self.run_daily()
+        self.assertEqual(list(self.lua.globals().counts.values()),['first','second'])
+        self.assertEqual(list(self.lua.globals().targets.values()),[])
+
+    def test_unknown_ghost_gourd_count_stops_before_rewards_and_other_roles(self):
+        self.configure_automatic_dungeons()
+        self.lua.execute("missing='first'")
+        events=self.run_daily()
+        self.assertEqual(list(self.lua.globals().counts.values()),['first'])
+        self.assertEqual(list(self.lua.globals().saved.values()),[])
+        self.assertIn(('task_result','dungeon status=blocked reason=ghost_gourd_count_not_verified'),events)
+
+    def test_explicit_rewards_scope_does_not_reuse_an_unrelated_automatic_clear(self):
+        self.lua.execute('''
+            ctx.config.step='daily';ctx.config.tasks={'rewards'};ctx.config.dungeons={'pingding'}
+            ctx.config.selected_accounts={'first'}
+            package.preload['completion']=function() return {read=function(c,id)
+                if id=='rewards' or id=='dungeonsclaimed' then return {status='done'} end
+            end} end
+        ''')
+        self.run_daily()
+        self.assertEqual([(c[1],c[2]) for c in self.lua.globals().calls.values()],[('first','rewards')])
+
     def test_five_roles_resume_completed_tasks_after_identity_checks(self):
         self.lua.execute('''
             ctx.config.tasks={'shimen','zhuagui','dungeon','rewards'}

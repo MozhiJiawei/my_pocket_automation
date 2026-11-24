@@ -10,7 +10,7 @@
 | `start-emulator.py` | 启动或复用指定 MuMu 实例，核验 Android、ADB 与包管理器，就绪后按原范围单次调用 Lua；可显式重启实例一次。 |
 | `ts-cli.ps1` | 发布、启动、查询状态和采集；发布前检查空闲状态并校验哈希。 |
 | `collect-debug.ps1` | 按轮次归档、校验日志和截图，清理已结束轮次的设备副本。 |
-| `inspect-device.py` | 只读截图与 OCR 诊断，不发送任何页面操作。 |
+| `inspect-device.py` | 通过 ADB 直传截图到电脑的 `debug-runs/<截图轮次>/res/`，支持 OCR 诊断。 |
 | `dfx_device.py` | 共用设备通信、命令执行与请求实现。 |
 
 使用仓库根目录的 [项目说明](</D:/Agent Repo/my_pocket_automation/README.md>) 查看运行参数和费用边界；具体故障处理见 [DFX 说明](</D:/Agent Repo/my_pocket_automation/docs/DFX.md>)。运行器用于当前主循环，CLI 的默认源码仍是早期登录实验，直接使用时须明确目标源码。
@@ -77,9 +77,11 @@ python scripts/device/start-emulator.py --vm-index 5 --force-restart --mode run 
 
 ## 已保存角色轮转
 
+正式每日任务及整轮 Lua 恢复均使用 `python scripts/device/run-daily.py --vm-index <索引> --mode run --step daily`，保留原角色、任务及范围参数。运行器确认接口空闲后启动 Lua。Lua 在名单核验和日常动作前检查口袋版进程，必要时退出一次，最多等待 10 秒确认退出，再由现有应用启动流程启动一次并核验入口。退出未确认时停止并留证。
+
 已有任务使用 `python scripts/device/run-daily.py --vm-index <索引> --task zhuagui --mode run --step complete --account <别名>` 继续。Lua 从游戏页面恢复未完成任务；同日同角色已核验完成的任务可以复用设备上的完成账本。本次已核验状态直接复用。
 
-`--step daily --tasks shimen,zhuagui,dungeon --select-accounts <别名1> <别名2>` 配置本轮的多个角色和任务范围。完整已登录名单仍由 `--accounts <仓库外配置.json>` 提供；Lua 核对完整名单后只执行选中角色，按名单顺序运行。完整日常须逐号推进：同一角色按师门、抓鬼、两个副本、开葫芦完成并验收后，才能切换下一号；不要将五号拆成先全部师门、再全部抓鬼的阶段。`--account <别名>` 选择单角色；省略角色选择则遍历配置中的全部角色。身份和进度按角色隔离。
+`--step daily --tasks shimen,zhuagui,dungeon --select-accounts <别名1> <别名2>` 配置本轮的多个角色和任务范围。完整已登录名单由 `--accounts <仓库外配置.json>` 提供，Lua 核对名单后按名单顺序执行选中角色。同一角色依次验收师门、抓鬼、所选副本、开葫芦，再切换下一号。`--account <别名>` 选择单角色，省略角色选择则遍历配置中的全部角色。身份和进度按角色隔离。
 
 `python scripts/device/run-daily.py --vm-index <索引> --mode run --step daily --tasks zhuagui,dungeon --max-seconds 10800` 遍历外部配置的全部已登录角色，核对选择页名单与每次进入后的身份。遇到未配置卡片或名单不完整时 Lua 停止当前运行，返回证据供 AGENT 按上述工作流判断，不遗漏新角色。
 
@@ -89,9 +91,9 @@ python scripts/device/start-emulator.py --vm-index 5 --force-restart --mode run 
 
 `--account <已配置别名>` 用于有界的单角色恢复；与 `--step daily` 组合时，核对全名单后仅运行指定角色，汇总范围为 `selected_roles`，不会报告全部角色完成。副本接管已有战斗只被动等待；抓鬼可推进已记录任务的免费对话、寻物和重试。身份未核对时不新接任务，不记录抓鬼完成；返回待接取页面后先核对主页身份。
 
-每个副本默认最多等待60分钟，覆盖连续多场战斗；运行器默认完整流程等待10800秒，`complete/advance` 等待3900秒，`--max-seconds` 可明确设置电脑端上限。超时保留已启动记录，先检查现场再恢复，不重新开启副本。
+每个副本默认最多等待 60 分钟，覆盖连续多场战斗。配置自动选副本的每日流程，电脑端默认等候 18000 秒。其他每日流程默认等候 10800 秒，`complete/advance` 等待 3900 秒，`--max-seconds` 可明确设置电脑端上限。超时保留启动记录，先检查现场再恢复。
 
-`--dungeons wuji` 将副本范围设为乌鸡国。师门和抓鬼持续推进至明确完成卡片，副本持续至通关状态；完成判断不读取任务数量，不设置费用预算或数字任务目标。寻物识别失败最多免费重试3次，先保存错误现场；其他页面错误不触发该重试。
+每日默认根据当日完成抓鬼后宝库中的抓鬼葫芦数量选副本，规则见 [每日副本范围](</D:/Agent Repo/my_pocket_automation/src/tasks/dungeon/README.md>)。`--dungeons wuji` 可显式限定为乌鸡国，多个副本用逗号分隔。支持的参数为 `wuji`、`heifeng`、`shuilu`、`chechi`、`pingding`。师门和抓鬼以明确完成卡片为验收，副本以游戏通关状态和角色领奖政策为验收。寻物识别失败先保存错误现场，最多免费重试 3 次。
 
 运行器默认开启聚合 Profile。主日志仅保留角色与任务起止、验收、恢复重试和结果；`_error.log` 按需保存错误与失败截图路径。正常过程、完成卡片和葫芦空列表不归档；寻物在识别所需的同一轮滚动中逐页缓存原图、识别并复核作答，不先预采再回滚；拼图保存操作前原图。交付成功后清理临时素材，失败及待验收时保留，完整题目自动去重拼接，缺页标记不完整。原图与拼接图路径见 `result.json.recognition_materials`，不能将缺页或高度达标直接当作完整真值。领奖收据及显式采集原图保留。排查时用 `--verbose-logs` 开启 DEBUG，用 `--routine-screenshots` 开启过程截图；二者不关闭识别素材采集。
 
@@ -106,7 +108,7 @@ python scripts/device/start-emulator.py --vm-index 5 --force-restart --mode run 
 
 ## 每日完成账本与新增角色
 
-Lua 在设备 `res/daily_completion.tsv` 原子写入业务日、稳定别名、主页身份资源哈希、任务名与 `true`。只允许师门、抓鬼、乌鸡国、车迟斗法、开葫芦的完成状态；不保存任务内部进度或重试次数。两个副本分别记录，避免只完成一个就跳过另一个。日期或身份资源变化后不能复用；未核验身份不读取、不写入。领奖请求、未领奖通关和调测清空不记完成。完成新的日常任务会使旧的开葫芦状态失效。账本用于断点恢复，运行日志和截图仍独立归档。
+Lua 在设备 `res/daily_completion.tsv` 原子写入业务日、稳定别名、主页身份资源哈希、任务名与 `true`。白名单包括师门、抓鬼、副本已领奖结果、仅通关角色的逐副本验收、自动副本范围验收和开葫芦。葫芦数量、任务内部进度、领奖请求和重试次数均不入账。日期或身份资源变化后不可复用，未核验身份不读取、不写入。完成新的日常任务会使旧的开葫芦状态失效。运行日志和截图独立归档。
 
 新增已登录角色：先校准选择页姓名特征，然后用 `--mode run --step select-role --account <别名>` 由 Lua 切换并采集主页；此入口只供身份校准，不能报告日常完成。人工查看或 AGENT 核对原图后用 `calibrate-role.py --kind role` 保存主页姓名特征，再运行正式任务。角色选择支持有界双向滚动，正式运行始终核对完整名单与所选角色身份。
 

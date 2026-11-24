@@ -72,6 +72,30 @@ class LuaApplicationStartTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().launches,0)
         self.assertEqual(self.lua.globals().direction,0)
 
+    def test_daily_restart_waits_for_exit_before_launching(self):
+        self.lua.execute('''
+            running=1; visible='pocket_entry'; closes=0
+            closeApp=function(app) assert(app=='com.netease.mhxyhtb');closes=closes+1 end
+            appIsRunning=function() if launches==0 and clock>=1 then return 0 end;return running end
+            local launch=runApp
+            runApp=function(app) assert(closes==1 and clock==1);launch(app) end
+            result=require('common.application').start(ctx,true)
+        ''')
+        self.assertEqual(self.lua.globals().result.status,'done')
+        self.assertEqual(self.lua.globals().launches,1)
+
+    def test_daily_restart_blocks_when_exit_is_not_verified(self):
+        self.lua.execute('''
+            running=1; closes=0
+            closeApp=function() closes=closes+1 end
+            result=require('common.application').start(ctx,true)
+        ''')
+        state=self.lua.globals()
+        self.assertEqual(state.result.reason,'game_close_not_verified')
+        self.assertEqual(state.closes,1)
+        self.assertEqual(state.launches,0)
+        self.assertEqual(state.clock,10)
+
     def test_background_process_without_game_pixels_is_bounded_and_fails(self):
         self.lua.execute("running=1;visible='unknown';result=require('common.application').start(ctx)")
         state=self.lua.globals()
@@ -278,8 +302,9 @@ class LuaMainBootstrapTest(unittest.TestCase):
             package.preload['dfx.log']=function() return {write=function(_,event,detail)
                 events[#events+1]={event,detail}
             end} end
-            package.preload['common.application']=function() return {start=function(c)
+            package.preload['common.application']=function() return {start=function(c,restart)
                 bootstrap_calls=bootstrap_calls+1;assert(c==ctx)
+                bootstrap_restart=restart
                 return {status=bootstrap_status,reason=bootstrap_reason}
             end} end
             package.preload['daily']=function() return {run=function(c)
@@ -307,9 +332,10 @@ class LuaMainBootstrapTest(unittest.TestCase):
         self.assertEqual(self.lua.globals().daily_runs,1)
         self.assertFalse(any(event=='task_result' and detail.startswith('startup ') for event,detail in events))
 
-    def test_running_game_continues_without_startup_entry_check(self):
+    def test_running_game_restarts_before_daily_tasks_by_default(self):
         self.run_main()
-        self.assertEqual(self.lua.globals().bootstrap_calls,0)
+        self.assertEqual(self.lua.globals().bootstrap_calls,1)
+        self.assertTrue(self.lua.globals().bootstrap_restart)
         self.assertEqual(self.lua.globals().daily_runs,1)
 
     def test_active_task_keeps_existing_resume_flow(self):

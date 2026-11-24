@@ -32,7 +32,7 @@
 2. **确认状态。** 将本轮接口状态、新增日志与画面交叉核对，确认当前角色、任务及最后可确认的业务进展：
    - **Lua 状态：** 通过 `scripts/device/dfx_device.py` 的 `Device.authorize()`、`status()` 查询，结束后 `close()`。`f01` 表示有脚本运行，须结合本轮日志确认是本次 Lua；`f00` 仅表示接口空闲，`f02` 表示录制，查询失败或未知返回保持状态未知。运行中的 `result.json` 是先前快照，不是实时心跳。
    - **日志：** 用本轮 ADB 与设备执行 `shell tail -n 80 /storage/emulated/0/TouchSprite/log/daily_<Lua轮次>.log`，并按需读取同目录 `_error.log`；采集后看 `debug-runs/<Lua轮次>/log/`。对照角色、`task_start`、`task_result`、`home_verified`、恢复重试及结束事件；默认 INFO 不逐次记录等待，短期无新增不能判定卡死。
-   - **画面：** 需要核实推进时，用 `python scripts/device/inspect-device.py --device <本轮设备> --no-ocr` 只读截图，先确认其 ADB 路径与本轮一致；也可用本轮 ADB 的 `shell screencap -p <设备临时PNG>`、`pull` 拉取。打开本地 PNG，与上次画面和日志对照角色、任务文本、回合、计数、倒计时及页面阶段；截图成功、动画变化或单张静止画面均不能单独证明推进或停滞。
+   - **画面：** 需要核实推进时，用 `python scripts/device/inspect-device.py --device <本轮设备> --no-ocr` 只读截图，先确认其 ADB 路径与本轮一致。命令直接归档到电脑的 `debug-runs/<截图轮次>/res/`，在监控记录中将返回的 PNG 路径与当前 Lua 轮次关联。使用其他 MuMu 安装目录时，用本轮 ADB 执行 `-s <本轮设备> exec-out screencap -p`，以二进制读取标准输出，验证 PNG 后保存到电脑的 `debug-runs/`，截图不在设备端落盘。打开本地 PNG，与上次画面和日志对照角色、任务文本、回合、计数、倒计时及页面阶段；截图成功、动画变化或单张静止画面均不能单独证明推进或停滞。
 3. **选择处理。** 按以下分支处理，恢复条件、顺序和次数统一遵守下方“运行期失败处理”：
 
 | 确认的状态 | 本次处理与后续 |

@@ -27,7 +27,7 @@ class RewardsPagesTest(unittest.TestCase):
 
     def test_frozen_cases_contain_only_business_expectations(self):
         cases = sorted(CASES.glob('*/预期.json'))
-        self.assertEqual(len(cases), 16)
+        self.assertEqual(len(cases), 17)
         for path in cases:
             with self.subTest(case=path.parent.name):
                 case = json.loads(path.read_text(encoding='utf-8'))
@@ -123,8 +123,49 @@ class RewardsPagesTest(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertLessEqual(abs(found['y'] - title_y[0] - expected['detail_title_shift_y']), 2)
 
+    def test_ghost_gourd_count_accepts_only_supported_ghost_details(self):
+        cases = ('抓鬼详情2', '抓鬼详情3', '抓鬼详情4', '抓鬼详情5', '抓鬼详情6', '烟花详情2')
+        for name in cases:
+            with self.subTest(case=name):
+                runtime, expected = self.runtime(name)
+                count = expected['ghost_gourd_count']
+                actual = runtime.require('tasks.rewards.pages').ghost_gourd_count()
+                self.assertEqual(actual, None if count is False else count)
+                self.assertEqual(runtime.actions, [])
+
+    def test_ghost_gourd_count_requires_detail_page(self):
+        runtime, _ = self.runtime('任务空库存')
+        self.assertIsNone(runtime.require('tasks.rewards.pages').ghost_gourd_count())
+        self.assertEqual(runtime.actions, [])
+
+    def test_ghost_gourd_inventory_checks_role_and_business_date_before_input(self):
+        runtime, _ = self.runtime('任务空库存')
+        runtime.lua.execute('''
+            package.loaded['common.navigation']={home_identity_matches=function() return false end}
+            ctx={identity_verified=true,config={business_date='20000101'}}
+        ''')
+        ctx = runtime.lua.globals().ctx
+        count = runtime.require('tasks.rewards.inventory').ghost_count
+        self.assertEqual(count(ctx), (None, 'ghost_gourd_business_date_not_verified'))
+        ctx.config.business_date = runtime.lua.eval("os.date('%Y%m%d')")
+        self.assertEqual(count(ctx), (None, 'ghost_gourd_identity_not_verified'))
+        self.assertEqual(runtime.actions, [])
+
+    def test_ghost_gourd_inventory_stops_on_empty_task_tab(self):
+        runtime, _ = self.runtime('任务空库存')
+        runtime.lua.execute('''
+            package.loaded['common.navigation']={home_identity_matches=function() return true end}
+            require('tasks.rewards.pages').open_treasury=function() return true end
+            ctx={identity_verified=true,config={business_date=os.date('%Y%m%d')}}
+        ''')
+        outcome = runtime.require('tasks.rewards.inventory').ghost_count(runtime.lua.globals().ctx)
+        self.assertEqual(outcome, (None, 'ghost_gourd_missing'))
+        self.assertEqual(len(runtime.actions), 1)
+        x, y = runtime.actions[0]['point']
+        self.assertTrue(160 <= x <= 320 and 1315 <= y <= 1415, (x, y))
+
     def test_discard_confirmation_variants_target_the_reviewed_buttons(self):
-        for name in ('丢弃三按钮确认', '佳节祝福单个丢弃确认'):
+        for name in ('丢弃三按钮确认', '佳节祝福单个丢弃确认', '良辰佳期单个丢弃确认'):
             with self.subTest(case=name):
                 runtime, expected = self.runtime(name)
                 detector = runtime.require('common.detector')

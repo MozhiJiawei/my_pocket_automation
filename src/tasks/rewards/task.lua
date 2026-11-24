@@ -6,6 +6,7 @@ local progress=require('progress')
 local log=require('dfx.log')
 local snapshot=require('dfx.snapshot')
 local list=require('common.list_navigation')
+local dungeon_scope=require('tasks.dungeon.scope')
 local M={}
 local function result(status,reason) return {status=status,reason=reason} end
 local function stop(ctx,reason,status)
@@ -27,21 +28,36 @@ local function verify_task_card(ctx,task)
     snapshot.capture(ctx,'rewards_'..task..'_completed','debug')
     return navigation.return_home(ctx)
 end
+function M.verify_task_completed(ctx,task)
+    if not ctx.identity_verified or ctx.config.business_date~=os.date('%Y%m%d') then return false end
+    local record=progress.read(ctx,task)
+    if record and record.status=='done' and record.stage=='completion_card_verified' then return true end
+    if not verify_task_card(ctx,task) then return false end
+    progress.write(ctx,task,'done','completion_card_verified')
+    return true
+end
 function M.prerequisites(ctx)
     if not ctx.identity_verified then return false,'rewards_identity_not_verified' end
     if ctx.config.business_date~=os.date('%Y%m%d') then return false,'rewards_business_date_not_verified' end
     for _,task in ipairs({'shimen','zhuagui'}) do
-        local record=progress.read(ctx,task)
-        if not (record and record.status=='done' and record.stage=='completion_card_verified') then
-            if not verify_task_card(ctx,task) then return false,task..'_not_verified_complete' end
-            progress.write(ctx,task,'done','completion_card_verified')
-        end
+        if not M.verify_task_completed(ctx,task) then return false,task..'_not_verified_complete' end
     end
-    for _,id in ipairs(ctx.config.dungeons or {'wuji','chechi'}) do
-        local record=progress.read(ctx,id)
-        if not (record and record.status=='done' and ({completion_card_verified=true,reward_claimed=true,reward_intentionally_unclaimed=true})[record.stage]) then
+    if dungeon_scope.completed(ctx) then return true end
+    local targets,reason=dungeon_scope.resolve(ctx)
+    if not targets then return false,reason end
+    local automatic=dungeon_scope.automatic(ctx)
+    local must_claim=automatic and ctx.account.claim_dungeon_rewards==true
+    for _,id in ipairs(targets) do
+        local record=progress.read(ctx,id) or dungeon_scope.item_cleared(ctx,id)
+        if must_claim then
+            if not (record and record.status=='done' and record.stage=='reward_claimed') then return false,id..'_reward_not_verified' end
+        elseif not (record and record.status=='done' and ({completion_card_verified=true,reward_claimed=true,reward_intentionally_unclaimed=true})[record.stage]) then
             if not require('tasks.dungeon.task').verify_completed(ctx,id) then return false,id..'_not_verified_complete' end
         end
+    end
+    if automatic then
+        dungeon_scope.mark_complete(ctx)
+        if not dungeon_scope.completed(ctx) then return false,'dungeon_scope_completion_not_saved' end
     end
     return true
 end
@@ -56,15 +72,8 @@ function M.run(ctx)
         local ok,reason=M.prerequisites(ctx)
         if not ok then return stop(ctx,reason,'blocked') end
     end
-    local bag={}
-    for k,v in pairs(require('common.assets.home_dungeon')) do bag[k]=v end
-    bag.tap_offset={bag.tap_offset[1]+116,bag.tap_offset[2]+817}
-    if not device.tap(ctx,bag,'rewards_open_inventory') or
-        not device.wait(function() return pages.state()=='inventory' end,20) then return stop(ctx,'rewards_inventory_entry_not_verified') end
-    if not detector.present(pages.features.task_tab) then
-        if not device.tap(ctx,pages.features.treasury_tab,'rewards_open_treasury') or
-            not device.wait(function() return detector.present(pages.features.task_tab) end,20) then return stop(ctx,'rewards_treasury_not_verified') end
-    end
+    local opened,reason=pages.open_treasury(ctx)
+    if not opened then return stop(ctx,reason) end
     local category=ctx.config.rewards_inspect_category or 'task'
     if category~='task' and (not ctx.config.rewards_debug_after_shimen or not ({enter=true,browse=true})[ctx.config.step]) then
         return stop(ctx,'rewards_inspection_scope_invalid','blocked')

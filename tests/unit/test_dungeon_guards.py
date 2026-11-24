@@ -34,6 +34,7 @@ class DungeonGuardTest(unittest.TestCase):
             package.preload['tasks.dungeon.pages']=function() return {
                 definitions={wuji={card={}},chechi={card={}}},
                 state=function() return state end,
+                switch_feature=function(s) return require('tasks.dungeon.pages').features[s] end,
                 reward_claimed=function(id) return claimed and claimed[id]==true or false end,
                 features={start='start',overview_back='back',switch_wuji_chechi='switch',list='list',claim_confirm_button='confirm_claim'}
             } end
@@ -89,7 +90,9 @@ class DungeonGuardTest(unittest.TestCase):
         self.lua.execute("state='switch_chechi_wuji'; ctx.config.step='switch'; ctx.config.dungeon='wuji'; require('tasks.dungeon.pages').features.switch_chechi_wuji='reverse'")
         self.assertEqual(self.run_task()['status'], 'blocked')
         self.assertEqual(len(self.lua.globals().taps), 0)
-        self.lua.execute("records.chechi={status='done'}")
+        self.lua.execute("records.chechi={status='done',stage='reward_claim_requested'}")
+        self.assertEqual(self.run_task()['status'], 'blocked')
+        self.lua.execute("records.chechi={status='done',stage='completion_card_verified'}")
         self.lua.execute('ctx.identity_verified=false')
         self.assertEqual(self.run_task()['status'], 'blocked')
         self.assertEqual(len(self.lua.globals().taps), 0)
@@ -161,12 +164,11 @@ class DungeonGuardTest(unittest.TestCase):
 
     def test_unowned_completed_other_dungeon_is_only_observed(self):
         self.configure_completed_landing('chechi_done')
-        # Stop on the next task to inspect the earlier recovery record.
-        self.lua.execute("require('common.navigation').open_dungeon=function() state='chechi_done'; return true end")
-        self.lua.execute("require('common.device').swipe=function() return false end")
+        self.lua.execute("ctx.account.claim_dungeon_rewards=true; verified_claim_cost=true")
         self.run_task()
         self.assertEqual(self.lua.globals().records.chechi.status, 'done')
-        self.assertEqual(self.lua.globals().records.chechi.stage, 'reward_intentionally_unclaimed')
+        self.assertEqual(self.lua.globals().records.chechi.stage, 'completion_card_verified')
+        self.assertEqual(list(self.lua.globals().taps.values())[:2], ['back','enter'])
 
     def test_home_entry_restores_completed_target_without_starting(self):
         self.configure_completed_landing('wuji_done')
@@ -185,6 +187,40 @@ class DungeonGuardTest(unittest.TestCase):
         self.lua.execute("records.chechi={status='done'}")
         self.assertEqual(self.run_task()['status'], 'done')
         self.assertEqual(list(self.lua.globals().taps.values()), ['back'])
+
+    def test_later_selected_active_dungeon_resumes_before_unstarted_earlier_target(self):
+        self.configure_completed_landing('chechi_active')
+        self.lua.execute('''
+            ctx.config.dungeons={'wuji','chechi'}; records={}
+            require('tasks.dungeon.pages').features.continue_battle='resume'
+            local detector=require('common.detector')
+            local present=detector.present
+            detector.present=function(feature) return feature=='resume' or present(feature) end
+            local device=require('common.device')
+            local tap=device.tap
+            device.tap=function(c,feature,label)
+                if feature=='resume' then
+                    table.insert(taps,feature);state='chechi_done';return true
+                end
+                return tap(c,feature,label)
+            end
+        ''')
+        self.assertEqual(self.run_task()['status'],'done')
+        self.assertEqual(list(self.lua.globals().taps.values()),['resume','back','enter'])
+
+    def test_unselected_dungeon_switch_never_confirms_abandonment(self):
+        self.configure_completed_landing('chechi_done')
+        self.lua.execute('''
+            local device=require('common.device')
+            local tap=device.tap
+            device.tap=function(c,feature,label)
+                if not tap(c,feature,label) then return false end
+                if feature=='enter' then state='switch_chechi_wuji' end
+                return true
+            end
+        ''')
+        self.assertEqual(self.run_task()['reason'],'cannot_abandon_unselected_dungeon')
+        self.assertEqual(list(self.lua.globals().taps.values()),['back','enter'])
 
     def test_return_from_completed_other_dungeon_requires_list(self):
         self.configure_completed_landing('chechi_done', 'unknown')

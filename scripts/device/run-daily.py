@@ -19,6 +19,7 @@ class WaitExpired(RuntimeError):
 
 
 DAILY_TASK_ORDER = ('shimen', 'zhuagui', 'dungeon', 'rewards')
+DUNGEONS = ('wuji', 'heifeng', 'shuilu', 'chechi', 'pingding')
 
 
 def input_evidence(args, accounts, max_seconds):
@@ -288,9 +289,13 @@ def run_once(args, accounts, max_seconds, run_id, archive):
         extra+=',routine_screenshots='+str(getattr(args,'routine_screenshots',False)).lower()
         extra+=',browse_until_no_new_topics='+str(getattr(args,'browse_until_no_new_topics',False)).lower()
         extra+=',verbose_logs='+str(getattr(args,'verbose_logs',False)).lower()
-        extra+=',dungeons={'+','.join('"'+name+'"' for name in getattr(args,'dungeons',['wuji','chechi']))+'}'
+        dungeons=getattr(args,'dungeons',['wuji','chechi'])
+        if dungeons is None:
+            extra+=',automatic_dungeons=true'
+        else:
+            extra+=',dungeons={'+','.join('"'+name+'"' for name in dungeons)+'}'
         config.write_text(text[:-1]+extra+'}\n',encoding='utf-8')
-        record['dungeons']=getattr(args,'dungeons',['wuji','chechi'])
+        record['dungeons']=dungeons
         if args.step=='daily' or (getattr(args,'task',None)=='zhuagui' and args.step=='complete'):
             text=config.read_text(encoding='utf-8').rstrip()
             config.write_text(text[:-1]+',zhuagui_timeout='+str(max_seconds)+'}\n',encoding='utf-8')
@@ -416,7 +421,7 @@ def create_parser():
     p.add_argument('--mumu-dir', type=Path, default=Path(ADB).parent)
     p.add_argument('--mode', choices=['observe', 'run'], default='observe')
     p.add_argument('--max-seconds', type=int)
-    p.add_argument('--dungeon', choices=['wuji', 'chechi'], default='wuji')
+    p.add_argument('--dungeon', choices=DUNGEONS, default='wuji')
     p.add_argument('--task', choices=['dungeon', 'zhuagui','shimen','rewards'], default='dungeon')
     p.add_argument('--rewards-debug-after-shimen',action='store_true',help='One selected rewards debug run after Lua verifies the Shimen completion card')
     p.add_argument('--rewards-inspect-category',choices=['task','dungeon','special'],default='task',help='Read-only inventory category for an after-Shimen enter or browse debug run')
@@ -424,7 +429,7 @@ def create_parser():
     p.add_argument('--shimen-puzzle-family',help='Explicit family for one visible legacy-puzzle attempt; no new task or automatic retry')
     p.add_argument('--routine-screenshots',action='store_true',help='Archive before/after frames for device debugging')
     p.add_argument('--verbose-logs',action='store_true',help='Include DEBUG state, recognition and individual input logs')
-    p.add_argument('--dungeons',default='wuji,chechi',help='Selected daily dungeons, comma-separated')
+    p.add_argument('--dungeons',help='Explicit daily dungeons, comma-separated. Daily normally selects by each role’s ZhuaGui gourd count.')
     p.add_argument('--browse-rounds',type=int,default=1,help='Observation-only retries of the existing find task (1–60)')
     p.add_argument('--browse-until-no-new-topics',action='store_true',help='Collect wine-only 10-round cycles until one cycle has no new question topics (maximum 60 rounds)')
     p.add_argument('--accounts', type=Path, help='External JSON list of configured saved-role aliases')
@@ -449,9 +454,12 @@ def prepare(args):
     if len(set(args.tasks))!=len(args.tasks) or not set(args.tasks)<=set(DAILY_TASK_ORDER):
         raise ValueError('Tasks must be a unique list of supported modules')
     args.tasks=[name for name in DAILY_TASK_ORDER if name in args.tasks]
-    args.dungeons=args.dungeons.split(',')
-    if not args.dungeons or len(set(args.dungeons))!=len(args.dungeons) or any(name not in ('wuji','chechi') for name in args.dungeons):
-        raise ValueError('Invalid selected dungeons')
+    if args.dungeons is not None:
+        args.dungeons=args.dungeons.split(',')
+        if len(set(args.dungeons))!=len(args.dungeons) or not set(args.dungeons)<=set(DUNGEONS):
+            raise ValueError('Invalid selected dungeons')
+    elif args.step!='daily':
+        args.dungeons=['wuji','chechi']
     if len(set(args.tasks))!=len(args.tasks) or any(name not in ('shimen','zhuagui','dungeon','rewards') for name in args.tasks):
         raise ValueError('Invalid selected tasks')
     if not 1<=args.browse_rounds<=60:
@@ -495,7 +503,8 @@ def prepare(args):
             aliases=[args.account]
     if args.step!='daily' and aliases!=['current'] and not args.account:
         raise ValueError('Development steps are limited to the inspected current account')
-    max_seconds = args.max_seconds if args.max_seconds is not None else (10800 if args.step=='daily' else 3900 if args.step in ['advance','complete'] else 90)
+    daily_seconds = 18000 if args.dungeons is None and 'dungeon' in args.tasks else 10800
+    max_seconds = args.max_seconds if args.max_seconds is not None else (daily_seconds if args.step=='daily' else 3900 if args.step in ['advance','complete'] else 90)
     if args.task=='zhuagui' and args.step=='browse' and not args.max_seconds:
         max_seconds=max(max_seconds,(60 if args.browse_until_no_new_topics else args.browse_rounds)*65+30)
     if max_seconds <= 0:

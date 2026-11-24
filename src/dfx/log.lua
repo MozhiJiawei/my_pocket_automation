@@ -2,7 +2,7 @@ local M = {}
 -- Events outside this list are DEBUG; preserve the result format used by the runner.
 local info={start=true,account=true,account_verified=true,roster_verified=true,task_start=true,
     application_start=true,application_ready=true,home_verified=true,
-    task_result=true,dungeon_result=true,account_result=true,summary=true,finished=true,
+    task_result=true,dungeon_scope=true,dungeon_result=true,account_result=true,summary=true,finished=true,
     screen_resume=true,entry_recovery=true,dungeon_recovery=true,find_retry_pending=true,
     find_retry=true,puzzle_retry=true,shimen_completed=true,zhuagui_completed=true,
     dungeon_completion_audit=true,dungeon_reward_claimed=true,rewards_complete=true,

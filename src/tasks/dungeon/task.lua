@@ -6,36 +6,42 @@ local detector = require('common.detector')
 local snapshot = require('dfx.snapshot')
 local navigation = require('common.navigation')
 local list=require('common.list_navigation')
+local scope=require('tasks.dungeon.scope')
 local M = {}
 local enter,select_card
 local function result(status, reason) return {status=status, reason=reason} end
-local function act(ctx, feature, label)
-    assert(device.tap(ctx, feature, label), 'action_target_disappeared:' .. label)
+local function act(ctx, feature, label, guard)
+    assert(device.tap(ctx, feature, label, guard), 'action_target_disappeared:' .. label)
 end
 function M.observe(ctx)
     log.write(ctx, 'dungeon_observe', 'state=' .. pages.state() .. ' no_actions=true')
 end
 local function start(ctx, id)
     if not ctx.identity_verified then return result('blocked','role_identity_not_verified') end
+    if ctx.config.business_date~=os.date('%Y%m%d') then return result('blocked','dungeon_business_date_not_verified') end
     if pages.state() ~= id .. '_ready' then return result('blocked', 'ready_page_not_verified') end
     local record=progress.read(ctx,id)
     if record and record.stage=='start_requested' then return result('blocked', 'start_postcondition_not_verified') end
     progress.write(ctx, id, 'running', 'start_requested')
-    act(ctx, pages.features.start, id .. '_start')
+    act(ctx, pages.features.start, id .. '_start',function()
+        return ctx.identity_verified and ctx.config.business_date==os.date('%Y%m%d') and pages.state()==id..'_ready'
+    end)
     return result('running', 'start_requested')
 end
 local function switch_completed(ctx, target)
     local state=pages.state()
     local prior,next_id=state:match('^switch_(%w+)_(%w+)$')
     if not prior or next_id~=target then return false end
-    local previous = progress.read(ctx, prior)
-    if not previous or previous.status~='done' then return false end
-    if not ctx.identity_verified then return false end
-    act(ctx, pages.features[state], 'switch_after_verified_completion')
-    return true
+    local previous = progress.read(ctx, prior) or scope.item_cleared(ctx,prior)
+    if not previous or previous.status~='done' or not ({completion_card_verified=true,
+        reward_intentionally_unclaimed=true,reward_claimed=true})[previous.stage] then return false end
+    if not ctx.identity_verified or ctx.config.business_date~=os.date('%Y%m%d') then return false end
+    return device.tap(ctx, pages.switch_feature(state), 'switch_after_verified_completion',function()
+        return pages.state()==state
+    end)
 end
 local function cached_complete(ctx,id)
-    local record=progress.read(ctx,id)
+    local record=progress.read(ctx,id) or scope.item_cleared(ctx,id)
     return ctx.identity_verified and ctx.config.business_date==os.date('%Y%m%d') and
         record and record.status=='done' and (record.stage=='reward_claimed' or
         (ctx.account.claim_dungeon_rewards~=true and record.stage=='reward_intentionally_unclaimed'))
@@ -130,7 +136,9 @@ local function finish(ctx, id)
         local feature=require('tasks.dungeon.assets.claim_cost_100')
         if not detector.present(feature) then return result('paused','reward_cost_requires_calibration') end
         progress.write(ctx,id,'done','reward_claim_requested')
-        if not device.tap(ctx,feature,id..'_claim_gourd_100') then
+        if not device.tap(ctx,feature,id..'_claim_gourd_100',function()
+            return ctx.identity_verified and ctx.config.business_date==os.date('%Y%m%d') and pages.state()==id..'_reward_sealed'
+        end) then
             return result('paused','reward_target_changed_reservation_retained')
         end
         if not device.wait(function() return pages.state()==id..'_claim_confirm' end,20) then
@@ -139,12 +147,11 @@ local function finish(ctx, id)
         end
         progress.write(ctx,id,'done','reward_confirmation_requested')
         if not device.tap(ctx,pages.features.claim_confirm_button,id..'_confirm_claim_100',function()
-            return ctx.identity_verified and pages.state()==id..'_claim_confirm'
+            return ctx.identity_verified and ctx.config.business_date==os.date('%Y%m%d') and pages.state()==id..'_claim_confirm'
         end) then return result('paused','claim_confirmation_target_changed') end
         snapshot.capture(ctx,id..'_reward_claim_result','evidence')
         return finish_claim(ctx,id)
     end
-    progress.write(ctx, id, 'done', 'reward_intentionally_unclaimed')
     log.write(ctx, 'reward_policy', id .. ' claim=false cost_button_forbidden')
     if state == id .. '_reward_sealed' then
         act(ctx, pages.features.overview_back, id .. '_leave_sealed_reward')
@@ -152,6 +159,8 @@ local function finish(ctx, id)
             return result('paused', 'combat_done_return_page_not_verified')
         end
     end
+    progress.write(ctx, id, 'done', 'reward_intentionally_unclaimed')
+    scope.mark_item_cleared(ctx,id)
     return result('done', id .. '_completed_reward_not_claimed')
 end
 local function resume_battle(ctx,id)
@@ -239,16 +248,18 @@ select_card=function(ctx, id, claimed_only)
     if not device.wait(function() return pages.state()=='list_'..id end,10) then return nil end
     return pages.reward_claimed(id) and {kind='claimed'} or {kind='selected'}
 end
-enter=function(ctx, id)
+enter=function(ctx, id, selected)
     local match=select_card(ctx,id)
     if not match then return result('blocked', 'target_card_not_found') end
     if match.kind=='claimed' then return audit_claimed(ctx,id) end
     local feature = pages.features.enter
     if not detector.present(feature) then feature=pages.features.continue end
     if not detector.present(feature) then return result('blocked', 'entry_button_not_verified') end
-    act(ctx, feature, id .. '_enter')
+    act(ctx, feature, id .. '_enter',function() return pages.state()=='list_'..id end)
     device.wait(function() return not pages.state():match('^list_') end, 10)
-    if pages.state():match('^switch_') then
+    local prior=pages.state():match('^switch_(%w+)_%w+$')
+    if prior then
+        if not selected or not selected[prior] then return result('blocked','cannot_abandon_unselected_dungeon') end
         if not switch_completed(ctx,id) then return result('blocked', 'cannot_abandon_unverified_dungeon') end
     end
     if not device.wait(function() return pages.state():match('^' .. id .. '_') end, 30) then
@@ -284,7 +295,7 @@ function M.verify_completed(ctx,id)
     progress.write(ctx,id,'done','completion_card_verified')
     return navigation.return_home(ctx)
 end
-local function execute(ctx, id)
+local function execute(ctx, id, selected)
     if cached_complete(ctx,id) then return result('done','runtime_completion_reused') end
     local state = pages.state()
     if detector.present(require('common.assets.home_dungeon')) then
@@ -295,7 +306,7 @@ local function execute(ctx, id)
         state=pages.state()
     end
     if state:match('^list_') then
-        local entered=enter(ctx, id)
+        local entered=enter(ctx, id, selected)
         if entered.status=='done' then return entered end
         if entered.status~='running' then return entered end
         state=pages.state()
@@ -313,14 +324,46 @@ local function execute(ctx, id)
     end
     return wait_battles(ctx,id,false)
 end
+local function daily_landing()
+    local landed=pages.state()
+    return landed:match('^list_') or landed:match('_done$') or landed:match('_reward_sealed$') or
+        landed:match('_active$') or landed:match('_ready$')
+end
+local function prioritize_current(targets,active)
+    if not active or targets[1]==active then return targets end
+    for _,target in ipairs(targets) do
+        if target==active then
+            local ordered={active}
+            for _,id in ipairs(targets) do if id~=active then ordered[#ordered+1]=id end end
+            return ordered
+        end
+    end
+    return targets
+end
 function M.run(ctx)
     assert(ctx.config.allow_reward_claim==false, 'reward claims forbidden in this implementation')
     local step, id = ctx.config.step, ctx.config.dungeon or 'wuji'
     assert(pages.definitions[id], 'unknown dungeon')
     if step=='daily' then
         assert(ctx.identity_verified, 'role identity must be verified')
+        local targets,reason=scope.resolve(ctx)
+        if not targets then return result('blocked',reason) end
+        local wanted={}
+        for _,target in ipairs(targets) do wanted[target]=true end
+        local pending=false
+        for _,target in ipairs(targets) do
+            if not cached_complete(ctx,target) then pending=true; break end
+        end
+        if pending and detector.present(require('common.assets.home_dungeon')) then
+            if not navigation.open_dungeon(ctx) then return result('blocked','dungeon_list_not_opened') end
+            if not device.wait(daily_landing,20) then return result('paused','dungeon_list_not_verified') end
+        end
+        local state=pages.state()
+        local current=state:match('^(%w+)_active$') or state:match('^(%w+)_ready$')
+        if current and not cached_complete(ctx,current) then targets=prioritize_current(targets,current) end
         local outcomes={}
-        for _, target in ipairs(ctx.config.dungeons or {'wuji','chechi'}) do
+        for _, target in ipairs(targets) do
+            if ctx.config.business_date~=os.date('%Y%m%d') then return result('blocked','dungeon_business_date_not_verified') end
             if not cached_complete(ctx,target) then
                 if detector.present(require('common.assets.home_dungeon')) then
                     if not navigation.open_dungeon(ctx) then return result('blocked','dungeon_list_not_opened') end
@@ -334,8 +377,19 @@ function M.run(ctx)
                 end
                 local active=pages.state():match('^(%w+)_done$') or pages.state():match('^(%w+)_reward_sealed$')
                 if active and active~=target then
-                    local completed=finish(ctx,active)
-                    if completed.status~='done' then return completed end
+                    if wanted[active] then
+                        local completed=finish(ctx,active)
+                        if completed.status~='done' then return completed end
+                    else
+                        if ctx.config.business_date~=os.date('%Y%m%d') then return result('blocked','completion_not_verified') end
+                        if pages.state()==active..'_reward_sealed' then
+                            act(ctx,pages.features.overview_back,'leave_unselected_sealed_reward')
+                            if not device.wait(function() return pages.state()==active..'_done' end,20) then
+                                return result('paused','combat_done_return_page_not_verified')
+                            end
+                        end
+                        progress.write(ctx,active,'done','completion_card_verified')
+                    end
                     if not pages.state():match('^list_') then act(ctx,pages.features.overview_back,'return_list') end
                     if not device.wait(function() return pages.state():match('^list_') end,20) then
                         snapshot.capture(ctx,'dungeon_return_list_not_verified')
@@ -343,7 +397,7 @@ function M.run(ctx)
                     end
                 end
             end
-            local outcome=execute(ctx,target)
+            local outcome=execute(ctx,target,wanted)
             outcomes[target]=outcome
             log.write(ctx,'dungeon_result',target .. ' status=' .. outcome.status .. ' reason=' .. outcome.reason)
             if outcome.status~='done' then outcome.items=outcomes; return outcome end

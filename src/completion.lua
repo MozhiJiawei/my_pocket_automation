@@ -1,7 +1,13 @@
 -- Durable daily booleans only. Never serialize task stages, counters or retries.
 local M={}
 local stages={shimen='completion_card_verified',zhuagui='completion_card_verified',
-    wuji='reward_claimed',chechi='reward_claimed',rewards='daily_inventory_empty'}
+    wuji='reward_claimed',chechi='reward_claimed',heifeng='reward_claimed',
+    shuilu='reward_claimed',pingding='reward_claimed',
+    dungeonsclaimed='selected_dungeons_verified',dungeonscleared='selected_dungeons_verified',
+    rewards='daily_inventory_empty'}
+for _,id in ipairs({'wuji','chechi','heifeng','shuilu','pingding'}) do
+    stages[id..'cleared']='reward_intentionally_unclaimed'
+end
 local function valid(ctx)
     return ctx.config and ctx.config.completion_ledger_path and ctx.account and
         ctx.account.identity_binding and ctx.account.identity_binding~='' and ctx.identity_verified and

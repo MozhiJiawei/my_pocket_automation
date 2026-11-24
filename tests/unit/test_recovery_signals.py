@@ -117,6 +117,7 @@ class PuzzleFailureEvidenceTest(unittest.TestCase):
                     loadfile=function() return function() return config end end
                     nLog=function() end
                     appIsRunning=function() return 1 end
+                    package.preload['common.application']=function() return {start=function() return {status='done'} end} end
                     package.preload['TSLib']=function() return {} end
                     package.preload['common.screen']=function() return {init=function() end} end
                     package.preload['dfx.run']=function() return {new=function() return ctx end} end
@@ -207,6 +208,7 @@ class DailyAcceptanceEvidenceTest(unittest.TestCase):
             loadfile=function() return function() return config end end
             nLog=function() end
             appIsRunning=function() return 1 end
+            package.preload['common.application']=function() return {start=function() return {status='done'} end} end
             package.preload['TSLib']=function() return {} end
             package.preload['common.screen']=function() return {init=function()
                 if init_error then error('screen_init_failed') end

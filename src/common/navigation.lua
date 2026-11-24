@@ -189,10 +189,9 @@ return_home=function(ctx)
             if not device.tap(ctx,pages.features.claim_cancel,'cancel_claim_before_identity_check') or
                 not device.wait(function() return pages.state():match('_reward_sealed$') end,20) then return false end
         elseif state:match('^switch_') then
-            local feature={}
-            for k,v in pairs(pages.features[state]) do feature[k]=v end
-            feature.tap_offset={feature.tap_offset[1]-390,feature.tap_offset[2]}
-            if not device.tap(ctx,feature,'cancel_dungeon_switch') then return false end
+            if not device.tap(ctx,pages.features.switch_cancel,'cancel_dungeon_switch',function()
+                return pages.state()==state
+            end) then return false end
             if not device.wait(function() return pages.state():match('^list_') end,20) then return false end
         elseif state:match('^list_') then
             if not device.tap(ctx,pages.features.list_back,'return_home') then return false end

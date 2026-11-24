@@ -29,9 +29,20 @@ local function blocked(ctx,reason)
     return {status='blocked',reason=reason}
 end
 -- Application startup only; no login, role selection or daily task interaction.
-function M.start(ctx)
+function M.start(ctx, restart)
     local running=process_state()
     if running==nil then return blocked(ctx,'game_process_state_unknown') end
+    if restart and running==1 then
+        log.write(ctx,'entry_recovery','close_game_before_daily_resume')
+        pcall(closeApp,app)
+        for _=1,20 do
+            mSleep(500)
+            running=process_state()
+            if running==nil then return blocked(ctx,'game_process_state_unknown') end
+            if running==0 then break end
+        end
+        if running~=0 then return blocked(ctx,'game_close_not_verified') end
+    end
     local state=running==1 and entry() or nil
     if not state then
         if running==0 then

@@ -16,6 +16,7 @@ class DeviceDiagnosticsTest(unittest.TestCase):
             loadfile=function() return function() return config end end
             init=function() if fail_init then error('initialization_fault') end end
             appIsRunning=function() return 1 end
+            package.preload['common.application']=function() return {start=function() return {status='done'} end} end
             nLog=function(line) table.insert(fallback,line) end
             package.preload['TSLib']=function() return {} end
             package.preload['dfx.run']=function() return {new=function(c) return {config=c,run_id='fake'} end} end

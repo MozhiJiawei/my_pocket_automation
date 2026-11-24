@@ -1,6 +1,7 @@
 local navigation=require('common.navigation')
 local log=require('dfx.log')
 local snapshot=require('dfx.snapshot')
+local dungeon_scope=require('tasks.dungeon.scope')
 local M={}
 local task_order={'shimen','zhuagui','dungeon','rewards'}
 function M.run(ctx)
@@ -38,6 +39,7 @@ function M.run(ctx)
     for _,account in ipairs(accounts) do
         ctx.account=account
         ctx.identity_verified=false
+        ctx.dungeon_scope=nil
         log.write(ctx,'account',account.alias)
         local ready=navigation.prepare_recorded(ctx)
         if not ready then
@@ -47,7 +49,8 @@ function M.run(ctx)
             return
         else
             for _,name in ipairs(selected) do
-                local cached=require('completion').read(ctx,name)
+                local cached=name=='dungeon' and dungeon_scope.completed(ctx) or require('completion').read(ctx,name)
+                if name=='rewards' and cached and not dungeon_scope.rewards_scope_complete(ctx) then cached=nil end
                 log.write(ctx,'task_start',name..' cached='..tostring(not not cached))
                 local outcome=cached and {status='done',reason='daily_completion_ledger_verified'} or
                     require('tasks.'..name..'.task').run(ctx)
@@ -66,6 +69,7 @@ function M.run(ctx)
                     return
                 end
                 log.write(ctx,'home_verified','account='..account.alias..' task='..name)
+                if name=='dungeon' and not cached then dungeon_scope.mark_complete(ctx) end
             end
         end
         -- Every selected task and its return home were verified above.

@@ -3,6 +3,7 @@
     "state": "detail",
     "selected_category": null,
     "empty_category": false,
-    "card_icon_regions": null
+    "card_icon_regions": null,
+    "ghost_gourd_count": false
   }
 }

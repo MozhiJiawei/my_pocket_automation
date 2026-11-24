@@ -15,18 +15,17 @@ PAGES = {'任务列表':'task_list','开始任务消耗三精力':'ready_cost_th
          '出发':'depart','战斗':'battle','今日次数已满对话':'quota_dialogue',
          '今日完成任务卡片':'quota_completed_card','进行中未校准页面':'active_uncalibrated',
          '非寻物页面':'not_find','获得葫芦提示禁止操作':'unknown'}
-DUNGEON = {'乌鸡国/副本列表':'list_wuji','乌鸡国/准备开始':'wuji_ready',
-           '乌鸡国/继续战斗':'wuji_active',
-           '乌鸡国/领奖确认':'wuji_claim_confirm',
-           '乌鸡国/领取成功':'wuji_claim_receipt',
-           '乌鸡国/葫芦已领取':'list_wuji',
-           '乌鸡国/今日已完成':'wuji_done','乌鸡国/葫芦未领取':'wuji_reward_sealed',
-           '车迟国/副本列表':'list_chechi','车迟国/今日已完成':'chechi_done',
-           '车迟国/领奖确认':'chechi_claim_confirm',
-           '车迟国/领取成功':'chechi_claim_receipt',
-           '车迟国/葫芦未领取':'chechi_reward_sealed','战斗':'battle',
-           '副本切换/乌鸡国切换车迟国':'switch_wuji_chechi',
-           '副本切换/车迟国切换乌鸡国':'switch_chechi_wuji','异常画面/未知页面':'unknown'}
+DUNGEON_IDS = {'乌鸡国':'wuji', '车迟国':'chechi', '黑风山':'heifeng', '水陆大会':'shuilu', '平顶山':'pingding'}
+DUNGEON_CARD_FIELDS = tuple(f'{dungeon}_card' for dungeon in DUNGEON_IDS.values())
+DUNGEON_STATES = {'副本列表':'list_{id}', '准备开始':'{id}_ready', '继续战斗':'{id}_active',
+                  '领奖确认':'{id}_claim_confirm', '领取成功':'{id}_claim_receipt',
+                  '葫芦已领取':'list_{id}', '今日已完成':'{id}_done', '葫芦未领取':'{id}_reward_sealed'}
+DUNGEON = {f'{name}/{scene}': state.format(id=identifier)
+           for name, identifier in DUNGEON_IDS.items() for scene, state in DUNGEON_STATES.items()}
+DUNGEON.update({'战斗':'battle', '副本切换/乌鸡国切换车迟国':'switch_wuji_chechi',
+                '副本切换/车迟国切换乌鸡国':'switch_chechi_wuji',
+                '副本切换/黑风山切换水陆大会':'switch_heifeng_shuilu',
+                '副本切换/水陆大会切换平顶山':'switch_shuilu_pingding', '异常画面/未知页面':'unknown'})
 
 
 def regions(value):
@@ -94,7 +93,8 @@ def load_cases(task=None):
             if header[:8]!=b'\x89PNG\r\n\x1a\n':raise ValueError(f'Invalid PNG: {relative}')
             size=list(struct.unpack('>II',header[16:24]))
             truth={k:annotation(v,'pending' if v is None else 'reviewed',relative.parent.as_posix()) for k,v in values.items()}
-            checks=[k for k in truth if k not in ('target_regions_complete','wuji_card','chechi_card') and k not in extra.get('不检查',[])]
+            checks=[k for k in truth if k not in ('target_regions_complete',*DUNGEON_CARD_FIELDS)
+                    and k not in extra.get('不检查',[])]
             cases.append({'id':relative.as_posix(),'task':key,'image':relative.as_posix(),
                 'capture':{'size':size,'group':relative.parent.as_posix(),
                            'split':extra.get('用途','calibration'),'origin':'synthetic' if extra.get('合成') else 'device'},
@@ -136,7 +136,7 @@ def validate_truth(case,width,height):
         if field['status'] in VERIFIED and (field['value'] is None or not field['source']):
             raise ValueError('Approved truth needs a value and evidence')
     if not set(case['expected']['checks']).issubset(case['truth']):raise ValueError('Missing independent truth')
-    for name in ('target_regions','negative_regions','wuji_card','chechi_card'):
+    for name in ('target_regions','negative_regions',*DUNGEON_CARD_FIELDS):
         boxes=case['truth'].get(name,{}).get('value') or []
         if name.endswith('_card') and boxes:boxes=[boxes]
         for x1,y1,x2,y2 in boxes:

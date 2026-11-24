@@ -1,0 +1,44 @@
+{
+  "expected": {
+    "state": "discard_confirm",
+    "selected_category": null,
+    "empty_category": false,
+    "card_icon_regions": null,
+    "button_targets": {
+      "discard_confirm": {
+        "region": [
+          475,
+          1118,
+          817,
+          1201
+        ],
+        "label": "确定",
+        "point": [
+          646,
+          1160
+        ]
+      },
+      "discard_cancel": {
+        "region": [
+          82,
+          1118,
+          425,
+          1201
+        ],
+        "label": "取消",
+        "point": [
+          254,
+          1160
+        ]
+      }
+    },
+    "cancel_forbidden_regions": [
+      [
+        475,
+        1118,
+        817,
+        1201
+      ]
+    ]
+  }
+}

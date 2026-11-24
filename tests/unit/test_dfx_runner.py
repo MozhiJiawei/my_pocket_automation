@@ -229,11 +229,21 @@ class RewardsRunnerOptionsTest(unittest.TestCase):
         return args,accounts,seconds
 
     def test_default_daily_tasks_include_rewards(self):
-        args,accounts,*_=self.parse(['--mode','run','--step','daily'])
+        args,accounts,seconds=self.parse(['--mode','run','--step','daily'])
         self.assertEqual(args.tasks,['shimen','zhuagui','dungeon','rewards'])
+        self.assertIsNone(args.dungeons)
+        self.assertEqual(seconds,18000)
         self.assertFalse(args.rewards_debug_after_shimen)
         self.assertEqual(args.rewards_inspect_category,'task')
         self.assertEqual([account['alias'] for account in accounts],['first','second'])
+
+    def test_explicit_dungeons_preserve_order_and_reject_duplicates(self):
+        options=['--mode','run','--step','daily','--dungeons']
+        args,_,seconds=self.parse(options+['pingding,chechi,shuilu,heifeng,wuji'])
+        self.assertEqual(args.dungeons,['pingding','chechi','shuilu','heifeng','wuji'])
+        self.assertEqual(seconds,10800)
+        with self.assertRaisesRegex(ValueError,'Invalid selected dungeons'):
+            self.parse(options+['pingding,pingding'])
 
     def test_daily_tasks_follow_fixed_order_including_subsets(self):
         for tasks,expected in [('rewards,dungeon,zhuagui,shimen',['shimen','zhuagui','dungeon','rewards']),
